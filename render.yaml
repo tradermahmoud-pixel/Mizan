@@ -1,3 +1,9 @@
+databases:
+  - name: mizan-db
+    plan: free
+    region: frankfurt
+    postgresMajorVersion: "16"
+
 services:
   - type: web
     name: mizan
@@ -7,3 +13,16 @@ services:
     buildCommand: npm install
     startCommand: node server.js
     healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mizan-db
+          property: connectionString
+      - key: ADMIN_USER
+        value: owner
+      - key: ADMIN_NAME
+        value: المالك
+      - key: ADMIN_ID
+        value: u_Mnb6x2DGuZ7FWMhMibTBHA
+      - key: ADMIN_PASSWORD
+        sync: false
