@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E2620">
+<title>تسجيل الدخول — ميزان</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Reem+Kufi:wght@700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#EEF2F0;--surface:#fff;--ink:#13201C;--muted:#5B6B66;--line:#D9E1DE;--brand:#0B6E5A;--brand2:#0E8A70;--soft:#DDF0EA;--side:#0E2620;--danger:#B23A26}
+@media (prefers-color-scheme:dark){:root{--bg:#0B1210;--surface:#131D1A;--ink:#E5EEEA;--muted:#93A59F;--line:#26352F;--brand:#2FB596;--brand2:#46C9A9;--soft:#123A30;--danger:#E7705A}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg);color:var(--ink);font:15px/1.6 "IBM Plex Sans Arabic",Tahoma,sans-serif;display:grid;grid-template-rows:auto 1fr}
+header{background:var(--side);color:#DCE9E4;padding:calc(36px + env(safe-area-inset-top,0px)) 16px 64px;text-align:center}
+.mark{width:56px;height:56px;border-radius:14px;background:var(--brand);display:inline-grid;place-items:center}
+h1{font:700 40px/1.2 "Reem Kufi",sans-serif;margin:12px 0 2px;color:#fff}
+header p{margin:0;color:#86A39A}
+main{display:flex;justify-content:center;padding:0 16px 40px}
+form{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px 22px;width:100%;max-width:380px;margin-top:-40px;box-shadow:0 20px 50px rgba(0,0,0,.08)}
+h2{margin:0 0 16px;font-size:19px}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:12px}
+input{display:block;width:100%;margin-top:4px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:16px}
+input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--soft)}
+button{width:100%;padding:13px;border:0;border-radius:10px;background:var(--brand);color:#fff;font:600 16px "IBM Plex Sans Arabic",sans-serif;cursor:pointer;margin-top:6px}
+button:hover{background:var(--brand2)}button:disabled{opacity:.6}
+.err{color:var(--danger);font-size:14px;min-height:22px;margin-top:10px;text-align:center}
+.hint{font-size:12.5px;color:var(--muted);text-align:center;margin-top:14px}
+</style>
+</head>
+<body>
+<header><div class="mark"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5l9-4.5 9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9"/></svg></div><h1>ميزان</h1><p>المبيعات والمخازن والموظفين</p></header>
+<main>
+<form id="f" autocomplete="on">
+  <h2>تسجيل الدخول</h2>
+  <label>اسم المستخدم<input id="u" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" dir="ltr" required></label>
+  <label>كلمة المرور<input id="p" name="password" type="password" autocomplete="current-password" dir="ltr" required></label>
+  <button id="b">دخول</button>
+  <div class="err" id="e" role="alert"></div>
+  <div class="hint">نسيت كلمة المرور؟ اطلب من المدير يغيّرها لك.</div>
+</form>
+</main>
+<script>
+document.getElementById('u').focus();
+document.getElementById('f').onsubmit=async e=>{e.preventDefault();const b=document.getElementById('b'),er=document.getElementById('e');b.disabled=true;er.textContent='';
+  try{const r=await fetch('/api/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Mizan':'1'},body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});
+    const j=await r.json().catch(()=>({}));if(r.ok){location.href='/';return}er.textContent=j.error||'تعذّر الدخول';}catch(x){er.textContent='تعذّر الاتصال بالسيرفر — تأكد من الإنترنت';}b.disabled=false};
+</script>
+</body>
+</html>
