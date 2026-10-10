@@ -352,7 +352,7 @@ app.post('/api/ai/config', auth(true), async (req, res, next) => {
     if (b.provider !== undefined) { if (!AI_PRESETS[b.provider]) return res.status(400).json({ error: 'مزوّد غير معروف' }); n.provider = b.provider; }
     if (b.url !== undefined) { const u = String(b.url || '').trim(); if (u && !/^https:\/\/[^\s]+$/.test(u)) return res.status(400).json({ error: 'الرابط لازم يبدأ بـ https://' }); n.url = u; }
     if (b.model !== undefined) n.model = String(b.model || '').trim().slice(0, 120);
-    if (typeof b.key === 'string' && b.key.trim()) n.key = b.key.trim().slice(0, 400);
+    if (typeof b.key === 'string' && b.key.trim()) { const k = b.key.trim(); if (k.length < 20 || /\s/.test(k)) return res.status(400).json({ error: 'المفتاح ده مش صحيح — الصق مفتاح الـ API من موقع المزوّد' }); n.key = k.slice(0, 400); }
     if (b.key === null) delete n.key;
     if (b.enabled !== undefined) n.enabled = !!b.enabled;
     await pool.query(`INSERT INTO kv(k,v) VALUES('ai',$1) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v`, [n]);
