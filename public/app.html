@@ -757,7 +757,11 @@ function lineRow(l,i,isSale){
 const CELL={tot:[],pr:[],av:[]};
 function cacheCells(){CELL.tot=[];CELL.pr=[];CELL.av=[];$$('#lt [data-tot]').forEach(e=>CELL.tot[+e.dataset.tot]=e);$$('#lt [data-pr]').forEach(e=>CELL.pr[+e.dataset.pr]=e);$$('#lt [data-av]').forEach(e=>CELL.av[+e.dataset.av]=e)}
 function updRow(i){const l=ED.inv.lines[i];if(!l)return;
+  if(OUTT.includes(ED.inv.type)){const a=CELL.av[i];if(a){const tq=ED.inv.lines.filter(x=>x.pid===l.pid).reduce((s,x)=>s+(+x.qty||0),0);const sh=tq>availFor(l.pid)+0.0001;a.classList.toggle('neg',sh);a.title=sh?'الكمية المطلوبة أكبر من الرصيد المتاح':''}}
   if(ED.inv.type==='count'){const df=(+l.qty||0)-bookQ(l,i);const t=CELL.tot[i];if(t){t.innerHTML=`<b class="${df<0?'neg':df>0?'pos':'muted'}">${df>0?'+':''}${fq(df)}</b> <span class="small muted">${fmt(df*(+l.price||0))}</span>`}return}const net=(+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100);const t=CELL.tot[i];if(t)t.textContent=fmt(net);const pr=CELL.pr[i];if(pr){const c=(l.cost!==''&&l.cost!=null)?+l.cost:avgCost(l.pid);const v=(net-(+l.qty||0)*c)*(ED.inv.type==='sret'?-1:1);pr.textContent=fmt(v);pr.className='n '+(v<0?'neg':'pos')}}
+const OUTT=['sale','pret','transfer'];
+const allowNeg=()=>!!settings().allowNegative;
+function availFor(pid){const inv=ED.inv;const before=ED.id&&ED.orig.storeId===inv.storeId?(ED.orig.lines||[]).filter(o=>o.pid===pid).reduce((s,o)=>s+(+o.qty||0),0):0;return qtyIn(pid,inv.storeId)+before}
 function bookQ(l,i){const inv=ED.inv;if(ED.id&&inv.type==='count'&&ED.orig.storeId===inv.storeId){const x=calc().line[ED.id+':'+i];if(x&&x.book!=null&&ED.orig.lines[i]?.pid===l.pid)return x.book}return qtyIn(l.pid,inv.storeId)}
 function refreshAvail(){ED.inv.lines.forEach((l,i)=>{const a=CELL.av[i];if(a)a.textContent=fq(bookQ(l,i));updRow(i)})}
 function edTotals(all){
@@ -790,6 +794,9 @@ function edTotals(all){
 }
 function addLine(pid){
   const inv=ED.inv;const p=G('products',pid);const ex=inv.lines.findIndex(l=>l.pid===pid);
+  if(OUTT.includes(inv.type)&&!allowNeg()){const av=availFor(pid),cur=ex>=0?(+inv.lines[ex].qty||0):0;
+    if(av<=0.0001){toast(`الصنف «${p?.name||''}» رصيده صفر في المخزن ده — مينفعش يتباع`,'err');return}
+    if(cur+1>av+0.0001){toast(`الكمية أقل من المطلوبة — المتاح من «${p?.name||''}» ${fq(av)} بس`,'err');return}}
   if(ex>=0){if(inv.type!=='count')inv.lines[ex].qty=(+inv.lines[ex].qty||0)+1}
   else{const sale=isSaleT(inv.type);inv.lines.push({pid,qty:inv.type==='count'?Math.max(0,Math.round(qtyIn(pid,inv.storeId)*1000)/1000):1,price:sale?salePrice(p,inv.partyId):Math.round(avgCost(pid)*100)/100||(+p.cost||0),disc:0,cost:'',...(PURT.includes(inv.type)?{consumer:consOf(p)}:{})})}
   render();setTimeout(()=>{const i=ex>=0?ex:inv.lines.length-1;const q=$(`input[data-i="${i}"][data-f="qty"]`);if(q){q.focus();q.select();q.classList.add('flash')}},30);
@@ -805,9 +812,12 @@ async function saveInv(andNew){
   if(inv.type==='transfer'&&(!inv.toStoreId||inv.toStoreId===inv.storeId)){toast('اختر مخزنًا مختلفًا للتحويل إليه','err');return}
   const t=invTotals({...inv,lines});
   if(T.party&&!T.doc&&!inv.partyId&&Math.abs(t.total-(+inv.paid||0))>0.009){toast(T.party==='customer'?'البيع الآجل يحتاج اختيار عميل':'الشراء الآجل يحتاج اختيار مورد','err');return}
-  if(['sale','pret','transfer'].includes(inv.type)){
-    const short=lines.filter(l=>{const before=ED.id&&ED.orig.storeId===inv.storeId?(ED.orig.lines||[]).filter(o=>o.pid===l.pid).reduce((s,o)=>s+(+o.qty||0),0):0;return (+l.qty)>qtyIn(l.pid,inv.storeId)+before+0.0001});
-    if(short.length&&!(await confirmBox(`الكمية المتاحة أقل من المطلوب في: ${short.map(l=>pname(l.pid)).join('، ')}. متابعة الحفظ؟`,'حفظ رغم ذلك')))return;
+  if(OUTT.includes(inv.type)){
+    const need={};lines.forEach(l=>need[l.pid]=(need[l.pid]||0)+(+l.qty||0));
+    const short=Object.keys(need).filter(pid=>need[pid]>availFor(pid)+0.0001);
+    if(short.length){const msg=short.map(pid=>`${pname(pid)} (المتاح ${fq(Math.max(0,availFor(pid)))} والمطلوب ${fq(need[pid])})`).join('، ');
+      if(!allowNeg()){toast(`الكمية أقل من المطلوبة — مينفعش الحفظ: ${msg}`,'err');refreshAvail();return}
+      if(!(await confirmBox(`الكمية المتاحة أقل من المطلوب في: ${msg}. متابعة الحفظ؟`,'حفظ رغم ذلك')))return;}
   }
   const now=new Date().toISOString();
   const doc={...inv,lines:lines.map(l=>({pid:l.pid,qty:+l.qty,price:+l.price||0,disc:+l.disc||0,cost:(l.cost===''||l.cost==null)?'':+l.cost,...(l.consumer!=null&&l.consumer!==''?{consumer:+l.consumer}:{}),...(l.bonus?{bonus:true}:{})})),discount:+inv.discount||0,taxRate:+inv.taxRate||0,paid:+inv.paid||0};
@@ -1597,7 +1607,9 @@ function vUsers(){
    <tr><td>أقصى خصم مسموح % <span class="small muted">(فارغ = بدون حد)</span></td>${Object.entries(defs).map(([k,v])=>`<td><input class="cell n" data-rd="${k}" inputmode="decimal" value="${v.maxDisc??''}" placeholder="∞"></td>`).join('')}</tr>
    <tr><td></td>${Object.keys(defs).map(k=>`<td style="text-align:center"><button class="btn s d" data-rdel="${k}">حذف</button></td>`).join('')}</tr></tbody></table></div></div>
    <div class="card"><h3>غلق الفترات المحاسبية</h3><p class="small muted" style="margin-top:0">بعد الجرد أو إقفال الشهر، اقفل الفترة: محدش غير المالك يقدر يضيف أو يعدّل أو يحذف فواتير بتاريخ قبل أو يساوي تاريخ الغلق.</p>
-   <div class="row"><input class="in" type="date" id="lockD" style="width:180px" value="${s.lockDate||''}"><button class="btn p" id="lockS">${s.lockDate?'تحديث الغلق':'غلق الفترة'}</button>${s.lockDate?`<button class="btn" id="lockX">فتح الفترات</button><span class="tag purchase">مغلق حتى ${s.lockDate}</span>`:''}</div></div></div>`;
+   <div class="row"><input class="in" type="date" id="lockD" style="width:180px" value="${s.lockDate||''}"><button class="btn p" id="lockS">${s.lockDate?'تحديث الغلق':'غلق الفترة'}</button>${s.lockDate?`<button class="btn" id="lockX">فتح الفترات</button><span class="tag purchase">مغلق حتى ${s.lockDate}</span>`:''}</div></div>
+   <div class="card" style="margin-top:16px"><h3>البيع بدون رصيد</h3><p class="small muted" style="margin-top:0">الوضع الافتراضي: البرنامج بيمنع بيع أو مرتجع شراء أو تحويل أي كمية أكبر من الرصيد المتاح في المخزن (زي «الكمية أقل من المطلوبة» في أورجا).</p>
+   <label class="row" style="gap:8px"><input type="checkbox" id="negA" ${s.allowNegative?'checked':''}> السماح بالبيع بالسالب (مع رسالة تأكيد قبل الحفظ)</label></div></div>`;
   const working=clone(defs);
   if(SA){
     const au=$('#addU');if(au)au.onclick=()=>{modal(`<h2>مستخدم جديد</h2><div class="grid g2"><label class="f">الاسم *<input class="in" id="nu_n" placeholder="مثال: أحمد عبد الرازق"></label><label class="f">اسم الدخول (إنجليزي) *<input class="in" id="nu_u" dir="ltr" autocapitalize="none" placeholder="ahmed"></label><label class="f">كلمة المرور * (6 حروف على الأقل)<input class="in" id="nu_p" dir="ltr" value="${Math.random().toString(36).slice(2,6)}${Math.floor(1000+Math.random()*9000)}"></label><label class="f">الدور<select class="in" id="nu_r">${opts([['full','مدير عام — كل الصلاحيات'],...Object.entries(defs).map(([k,v])=>[k,v.name])],'cashier','بانتظار التحديد — حضور فقط')}</select></label><label class="f">مربوط بموظف<select class="in" id="nu_e">${opts(emps.map(e=>[e.id,e.name]),'','—')}</select></label></div>
@@ -1619,6 +1631,7 @@ function vUsers(){
   $('#addRole').onclick=async()=>{working['r'+uid().slice(-5)]={name:'دور جديد',perms:['sell'],maxDisc:''};await put('roledefs','main',{roles:working});};
   $('#saveRoles').onclick=async()=>{await put('roledefs','main',{roles:working});await audit('roles','main','الأدوار','','تم التعديل','الصلاحيات');toast('تم حفظ الأدوار')};
   $('#lockS').onclick=async()=>{const d=$('#lockD').value;if(!d){toast('اختر تاريخ الغلق','err');return}await put('settings','main',{...settings(),lockDate:d});await audit('settings','main','غلق الفترة',s.lockDate||'',d,'الإعدادات');toast('تم غلق الفترة حتى '+d)};
+  {const ng=$('#negA');if(ng)ng.onchange=async()=>{const v=ng.checked;await put('settings','main',{...settings(),allowNegative:v});await audit('settings','main','البيع بدون رصيد',v?'ممنوع':'مسموح',v?'مسموح':'ممنوع','الإعدادات');toast(v?'تم السماح بالبيع بالسالب':'تم منع البيع بدون رصيد')}}
   const lx=$('#lockX');if(lx)lx.onclick=async()=>{const n={...settings()};delete n.lockDate;await put('settings','main',n);await audit('settings','main','غلق الفترة',s.lockDate,'مفتوح','الإعدادات');toast('تم فتح الفترات')};
 }
 
