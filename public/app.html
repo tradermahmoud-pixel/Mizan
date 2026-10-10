@@ -383,7 +383,10 @@ function tierInfo(inv){if(!isSaleT(inv.type))return '';const t=tierOf(inv.partyI
 const PIX={v:-1,a:[]};
 function pIndex(){if(PIX.v===(CV.products||0))return PIX.a;PIX.a=L('products').map(p=>({p,n:norm(p.name),c:norm(p.code),b:[String(p.barcode||''),...(p.barcodes||[])].join(' ')}));PIX.v=(CV.products||0);return PIX.a}
 function pSearch(q,lim){q=String(q||'').trim();if(!q)return [];const nq=norm(q);const out=[];for(const x of pIndex()){if(x.n.includes(nq)||x.c.includes(nq)||x.b.includes(q)){out.push(x.p);if(lim&&out.length>=lim)break}}return out}
-const bcMatch=(p,v,exact)=>{v=String(v||'').trim();if(!v)return false;if(exact)return String(p.barcode||'')===v||String(p.code||'')===v||(p.barcodes||[]).includes(v);return String(p.barcode||'').includes(v)||(p.barcodes||[]).some(b=>b.includes(v))};
+const BCMAP={'ض':'q','ص':'w','ث':'e','ق':'r','ف':'t','غ':'y','ع':'u','ه':'i','خ':'o','ح':'p','ج':'[','د':']','ش':'a','س':'s','ي':'d','ب':'f','ل':'g','ا':'h','ت':'j','ن':'k','م':'l','ك':';','ط':"'",'ئ':'z','ء':'x','ؤ':'c','ر':'v','ى':'n','ة':'m','و':',','ز':'.','ظ':'/','ذ':'`'};
+const fixBc=v=>String(v||'').replace(/لا/g,'b').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/./g,c=>BCMAP[c]||c).replace(/[\u0000-\u001f]/g,'').trim();
+const bcEq=(p,v)=>String(p.barcode||'')===v||String(p.code||'')===v||(p.barcodes||[]).includes(v)||String(p.barcode||'').toLowerCase()===v.toLowerCase()&&v!=='';
+const bcMatch=(p,v,exact)=>{v=String(v||'').trim();if(!v)return false;if(exact){if(bcEq(p,v))return true;const w=fixBc(v);return w!==v&&!!w&&bcEq(p,w)}return String(p.barcode||'').includes(v)||(p.barcodes||[]).some(b=>b.includes(v))};
 const storeName=id=>stores().find(s=>s.id===(id||MAIN))?.name||'—';
 const pname=id=>G('products',id)?.name||'صنف محذوف';
 const partyName=id=>G('parties',id)?.name||'';
@@ -603,6 +606,10 @@ function closeModal(){$('#modal').classList.remove('on');$('#modal').innerHTML='
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal'||e.target.closest('[data-close]'))closeModal()});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'||e.key==='S')){const b=$('#save');if(b&&!b.disabled){e.preventDefault();const a=document.activeElement;if(a&&a.blur)a.blur();setTimeout(()=>b.click(),30)}}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#modal').classList.contains('on'))closeModal()});
+window.addEventListener('keydown',e=>{const k=(e.key||'').toLowerCase(),c=e.code||'';
+  const dev=k==='f12'||c==='F12'||((e.ctrlKey||e.metaKey)&&e.shiftKey&&['KeyI','KeyJ','KeyC','KeyK'].includes(c))||((e.ctrlKey||e.metaKey)&&c==='KeyU')||(/^f([1-9]|1[01])$/.test(k)&&document.activeElement&&document.activeElement.id==='ps');
+  if(!dev)return;e.preventDefault();e.stopPropagation();
+  const t=document.activeElement;if(t&&t.id==='ps'&&t.value.trim()&&!t._bcT){t._bcT=1;setTimeout(()=>{t._bcT=0;t.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))},0)}},true);
 function toast(t,cls){const d=document.createElement('div');d.textContent=t;if(cls)d.className=cls;$('#toast').appendChild(d);setTimeout(()=>d.remove(),cls==='err'?5000:2600)}
 function confirmBox(msg,ok='تأكيد',danger){return new Promise(res=>{modal(`<h2>${esc(msg)}</h2><div class="row" style="justify-content:flex-start;margin-top:18px"><button class="btn ${danger?'d':'p'}" id="cOk">${esc(ok)}</button><button class="btn" data-close>إلغاء</button></div>`);$('#cOk').onclick=()=>{closeModal();res(true)};const o=$('#modal');const h=e=>{if(e.target.closest('[data-close]')||e.target.id==='modal'){res(false)}};o.addEventListener('click',h,{once:true})})}
 
@@ -725,7 +732,7 @@ function vEditor(type,id){
   const ps=$('#ps'),sg=$('#sugg');let hits=[],hi=0;
   const draw=()=>{if(!hits.length){sg.hidden=true;return}sg.hidden=false;sg.innerHTML=hits.map((p,k)=>`<button data-k="${k}" class="${k===hi?'on':''}"><b style="flex:1;text-align:right">${esc(p.name)}</b><span class="small muted">${esc(p.code||'')}</span><span class="tag num">${fq(qtyIn(p.id,inv.storeId))}</span><span class="num">${fmt(isSale?salePrice(p,inv.partyId):avgCost(p.id))}</span><span class="small muted num" title="سعر المستهلك">م ${fmt(consOf(p))}</span></button>`).join('')};
   ps.oninput=()=>{const q=norm(ps.value);hi=0;if(!q){hits=[];draw();return}hits=pSearch(ps.value,8);draw()};
-  ps.onkeydown=e=>{if(e.key==='ArrowDown'){hi=Math.min(hi+1,hits.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){hi=Math.max(0,hi-1);draw();e.preventDefault()}else if(e.key==='Enter'){e.preventDefault();const v=ps.value.trim();if(!v)return;const ex=L('products').find(p=>bcMatch(p,v,true));const p=ex||hits[hi];if(p)addLine(p.id);else toast('الصنف غير موجود — أضفه من شاشة الأصناف','err')}else if(e.key==='Escape'){hits=[];draw()}};
+  ps.onkeydown=e=>{if(e.key==='ArrowDown'){hi=Math.min(hi+1,hits.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){hi=Math.max(0,hi-1);draw();e.preventDefault()}else if(e.key==='Enter'){e.preventDefault();const v=ps.value.replace(/[\u0000-\u001f]/g,'').trim();if(!v)return;const ex=L('products').find(p=>bcMatch(p,v,true));const p=ex||hits[hi];if(p)addLine(p.id);else toast('الصنف غير موجود — أضفه من شاشة الأصناف','err')}else if(e.key==='Escape'){hits=[];draw()}};
   sg.onmousedown=e=>{const b=e.target.closest('[data-k]');if(b){e.preventDefault();addLine(hits[+b.dataset.k].id)}};
   ps.onblur=()=>setTimeout(()=>{sg.hidden=true},150);
   // actions
