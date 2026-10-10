@@ -66,6 +66,7 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS users (
       id text PRIMARY KEY, username text UNIQUE NOT NULL, name text NOT NULL, pass text NOT NULL,
       owner boolean NOT NULL DEFAULT false, disabled boolean NOT NULL DEFAULT false, created_at bigint NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS kv (k text PRIMARY KEY, v jsonb);
     CREATE TABLE IF NOT EXISTS sessions (
       token text PRIMARY KEY, user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at bigint NOT NULL, last_seen bigint NOT NULL);
@@ -285,6 +286,107 @@ app.post('/api/write', auth(false), async (req, res, next) => {
     if (e.status) return res.status(e.status).json({ error: e.message });
     next(e);
   } finally { client.release(); }
+});
+
+/* ---------------- AI assistant (OpenAI-compatible providers, key stays on the server) ---------------- */
+const AI_PRESETS = {
+  groq: { name: 'Groq', url: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b' },
+  gemini: { name: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.8-flash' },
+  openrouter: { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1', model: '' },
+  custom: { name: 'مخصص', url: '', model: '' },
+};
+async function aiCfg() {
+  let c = {};
+  try { const { rows } = await pool.query(`SELECT v FROM kv WHERE k='ai'`); if (rows[0]) c = rows[0].v || {}; } catch (e) {}
+  const provider = c.provider || process.env.AI_PROVIDER || 'groq';
+  const pre = AI_PRESETS[provider] || AI_PRESETS.custom;
+  return {
+    provider, enabled: c.enabled !== false,
+    url: (c.url || process.env.AI_URL || pre.url || '').replace(/\/+$/, ''),
+    model: c.model || process.env.AI_MODEL || pre.model,
+    key: c.key || process.env.AI_KEY || '',
+  };
+}
+const aiUse = new Map();
+function aiLimit(uid) {
+  const t = now(), a = aiUse.get(uid) || { m: [], d: 0, day: new Date().toISOString().slice(0, 10) };
+  const day = new Date().toISOString().slice(0, 10); if (a.day !== day) { a.day = day; a.d = 0; }
+  a.m = a.m.filter(x => t - x < 60e3);
+  if (a.m.length >= 20) return 'طلبات كتير في دقيقة واحدة — استنى شوية وجرب تاني';
+  if (a.d >= 400) return 'خلص الحد اليومي للمساعد لحسابك — جرب بكرة';
+  a.m.push(t); a.d++; aiUse.set(uid, a); return null;
+}
+async function aiFetch(cfg, pathPart, body) {
+  const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 90e3);
+  try {
+    const r = await fetch(cfg.url + pathPart, {
+      method: body ? 'POST' : 'GET', signal: ac.signal,
+      headers: Object.assign({ Authorization: 'Bearer ' + cfg.key }, body ? { 'Content-Type': 'application/json' } : {},
+        cfg.provider === 'openrouter' ? { 'HTTP-Referer': 'https://mizan.app', 'X-Title': 'Mizan' } : {}),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    let j = null; const txt = await r.text(); try { j = JSON.parse(txt); } catch (e) {}
+    return { status: r.status, ok: r.ok, j, txt };
+  } finally { clearTimeout(to); }
+}
+function aiErr(r) {
+  const m = (r.j && (r.j.error && (r.j.error.message || r.j.error) || r.j.message)) || r.txt || '';
+  if (r.status === 401 || r.status === 403) return 'مفتاح الذكاء الاصطناعي غير صحيح أو مش مفعّل — راجع الإعدادات';
+  if (r.status === 429) return 'وصلت لحد الاستخدام المجاني عند مزوّد الذكاء الاصطناعي — استنى دقيقة وجرب تاني';
+  if (r.status === 404) return 'اسم الموديل غير موجود عند المزوّد — اختار موديل تاني من الإعدادات';
+  return 'خطأ من مزوّد الذكاء الاصطناعي: ' + String(typeof m === 'string' ? m : JSON.stringify(m)).slice(0, 300);
+}
+app.get('/api/ai/config', auth(false), async (req, res, next) => {
+  try {
+    const c = await aiCfg(); const adm = await isAdmin(req.user);
+    const o = { enabled: c.enabled && !!c.key && !!c.model && !!c.url, provider: c.provider, model: c.model };
+    if (adm) Object.assign(o, { admin: true, url: c.url, hasKey: !!c.key, keyHint: c.key ? '…' + c.key.slice(-4) : '', on: c.enabled, presets: AI_PRESETS });
+    res.json(o);
+  } catch (e) { next(e); }
+});
+app.post('/api/ai/config', auth(true), async (req, res, next) => {
+  try {
+    const b = req.body || {}; const cur = await aiCfg();
+    const { rows } = await pool.query(`SELECT v FROM kv WHERE k='ai'`); const old = (rows[0] && rows[0].v) || {};
+    const n = Object.assign({}, old);
+    if (b.provider !== undefined) { if (!AI_PRESETS[b.provider]) return res.status(400).json({ error: 'مزوّد غير معروف' }); n.provider = b.provider; }
+    if (b.url !== undefined) { const u = String(b.url || '').trim(); if (u && !/^https:\/\/[^\s]+$/.test(u)) return res.status(400).json({ error: 'الرابط لازم يبدأ بـ https://' }); n.url = u; }
+    if (b.model !== undefined) n.model = String(b.model || '').trim().slice(0, 120);
+    if (typeof b.key === 'string' && b.key.trim()) n.key = b.key.trim().slice(0, 400);
+    if (b.key === null) delete n.key;
+    if (b.enabled !== undefined) n.enabled = !!b.enabled;
+    await pool.query(`INSERT INTO kv(k,v) VALUES('ai',$1) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v`, [n]);
+    void cur; res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+app.get('/api/ai/models', auth(true), async (req, res, next) => {
+  try {
+    const c = await aiCfg(); if (!c.key || !c.url) return res.status(400).json({ error: 'حط المفتاح الأول' });
+    const r = await aiFetch(c, '/models');
+    if (!r.ok) return res.status(502).json({ error: aiErr(r) });
+    const ids = ((r.j && (r.j.data || r.j.models)) || []).map(m => String(m.id || m.name || '').replace(/^models\//, '')).filter(Boolean).sort();
+    res.json({ models: ids });
+  } catch (e) { if (e.name === 'AbortError') return res.status(504).json({ error: 'المزوّد ما ردّش' }); next(e); }
+});
+app.post('/api/ai/chat', auth(false), async (req, res, next) => {
+  try {
+    const c = await aiCfg();
+    if (!(c.enabled && c.key && c.model && c.url)) return res.status(400).json({ error: 'المساعد مش متفعّل — المدير يفعّله من الإعدادات' });
+    const lim = aiLimit(req.user.id); if (lim) return res.status(429).json({ error: lim });
+    const b = req.body || {};
+    if (!Array.isArray(b.messages) || !b.messages.length) return res.status(400).json({ error: 'رسالة فاضية' });
+    const size = JSON.stringify(b).length; if (size > 120000) return res.status(413).json({ error: 'المحادثة طويلة قوي — ابدأ محادثة جديدة' });
+    const body = { model: c.model, messages: b.messages, temperature: 0.2, max_tokens: 1800 };
+    if (Array.isArray(b.tools) && b.tools.length) { body.tools = b.tools; body.tool_choice = 'auto'; }
+    const t0 = now();
+    let r = await aiFetch(c, '/chat/completions', body);
+    if (!r.ok && r.status === 400 && body.tools && /tool/i.test(r.txt || '')) { delete body.tools; delete body.tool_choice; r = await aiFetch(c, '/chat/completions', body); }
+    if (!r.ok) return res.status(r.status === 429 ? 429 : 502).json({ error: aiErr(r) });
+    const ch = r.j && r.j.choices && r.j.choices[0];
+    if (!ch || !ch.message) return res.status(502).json({ error: 'رد غير مفهوم من المزوّد' });
+    const m = ch.message;
+    res.json({ message: { role: 'assistant', content: m.content || '', tool_calls: m.tool_calls || undefined }, usage: r.j.usage || null, ms: now() - t0 });
+  } catch (e) { if (e.name === 'AbortError') return res.status(504).json({ error: 'المزوّد اتأخر في الرد — جرب تاني' }); next(e); }
 });
 
 /* backup / restore */
