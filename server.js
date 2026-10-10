@@ -292,6 +292,7 @@ app.post('/api/write', auth(false), async (req, res, next) => {
 const AI_PRESETS = {
   groq: { name: 'Groq', url: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b' },
   gemini: { name: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.8-flash' },
+  openai: { name: 'OpenAI (مدفوع)', url: 'https://api.openai.com/v1', model: 'gpt-5-mini' },
   openrouter: { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1', model: '' },
   custom: { name: 'مخصص', url: '', model: '' },
 };
@@ -332,6 +333,7 @@ async function aiFetch(cfg, pathPart, body) {
 function aiErr(r) {
   const m = (r.j && (r.j.error && (r.j.error.message || r.j.error) || r.j.message)) || r.txt || '';
   if (r.status === 401 || r.status === 403) return 'مفتاح الذكاء الاصطناعي غير صحيح أو مش مفعّل — راجع الإعدادات';
+  if (r.status === 429 && /quota|billing|insufficient/i.test(r.txt || '')) return 'رصيد حساب الذكاء الاصطناعي خلص أو مفيش وسيلة دفع — اشحن رصيد من موقع المزوّد (Billing)';
   if (r.status === 429) return 'وصلت لحد الاستخدام المجاني عند مزوّد الذكاء الاصطناعي — استنى دقيقة وجرب تاني';
   if (r.status === 404) return 'اسم الموديل غير موجود عند المزوّد — اختار موديل تاني من الإعدادات';
   return 'خطأ من مزوّد الذكاء الاصطناعي: ' + String(typeof m === 'string' ? m : JSON.stringify(m)).slice(0, 300);
@@ -377,9 +379,14 @@ app.post('/api/ai/chat', auth(false), async (req, res, next) => {
     if (!Array.isArray(b.messages) || !b.messages.length) return res.status(400).json({ error: 'رسالة فاضية' });
     const size = JSON.stringify(b).length; if (size > 120000) return res.status(413).json({ error: 'المحادثة طويلة قوي — ابدأ محادثة جديدة' });
     const body = { model: c.model, messages: b.messages, temperature: 0.2, max_tokens: 1800 };
+    if (c.provider === 'openai') { delete body.temperature; delete body.max_tokens; body.max_completion_tokens = 4000; }
     if (Array.isArray(b.tools) && b.tools.length) { body.tools = b.tools; body.tool_choice = 'auto'; }
     const t0 = now();
     let r = await aiFetch(c, '/chat/completions', body);
+    if (!r.ok && r.status === 400 && /temperature|max_tokens/i.test(r.txt || '')) {
+      delete body.temperature; if (body.max_tokens) { body.max_completion_tokens = 4000; delete body.max_tokens; }
+      r = await aiFetch(c, '/chat/completions', body);
+    }
     if (!r.ok && r.status === 400 && body.tools && /tool/i.test(r.txt || '')) { delete body.tools; delete body.tool_choice; r = await aiFetch(c, '/chat/completions', body); }
     if (!r.ok) return res.status(r.status === 429 ? 429 : 502).json({ error: aiErr(r) });
     const ch = r.j && r.j.choices && r.j.choices[0];

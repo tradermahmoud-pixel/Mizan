@@ -380,6 +380,7 @@ ${reps || 'مفيش صلاحية تقارير'}`;
     const help = {
       groq: 'مجاني: ادخل <b>console.groq.com</b> ← سجّل بإيميلك ← API Keys ← Create API Key، وانسخ المفتاح (بيبدأ بـ gsk_). الموديل المقترح openai/gpt-oss-120b. ميزته إن الشركة مش بتستخدم بياناتك في التدريب.',
       gemini: 'مجاني: ادخل <b>aistudio.google.com</b> ← Get API key ← Create API key. الموديل المقترح gemini-3.8-flash. ملحوظة: في الخطة المجانية جوجل ممكن تستخدم الأسئلة والردود لتحسين منتجاتها.',
+      openai: 'ادخل <b>platform.openai.com</b> ← API keys ← Create new secret key (بيبدأ بـ sk-). OpenAI <b>مش مجاني</b>: لازم تشحن رصيد من Billing (أقل حاجة 5 دولار)، وبيتحاسب على كل سؤال (gpt-5-mini رخيص — السؤال غالبًا أقل من سنت). OpenAI مش بتدرّب على بيانات الـ API.',
       openrouter: 'ادخل <b>openrouter.ai</b> ← Keys ← Create key، واختار أي موديل اسمه منتهي بـ <code>:free</code> من زرار "جيب الموديلات".',
       custom: 'أي مزوّد متوافق مع OpenAI (رابط ينتهي غالبًا بـ /v1).',
     };
@@ -402,7 +403,7 @@ ${reps || 'مفيش صلاحية تقارير'}`;
     const save = async () => {
       const v = $e('ai_p').value; const body = { provider: v, model: $e('ai_m').value.trim() || (P[v] || {}).model || '', enabled: $e('ai_on').checked, url: v === 'custom' ? $e('ai_u').value.trim() : '' };
       const k = $e('ai_k').value.trim();
-      if (k) { if (k.length < 20 || /\s/.test(k)) throw new Error('ده مش شكل مفتاح API — المفتاح طويل (من موقع المزوّد) وبيبدأ غالبًا بـ gsk_ أو AIza. امسح الخانة والصق المفتاح الصح.'); body.key = k; }
+      if (k) { if (k.length < 20 || /\s/.test(k)) throw new Error('ده مش شكل مفتاح API — المفتاح طويل (من موقع المزوّد) وبيبدأ غالبًا بـ gsk_ أو sk- أو AIza. امسح الخانة والصق المفتاح الصح.'); body.key = k; }
       const r = await fetch('/api/ai/config', { method: 'POST', credentials: 'same-origin', headers: H, body: JSON.stringify(body) });
       const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'فشل الحفظ');
       await AI.loadCfg();
