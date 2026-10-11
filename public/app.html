@@ -273,6 +273,7 @@ const opts=(list,val,empty)=>(empty!=null?`<option value="">${esc(empty)}</optio
 
 const IC={
  home:'<path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/>',
+ ledger:'<path d="M12 3v18M5 21h14"/><path d="M4 7h16"/><path d="M4 7l-2.5 6a2.5 2.5 0 0 0 5 0z"/><path d="M20 7l-2.5 6a2.5 2.5 0 0 0 5 0z"/>',
  sale:'<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.2a1 1 0 0 0 1 .8h9.7a1 1 0 0 0 1-.8L21 7H6"/>',
  buy:'<path d="M2 6h12v10H2z"/><path d="M14 9h4l3 3v4h-7"/><circle cx="6" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/>',
  doc:'<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>',
@@ -317,7 +318,7 @@ const isSaleT=t=>['sale','sret','quote'].includes(t);
 const MAIN='main';
 
 /* ============ data store (cloud db with local fallback) ============ */
-const COLS=['products','parties','stores','invoices','cash','cheques','employees','attendance','adjust','audit','settings','members','roles','roledefs','safes'];
+const COLS=['products','parties','stores','invoices','cash','cheques','employees','attendance','adjust','audit','settings','members','roles','roledefs','safes','accounts','journal'];
 const S={mode:'loading',db:null,user:null,me:{id:null,name:''},data:{},names:{},ro:false};
 COLS.forEach(c=>S.data[c]=new Map());
 let V=0;const CV={};const bump=c=>{CV[c]=(CV[c]||0)+1;V++};
@@ -395,10 +396,10 @@ const empName=id=>G('employees',id)?.name||'';
 const whoName=id=>{if(!id)return '';if(id===S.me.id)return S.me.name||'أنت';const su=window.MZ&&MZ.users&&MZ.users.find(u=>u.id===id);return su?su.name:(S.names[id]||'مستخدم')};
 
 /* ============ permissions ============ */
-const PERMS=[['sell','البيع والمرتجعات وعروض الأسعار'],['buy','الشراء وأوامر التوريد والتحويلات'],['editPrice','تغيير سعر البيع في الفاتورة'],['editInv','تعديل وحذف الفواتير المحفوظة وشبكة الحركات'],['seeCost','رؤية التكلفة والأرباح'],['products','الأصناف والأسعار والاستيراد والباركود'],['parties','العملاء والموردون وكشوف الحساب'],['cash','الخزينة والشيكات'],['reports','التقارير ولوحة الأرقام'],['hr','الموظفون والرواتب وتعديل الحضور']];
+const PERMS=[['sell','البيع والمرتجعات وعروض الأسعار'],['buy','الشراء وأوامر التوريد والتحويلات'],['editPrice','تغيير سعر البيع في الفاتورة'],['editInv','تعديل وحذف الفواتير المحفوظة وشبكة الحركات'],['seeCost','رؤية التكلفة والأرباح'],['products','الأصناف والأسعار والاستيراد والباركود'],['parties','العملاء والموردون وكشوف الحساب'],['cash','الخزينة والشيكات'],['reports','التقارير ولوحة الأرقام'],['hr','الموظفون والرواتب وتعديل الحضور'],['accounting','المحاسبة: شجرة الحسابات والقيود والقوائم المالية']];
 const DEF_ROLES={
  manager:{name:'مدير فرع',perms:PERMS.map(p=>p[0]),maxDisc:''},
- accountant:{name:'محاسب',perms:['sell','buy','editPrice','editInv','seeCost','parties','cash','reports'],maxDisc:''},
+ accountant:{name:'محاسب',perms:['sell','buy','editPrice','editInv','seeCost','parties','cash','reports','accounting'],maxDisc:''},
  cashier:{name:'كاشير',perms:['sell','parties'],maxDisc:5},
  store:{name:'أمين مخزن',perms:['buy','products'],maxDisc:0},
 };
@@ -412,7 +413,7 @@ function computePerms(){
   S.roleName=S.fullRole?'مدير عام — كل الصلاحيات':S.isAdmin?'المالك — كل الصلاحيات':(def?def.name:'بانتظار تحديد الصلاحية');
 }
 const can=p=>S.isAdmin||(S.perms||[]).includes(p);
-const ROUTEP={sale:'sell',purchase:'buy',lines:'editInv',products:'products',import:'products',orders:'buy',barcode:'products',parties:'parties',cash:'cash',cheques:'cash',reports:'reports',employees:'hr',payroll:'hr',audit:'@',settings:'@',users:'@'};
+const ROUTEP={accounts:'accounting',sale:'sell',purchase:'buy',lines:'editInv',products:'products',import:'products',orders:'buy',barcode:'products',parties:'parties',cash:'cash',cheques:'cash',reports:'reports',employees:'hr',payroll:'hr',audit:'@',settings:'@',users:'@'};
 function canRoute(k){if(k==='invoices')return can('sell')||can('buy');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
 const isLocked=d=>!S.isAdmin&&!!settings().lockDate&&!!d&&d<=settings().lockDate;
 function ensureMember(){if(S.mode==='cloud'&&S.me.id&&S.memLoaded&&!S.regDone&&!G('members',S.me.id)&&!S.ro){S.regDone=true;put('members',S.me.id,{first:new Date().toISOString()}).catch(()=>{})}}
@@ -500,10 +501,10 @@ function calc_(){
   const invs=L('invoices').sort((a,b)=>scmp(a.date||'',b.date||'')||scmp(a.createdAt||'',b.createdAt||''));
   for(const inv of invs){
     if(TYPES[inv.type]?.doc)continue;
-    const t=invTotals(inv);let cogs=0,adjv=0;const store=inv.storeId||MAIN;
+    const t=invTotals(inv);let cogs=0,adjv=0,ival=0;const store=inv.storeId||MAIN;
     (inv.lines||[]).forEach((l,i)=>{
       if(!l.pid)return;
-      const q=+l.qty||0,s=st(l.pid),unit=(+l.price||0)*(1-(+l.disc||0)/100);
+      const q=+l.qty||0,s=st(l.pid),unit=(+l.price||0)*(1-(+l.disc||0)/100);const v0=s.value;
       const avg=s.qty>0.0001?s.value/s.qty:s.last;const net=q*unit;
       const man=l.cost!==''&&l.cost!=null;let cost=avg,profit=0;
       const add=(sid,dq)=>{s.by[sid]=(s.by[sid]||0)+dq};let cdiff=0,book=null;
@@ -517,7 +518,7 @@ function calc_(){
         case 'adj':cost=man?+l.cost:((+l.price)||avg);cdiff=q;s.qty+=q;s.value+=q*cost;add(store,q);if(q>0)s.in+=q;else s.out+=-q;adjv+=q*cost;break;
         case 'count':book=s.by[store]||0;cdiff=q-book;s.by[store]=q;s.qty+=cdiff;s.value+=cdiff*avg;cost=avg;if(cdiff>0)s.in+=cdiff;else s.out+=-cdiff;adjv+=cdiff*avg;break;
       }
-      if(s.qty<=0.0001)s.value=s.qty*(avg||s.last);
+      if(s.qty<=0.0001)s.value=s.qty*(avg||s.last);ival+=s.value-v0;
       R.line[inv.id+':'+i]={cost,profit,net,auto:avg,man,book,diff:cdiff};
       const d=(inv.type==='count'||inv.type==='adj')?cdiff:({purchase:q,open:q,sret:q,sale:-q,pret:-q}[inv.type]||0);
       (R.pmove[l.pid]||(R.pmove[l.pid]=[])).push({inv,i,q,unit,bal:s.qty,d,book});
@@ -525,7 +526,7 @@ function calc_(){
     let profit=0;
     if(inv.type==='sale')profit=t.after-cogs;
     if(inv.type==='sret')profit=-t.after-cogs;
-    R.inv[inv.id]={...t,cogs,profit,adj:adjv};
+    R.inv[inv.id]={...t,cogs,profit,adj:adjv,ival};
     if(inv.type==='sale'||inv.type==='sret'){
       const d=R.daily[inv.date]||(R.daily[inv.date]={sales:0,profit:0,count:0});
       const sg=inv.type==='sale'?1:-1;d.sales+=sg*t.total;d.profit+=profit;if(sg>0)d.count++;
@@ -563,7 +564,7 @@ document.addEventListener('focusout',flushPend);
 const NAV=[
  ['البيع والشراء',[['dash','الرئيسية','home'],['sale','فاتورة بيع','sale'],['purchase','فاتورة شراء','buy'],['invoices','كل الفواتير','doc'],['lines','شبكة الحركات','grid']]],
  ['المخزون',[['products','الأصناف والأرصدة','box'],['import','استيراد من Excel','up'],['orders','أوامر التوريد وعروض الأسعار','doc'],['barcode','طباعة الباركود','bar']]],
- ['الحسابات',[['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['cheques','الشيكات','chq'],['reports','التقارير والأرباح','chart']]],
+ ['الحسابات',[['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['cheques','الشيكات','chq'],['reports','التقارير والأرباح','chart'],['accounts','المحاسبة والقوائم المالية','ledger']]],
  ['الموظفون',[['attendance','الحضور والانصراف','clock'],['employees','بيانات الموظفين','badge'],['payroll','الرواتب','wallet']]],
  ['النظام',[['users','المستخدمون والصلاحيات','users'],['audit','سجل التعديلات','hist'],['settings','الإعدادات','gear']]],
 ];
@@ -587,7 +588,7 @@ function render_(){
   lastR=performance.now();computePerms();ensureMember();
   const {p,a}=route();renderShell(p);syncBadge();
   if(!canRoute(p)){setTitle('غير مسموح');denied();return}
-  const V_={dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
+  const V_={accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
   const f=V_[p]||vDash;
   if(S.mode==='cloud'&&!allReady()){loadingView();return}
   if(S.mode==='loading'&&!S.data.products.size){$('#title').textContent='ميزان';$('#view').innerHTML='<div class="empty"><b>جارٍ تحميل البيانات…</b></div>';return}
@@ -1911,7 +1912,8 @@ async function loadDemo(){
 
 init();
 </script>
-<script src="/ui.js?v=3"></script>
-<script src="/ai.js?v=3"></script>
+<script src="/accounting.js?v=4"></script>
+<script src="/ui.js?v=4"></script>
+<script src="/ai.js?v=4"></script>
 </body>
 </html>
