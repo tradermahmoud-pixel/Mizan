@@ -1129,7 +1129,7 @@ function vParties(){
   $('#view').innerHTML=`<div class="wrap"><div class="row" style="margin-bottom:14px"><div class="seg"><button data-pk="customer" class="${PK==='customer'?'on':''}">العملاء</button><button data-pk="vendor" class="${PK==='vendor'?'on':''}">الموردون</button></div><button class="btn p" id="npt" ${S.ro?'disabled':''}>${ic('plus')}${PK==='customer'?'عميل':'مورد'} جديد</button><span class="sp"></span><span class="small muted">إجمالي ${PK==='customer'?'المستحق لنا':'المستحق علينا'}: <b class="num" style="color:var(--ink)">${fmt(tot)}</b></span></div>
    ${PK==='customer'?`<div class="row" style="margin-bottom:12px"><select class="in" style="width:240px" id="tf">${opts([...tiers().map(t=>[t.id,'شريحة: '+t.name]),['_none','بدون شريحة'],...[...new Set(L('parties').filter(x=>x.kind==='customer'&&x.priceLevel!=null).map(x=>x.priceLevel))].sort().map(v=>['o'+v,'نوع العميل في أورجا: '+v])],TF,'كل العملاء')}</select><input class="in" style="width:200px" id="pq" placeholder="بحث بالاسم أو التليفون" value="${esc(PQ)}"><span class="sp"></span>${S.isAdmin||can('parties')?`<button class="btn" id="bulkT" ${S.ro||!list.length?'disabled':''}>تعيين شريحة لـ ${list.length} عميل</button>`:''}</div>`:''}
    ${list.length?`<div class="tw"><table class="t"><thead><tr><th>الاسم</th><th>التليفون</th>${PK==='customer'?'<th>الشريحة</th>':''}<th class="hide-m">العنوان</th><th class="n">الرصيد</th><th></th></tr></thead><tbody>
-   ${list.map(p=>{const b=sg*(R.party[p.id]||0);return `<tr class="click" data-st="${p.id}"><td><b>${esc(p.name)}</b></td><td class="num">${esc(p.phone||'')}</td>${PK==='customer'?`<td>${tierOf(p.id)?`<span class="tag ok">${esc(tierOf(p.id).name)}</span>`:'<span class="small muted">—</span>'}</td>`:''}<td class="hide-m">${esc(p.address||'')}</td><td class="n ${b>0.009?'neg':''}">${fmt(b)} <span class="small muted">${b>0.009?(PK==='customer'?'عليه':'له'):b<-0.009?(PK==='customer'?'له':'لنا'):''}</span></td><td><button class="btn s" data-ed="${p.id}">تعديل</button></td></tr>`}).join('')}</tbody></table></div>`:`<div class="empty card"><b>لا يوجد ${PK==='customer'?'عملاء':'موردون'} بعد</b>أضف أول ${PK==='customer'?'عميل':'مورد'} لتتابع حسابه وكشف حسابه.</div>`}</div>`;
+   ${list.map(p=>{const b=sg*(R.party[p.id]||0);return `<tr class="click" data-st="${p.id}"><td><b>${esc(p.name)}</b></td><td class="num">${esc(p.phone||'')}</td>${PK==='customer'?`<td>${tierOf(p.id)?`<span class="tag ok">${esc(tierOf(p.id).name)}</span>`:'<span class="small muted">—</span>'}</td>`:''}<td class="hide-m">${esc(p.address||'')}</td><td class="n ${b>0.009?'neg':''}">${fmt(b)} <span class="small muted">${b>0.009?(PK==='customer'?'عليه':'له'):b<-0.009?(PK==='customer'?'له':'لنا'):''}</span></td><td style="white-space:nowrap"><button class="btn s" data-stb="${p.id}">${ic('doc')}كشف حساب</button> <button class="btn s" data-ed="${p.id}">تعديل</button></td></tr>`}).join('')}</tbody></table></div>`:`<div class="empty card"><b>لا يوجد ${PK==='customer'?'عملاء':'موردون'} بعد</b>أضف أول ${PK==='customer'?'عميل':'مورد'} لتتابع حسابه وكشف حسابه.</div>`}</div>`;
   $$('[data-pk]').forEach(b=>b.onclick=()=>{PK=b.dataset.pk;render()});
   const tfe=$('#tf');if(tfe)tfe.onchange=()=>{TF=tfe.value;render()};const pqe=$('#pq');if(pqe)pqe.onchange=()=>{PQ=pqe.value.trim();render()};
   const bt=$('#bulkT');if(bt)bt.onclick=()=>{modal(`<h2>تعيين شريحة لـ ${list.length} عميل</h2><label class="f">الشريحة<select class="in" id="bt_t">${opts(tiers().map(t=>[t.id,`${t.name} (التكلفة + ${t.markup}%)`]),'','بدون شريحة — سعر المستهلك')}</select></label><p class="small muted">${list.slice(0,8).map(x=>esc(x.name)).join('، ')}${list.length>8?' …':''}</p><div class="row" style="margin-top:14px"><button class="btn p" id="bt_s">تطبيق</button><button class="btn" data-close>إلغاء</button></div>`);
@@ -1137,6 +1137,7 @@ function vParties(){
   $('#npt').onclick=()=>partyModal(null,PK);
   $$('[data-ed]').forEach(b=>b.onclick=e=>{e.stopPropagation();partyModal(b.dataset.ed,PK)});
   $$('[data-st]').forEach(r=>r.onclick=()=>statement(r.dataset.st));
+  $$('[data-stb]').forEach(b=>b.onclick=e=>{e.stopPropagation();statement(b.dataset.stb)});
 }
 function partyModal(id,kind,after){
   const p=id?G('parties',id):{name:'',phone:'',address:'',openBalance:0,kind};
@@ -1148,27 +1149,72 @@ function partyModal(id,kind,after){
     const n={...p,kind,name,tier:($('#q_tr')||{}).value||'',phone:$('#q_p').value.trim(),address:$('#q_a').value.trim(),openBalance:numIn($('#q_o').value)};if(id)await audit('party',id,'الرصيد الافتتاحي',p.openBalance,n.openBalance,p.name);
     await put('parties',nid,n);closeModal();toast('تم الحفظ');after&&after(nid)};
 }
-function statement(pid){
-  const p=G('parties',pid);const R=calc();const sg=p.kind==='vendor'?-1:1;
-  const rows=[];
+function stRows(pid){
+  const R=calc();const rows=[];
   for(const inv of L('invoices').filter(i=>i.partyId===pid&&!TYPES[i.type]?.doc)){const t=R.inv[inv.id]||invTotals(inv);const T=TYPES[inv.type];
     const dr={sale:t.total,pret:t.total}[inv.type]||0,cr={purchase:t.total,sret:t.total}[inv.type]||0;
-    rows.push({d:inv.date,c:inv.createdAt,t:`${T.full} #${inv.no}`,dr,cr,inv:inv.id});
+    rows.push({d:inv.date,c:inv.createdAt,t:`${T.full} #${inv.no}`,dr,cr,inv:inv.id,lines:inv.lines||[],disc:+inv.discount||0,tax:t.tax||0});
     if(t.paid)rows.push({d:inv.date,c:(inv.createdAt||'')+'z',t:`${['sale','pret'].includes(inv.type)?'تحصيل':'سداد'} مع الفاتورة #${inv.no}`,dr:['purchase','sret'].includes(inv.type)?t.paid:0,cr:['sale','pret'].includes(inv.type)?t.paid:0})}
-  for(const c of L('cheques')){const a=+c.amount||0;const lb=`شيك ${c.dir==='in'?'وارد':'صادر'} رقم ${c.no||''}${c.bank?' — '+c.bank:''}`;
+  for(const c of L('cheques')){const a=+c.amount||0;const lb=`شيك ${c.dir==='in'?'وارد':'صادر'} رقم ${c.no||''}${c.bank?' — '+c.bank:''}${c.dueDate?' (استحقاق '+c.dueDate+')':''}`;
     if(c.partyId===pid){rows.push({d:c.issueDate||c.dueDate,c:c.createdAt,t:lb,dr:c.dir==='out'?a:0,cr:c.dir==='in'?a:0});if(c.status==='bounced')rows.push({d:c.bouncedAt||c.dueDate,c:(c.createdAt||'')+'z',t:'ارتداد '+lb,dr:c.dir==='in'?a:0,cr:c.dir==='out'?a:0})}
     if(c.status==='endorsed'&&c.endorsedTo===pid)rows.push({d:c.endorsedAt||c.dueDate,c:c.createdAt,t:'تظهير '+lb+' من '+partyName(c.partyId),dr:a,cr:0})}
-  for(const c of L('cash').filter(c=>c.partyId===pid))rows.push({d:c.date,c:c.createdAt,t:(c.nocash?c.category:(c.kind==='in'?'سند قبض':'سند صرف'))+(c.note?' — '+c.note:''),dr:c.kind==='out'?+c.amount:0,cr:c.kind==='in'?+c.amount:0});
+  for(const c of L('cash').filter(c=>c.partyId===pid))rows.push({d:c.date,c:c.createdAt,t:(c.nocash?c.category:(c.kind==='in'?'سند قبض':'سند صرف'))+(c.no?' #'+c.no:'')+(c.note?' — '+c.note:''),dr:c.kind==='out'?+c.amount:0,cr:c.kind==='in'?+c.amount:0});
   rows.sort((a,b)=>(a.d||'').localeCompare(b.d||'')||(a.c||'').localeCompare(b.c||''));
-  let bal=(p.kind==='vendor'?-1:1)*(+p.openBalance||0);
-  modal(`<h2>كشف حساب: ${esc(p.name)}</h2><div class="tw" style="max-height:58vh;overflow:auto"><table class="t"><thead><tr><th>التاريخ</th><th>البيان</th><th class="n">مدين</th><th class="n">دائن</th><th class="n">الرصيد</th></tr></thead><tbody>
-   <tr><td></td><td class="muted">رصيد افتتاحي</td><td></td><td></td><td class="n">${fmt(sg*bal)}</td></tr>
-   ${rows.map(r=>{bal+=r.dr-r.cr;return `<tr ${r.inv?`class="click" data-go="${r.inv}"`:''}><td class="num">${r.d}</td><td>${esc(r.t)}</td><td class="n">${r.dr?fmt(r.dr):''}</td><td class="n">${r.cr?fmt(r.cr):''}</td><td class="n"><b>${fmt(sg*bal)}</b></td></tr>`}).join('')}</tbody></table></div>
-   <div class="row" style="margin-top:14px"><button class="btn" id="ntc" ${S.ro?'disabled':''}>إشعار خصم / إضافة</button><button class="btn p" id="pay" ${S.ro?'disabled':''}>${p.kind==='customer'?'تحصيل من العميل':'سداد للمورد'}</button><button class="btn" id="xst">${ic('dl')}Excel</button><span class="sp"></span><button class="btn" data-close>إغلاق</button></div>`,true);
+  return rows;
+}
+function stData(pid,from,to){
+  const p=G('parties',pid);const sg=p.kind==='vendor'?-1:1;const all=stRows(pid);
+  let open=(p.kind==='vendor'?-1:1)*(+p.openBalance||0);const rows=[];let tD=0,tC=0;
+  for(const r of all){if(to&&(r.d||'')>to)continue;if(from&&(r.d||'')<from){open+=r.dr-r.cr;continue}rows.push(r);tD+=r.dr;tC+=r.cr}
+  let bal=open;rows.forEach(r=>{bal+=r.dr-r.cr;r.bal=bal});
+  return {p,sg,open,rows,tD,tC,close:open+tD-tC};
+}
+const ST={from:'',to:'',det:false};
+const balWord=(p,v)=>Math.abs(v)<0.009?'متوازن':p.kind==='vendor'?(v<0?'مستحق له':'مستحق لنا'):(v>0?'مستحق عليه':'مستحق له');
+function statement(pid){
+  const p=G('parties',pid);if(!p)return;const x=stData(pid,ST.from,ST.to);const sg=x.sg;const cu=p.kind!=='vendor';
+  const ag=cu?aging(pid,x.close,'customer'):null;const tr=cu?tierOf(pid):null;
+  const per=`${ST.from?'من '+ST.from:'من البداية'} ${ST.to?'إلى '+ST.to:'لحد النهارده'}`;
+  modal(`<div class="row" style="align-items:flex-start;margin-bottom:10px"><div style="flex:1"><h2 style="margin:0 0 4px">كشف حساب: ${esc(p.name)}</h2>
+     <div class="small muted">${cu?'عميل':'مورد'}${p.phone?' · '+esc(p.phone):''}${tr?' · شريحة '+esc(tr.name):''}${p.address?' · '+esc(p.address):''}</div></div>
+     <div style="text-align:left"><div class="small muted">الرصيد في ${ST.to||today()}</div><div style="font:600 24px/1.2 var(--display)" class="${sg*x.close>0.009?'neg':''}">${fmt(Math.abs(x.close))}</div><div class="small">${balWord(p,x.close)}</div></div></div>
+   <div class="row" style="margin-bottom:10px"><input class="in" type="date" style="width:150px" id="st_f" value="${ST.from}"><span class="small muted">إلى</span><input class="in" type="date" style="width:150px" id="st_t" value="${ST.to}">
+     <div class="seg">${[['m','الشهر'],['3m','3 شهور'],['y','السنة'],['a','الكل']].map(([k,t])=>`<button data-sr="${k}">${t}</button>`).join('')}</div>
+     <label class="row small" style="gap:6px"><input type="checkbox" id="st_d" ${ST.det?'checked':''}>تفصيلي بالأصناف</label></div>
+   <div class="tw" style="max-height:52vh;overflow:auto"><table class="t"><thead><tr><th>التاريخ</th><th>البيان</th><th class="n">مدين</th><th class="n">دائن</th><th class="n">الرصيد</th></tr></thead><tbody>
+   <tr><td></td><td class="muted">رصيد ${ST.from?'أول الفترة':'افتتاحي'}</td><td></td><td></td><td class="n">${fmt(sg*x.open)}</td></tr>
+   ${x.rows.map(r=>`<tr ${r.inv?`class="click" data-go="${r.inv}"`:''}><td class="num">${r.d||''}</td><td>${esc(r.t)}${ST.det&&r.lines?`<div class="small muted">${r.lines.map(l=>`${esc(pname(l.pid))} — ${fq(l.qty)} × ${fmt(l.price)}${+l.disc?' (خصم '+l.disc+'%)':''}`).join('<br>')}</div>`:''}</td><td class="n">${r.dr?fmt(r.dr):''}</td><td class="n">${r.cr?fmt(r.cr):''}</td><td class="n"><b>${fmt(sg*r.bal)}</b></td></tr>`).join('')}</tbody>
+   <tfoot><tr><td></td><td>الإجمالي (${x.rows.length} حركة)</td><td class="n">${fmt(x.tD)}</td><td class="n">${fmt(x.tC)}</td><td class="n">${fmt(sg*x.close)}</td></tr></tfoot></table></div>
+   ${ag&&x.close>0.009?`<div class="row small" style="gap:14px;margin-top:10px"><span class="muted">أعمار الدين:</span><span>حتى 30 يوم <b class="num">${fmt(ag.a0)}</b></span><span>31–60 <b class="num">${fmt(ag.a30)}</b></span><span>61–90 <b class="num">${fmt(ag.a60)}</b></span><span>أكتر من 90 <b class="num neg">${fmt(ag.a90)}</b></span></div>`:''}
+   <div class="row" style="margin-top:14px"><button class="btn p" id="pst">${ic('print')}طباعة الكشف</button><button class="btn" id="xst">${ic('dl')}Excel</button>${p.phone?'<button class="btn" id="wst">واتساب</button>':''}<button class="btn" id="ntc" ${S.ro?'disabled':''}>إشعار خصم / إضافة</button><button class="btn" id="pay" ${S.ro?'disabled':''}>${cu?'تحصيل من العميل':'سداد للمورد'}</button><span class="sp"></span><button class="btn" data-close>إغلاق</button></div>`,true);
   $$('[data-go]').forEach(r=>r.onclick=()=>{closeModal();go('inv/'+r.dataset.go)});
+  $('#st_f').onchange=e=>{ST.from=e.target.value;statement(pid)};$('#st_t').onchange=e=>{ST.to=e.target.value;statement(pid)};
+  $('#st_d').onchange=e=>{ST.det=e.target.checked;statement(pid)};
+  $$('[data-sr]').forEach(b=>b.onclick=()=>{const t=today(),k=b.dataset.sr;ST.to='';if(k==='m')ST.from=t.slice(0,8)+'01';if(k==='3m')ST.from=addDays(t,-90);if(k==='y')ST.from=t.slice(0,5)+'01-01';if(k==='a')ST.from='';statement(pid)});
   $('#ntc').onclick=()=>noticeModal(pid);
-  $('#pay').onclick=()=>cashModal({kind:p.kind==='customer'?'in':'out',category:p.kind==='customer'?'تحصيل من عميل':'سداد لمورد',partyId:pid});
-  $('#xst').onclick=()=>{let b=(p.kind==='vendor'?-1:1)*(+p.openBalance||0);xlsxOut('كشف_حساب_'+p.name+'.xlsx',[['التاريخ','البيان','مدين','دائن','الرصيد'],['','رصيد افتتاحي','','',sg*b],...rows.map(r=>{b+=r.dr-r.cr;return [r.d,r.t,r.dr||'',r.cr||'',+(sg*b).toFixed(2)]})],'كشف حساب')};
+  $('#pay').onclick=()=>cashModal({kind:cu?'in':'out',category:cu?'تحصيل من عميل':'سداد لمورد',partyId:pid});
+  $('#pst').onclick=()=>printStatement(pid);
+  $('#xst').onclick=()=>xlsxOut('كشف_حساب_'+p.name+'.xlsx',[['كشف حساب: '+p.name+' — '+per],['التاريخ','البيان','مدين','دائن','الرصيد'],['','رصيد أول الفترة','','',+(sg*x.open).toFixed(2)],...x.rows.flatMap(r=>[[r.d,r.t,r.dr||'',r.cr||'',+(sg*r.bal).toFixed(2)],...(ST.det&&r.lines?r.lines.map(l=>['','   '+pname(l.pid)+' — '+fq(l.qty)+' × '+fmt(l.price),'','','']):[])]),['','الإجمالي',+x.tD.toFixed(2),+x.tC.toFixed(2),+(sg*x.close).toFixed(2)]],'كشف حساب');
+  const w=$('#wst');if(w)w.onclick=()=>{let ph=String(p.phone).replace(/[^\d]/g,'');if(ph.startsWith('0'))ph='2'+ph;const s=settings();
+    const txt=`${s.company||''}\nكشف حساب: ${p.name}\n${per}\nرصيد أول الفترة: ${fmt(sg*x.open)}\nإجمالي ${cu?'المسحوبات':'المشتريات'}: ${fmt(cu?x.tD:x.tC)}\nإجمالي ${cu?'المدفوع':'المسدد'}: ${fmt(cu?x.tC:x.tD)}\nالرصيد: ${fmt(Math.abs(x.close))} (${balWord(p,x.close)})`;
+    window.open('https://wa.me/'+ph+'?text='+encodeURIComponent(txt),'_blank')};
+}
+function printStatement(pid){
+  const x=stData(pid,ST.from,ST.to);const p=x.p,sg=x.sg,cu=p.kind!=='vendor';const s=settings();const tr=cu?tierOf(pid):null;
+  const ag=cu&&x.close>0.009?aging(pid,x.close,'customer'):null;const pr=$('#print');pr.className='';
+  pr.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:8px">
+     <div><h2 style="margin:0">${esc(s.company||'')}</h2><div>${[s.address,s.phone].filter(Boolean).map(esc).join(' — ')}</div></div>
+     <div style="text-align:left"><h2 style="margin:0">كشف حساب ${cu?'عميل':'مورد'}</h2><div>${ST.from?'من '+ST.from:'من البداية'} إلى ${ST.to||today()}</div></div></div>
+   <table style="margin:10px 0;border:0"><tr><td style="border:0;padding:2px 0"><b>${cu?'العميل':'المورد'}:</b> ${esc(p.name)}</td><td style="border:0;padding:2px 0"><b>التليفون:</b> ${esc(p.phone||'—')}</td><td style="border:0;padding:2px 0">${tr?'<b>الشريحة:</b> '+esc(tr.name):''}</td></tr>${p.address?`<tr><td colspan="3" style="border:0;padding:2px 0"><b>العنوان:</b> ${esc(p.address)}</td></tr>`:''}</table>
+   <table><thead><tr><th style="width:90px">التاريخ</th><th>البيان</th><th style="width:100px">مدين</th><th style="width:100px">دائن</th><th style="width:110px">الرصيد</th></tr></thead><tbody>
+   <tr><td></td><td>رصيد ${ST.from?'أول الفترة':'افتتاحي'}</td><td></td><td></td><td>${fmt(sg*x.open)}</td></tr>
+   ${x.rows.map(r=>`<tr><td>${r.d||''}</td><td>${esc(r.t)}${ST.det&&r.lines?`<div style="font-size:11px;color:#333">${r.lines.map(l=>`${esc(pname(l.pid))} — ${fq(l.qty)} × ${fmt(l.price)}${+l.disc?' (خصم '+l.disc+'%)':''} = ${fmt(l.qty*l.price*(1-(+l.disc||0)/100))}`).join('<br>')}</div>`:''}</td><td>${r.dr?fmt(r.dr):''}</td><td>${r.cr?fmt(r.cr):''}</td><td>${fmt(sg*r.bal)}</td></tr>`).join('')}</tbody>
+   <tfoot><tr><td></td><td><b>الإجمالي</b></td><td><b>${fmt(x.tD)}</b></td><td><b>${fmt(x.tC)}</b></td><td><b>${fmt(sg*x.close)}</b></td></tr></tfoot></table>
+   <div style="margin-top:12px;font-size:15px;border:1.5px solid #000;padding:8px 12px;display:inline-block"><b>الرصيد في ${ST.to||today()}: ${fmt(Math.abs(x.close))} ج.م — ${balWord(p,x.close)}</b></div>
+   ${ag?`<table style="margin-top:10px;width:auto"><tr><th>حتى 30 يوم</th><th>31–60 يوم</th><th>61–90 يوم</th><th>أكتر من 90 يوم</th></tr><tr><td>${fmt(ag.a0)}</td><td>${fmt(ag.a30)}</td><td>${fmt(ag.a60)}</td><td>${fmt(ag.a90)}</td></tr></table>`:''}
+   <div style="display:flex;justify-content:space-between;margin-top:40px"><div>توقيع المحاسب: ..................</div><div>توقيع ${cu?'العميل':'المورد'} بالمطابقة: ..................</div></div>
+   <p style="font-size:11px;margin-top:20px">طُبع من ميزان — ${today()} ${nowHM()}</p>`;
+  setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50);
 }
 
 function noticeModal(pid){
@@ -1495,6 +1541,8 @@ const REPS=[
    const R=calc();const {ls,lp}=lastDates();
    const rows=L('parties').filter(p=>p.kind==='vendor').map(p=>{const bal=-(R.party[p.id]||0);return {name:p.name,phone:p.phone||'',bal,...aging(p.id,bal,'vendor'),last:ls[p.id]||'',lastPay:lp[p.id]||''}}).filter(r=>RF.zero||Math.abs(r.bal)>0.009);
    return {cols:[['name','المورد','t'],['phone','التليفون','t'],['bal','المستحق له','m'],['a0','حتى 30 يوم','m'],['a30','31–60','m'],['a60','61–90','m'],['a90','أكثر من 90','m'],['last','آخر توريد','d'],['lastPay','آخر سداد','d']],rows,sort:['bal',-1],bars:['name','bal']}}},
+ {id:'cust_statement',cat:'parties',t:'كشف حساب عميل',d:'كل حركات عميل في فترة: فواتير وتحصيلات وشيكات وإشعارات بالرصيد بعد كل حركة',f:['range','customer'],perm:'parties',nosel:1,run(){return stReport(RF.customer,'عميل')}},
+ {id:'vend_statement',cat:'parties',t:'كشف حساب مورد',d:'كل حركات مورد في فترة: فواتير وسداد وشيكات وإشعارات بالرصيد بعد كل حركة',f:['range','vendor'],perm:'parties',run(){return stReport(RF.vendor,'مورد')}},
  {id:'cust_inactive',cat:'parties',t:'العملاء المتوقفون',d:'عملاء ما اشتروش من فترة — فرصة للمتابعة والتحصيل',f:['days'],run(){
    const R=calc();const t=today();const life={},last={};
    for(const i of L('invoices'))if((i.type==='sale'||i.type==='sret')&&i.partyId){const x=R.inv[i.id];life[i.partyId]=(life[i.partyId]||0)+(i.type==='sale'?1:-1)*(x?.after||0);if(i.type==='sale'&&(!last[i.partyId]||i.date>last[i.partyId]))last[i.partyId]=i.date}
@@ -1572,6 +1620,13 @@ const REPS=[
    const rows=L('employees').filter(e=>!e.inactive).map(e=>{const p=payroll(e,RF.month);return {name:e.name,job:e.job||'',pres:p.pres,abs:p.abs,late:p.late,lateH:hm(p.late),ot:p.ot,otH:hm(p.ot),pen:p.pen,adv:p.adv,net:p.net}});
    return {cols:[['name','الموظف','t'],['job','الوظيفة','t'],['pres','أيام الحضور','i'],['abs','أيام الغياب','i'],['lateH','التأخير','t'],['otH','الإضافي','t'],['pen','الجزاءات','m'],['adv','السلف','m'],['net','صافي الراتب المتوقع','m']],rows,sort:['abs',-1]}}},
 ];
+function stReport(pid,w){
+  if(!pid)return {cols:[['t','البيان','t']],rows:[],nosort:true,note:'اختار ال'+w+' من الفلتر فوق عشان يظهر كشف الحساب.'};
+  const x=stData(pid,RF.from,RF.to);const sg=x.sg;
+  const rows=[{d:'',t:'رصيد أول الفترة',dr:'',cr:'',bal:sg*x.open},...x.rows.map(r=>({d:r.d,t:r.t,dr:r.dr||'',cr:r.cr||'',bal:sg*r.bal,inv:r.inv}))];
+  return {cols:[['d','التاريخ','t'],['t','البيان','t'],['dr','مدين','m',0,1],['cr','دائن','m',0,1],['bal','الرصيد','m',0,1]],rows,nosort:true,link:'inv',action:['طباعة كشف رسمي',()=>{ST.from=RF.from;ST.to=RF.to;printStatement(pid)}],
+    kpi:[['رصيد أول الفترة',fmt(sg*x.open)],['مدين',fmt(x.tD)],['دائن',fmt(x.tC)],['الرصيد',fmt(Math.abs(x.close))+' — '+balWord(x.p,x.close)]],note:'للطباعة بشكل كشف رسمي بالتوقيعات: من شاشة العملاء والموردين ← كشف حساب ← طباعة الكشف.'};
+}
 function repOk(r){if(r.perm&&!can(r.perm))return false;if(r.cost&&!can('seeCost'))return false;return true}
 function cellF(v,f){if(v==null||v==='')return '';switch(f){case 'm':return fmt(v);case 'q':return fq(v);case 'i':return Math.abs(v)===99999?'—':String(Math.round(v));case 'p':return fmt(v)+'%';case 'h':return v;default:return esc(v)}}
 function rangeTxt(){return RF.from||RF.to?`من ${RF.from||'البداية'} إلى ${RF.to||'اليوم'}`:'كل الفترات'}
