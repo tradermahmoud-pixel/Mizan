@@ -726,7 +726,10 @@ function vEditor(type,id){
   const ap=$('#addParty');if(ap)ap.onclick=()=>partyModal(null,pk,id=>{inv.partyId=id;render()});
   // lines events
   const lt=$('#lt');
-  lt.addEventListener('input',e=>{const el=e.target;if(!el.dataset.f)return;const i=+el.dataset.i,f=el.dataset.f;inv.lines[i][f]=f==='cost'&&el.value===''?'':numIn(el.value);if(f==='cost')el.classList.toggle('man',el.value!=='');updRow(i);edTotals()});
+  lt.addEventListener('input',e=>{const el=e.target;if(!el.dataset.f)return;const i=+el.dataset.i,f=el.dataset.f;let v=f==='cost'&&el.value===''?'':numIn(el.value);
+    if(v!==''&&v<0&&!(f==='qty'&&inv.type==='adj')){v=0;el.value='0';toast('مينفعش رقم بالسالب هنا','err')}
+    if(f==='disc'&&v>100){v=100;el.value='100';toast('الخصم أقصى حاجة 100%','err')}
+    inv.lines[i][f]=v;if(f==='cost')el.classList.toggle('man',el.value!=='');updRow(i);edTotals()});
   lt.addEventListener('click',e=>{const b=e.target.closest('[data-rm]');if(b){inv.lines.splice(+b.dataset.rm,1);render()}});
   lt.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.f){e.preventDefault();const all=$$('#lt input[data-f]');const k=all.indexOf(e.target);if(e.target.dataset.f==='qty'||k===all.length-1)$('#ps').focus();else all[k+1]?.focus()}});
   // search
@@ -770,7 +773,7 @@ function updRow(i){const l=ED.inv.lines[i];if(!l)return;
 const OUTT=['sale','pret','transfer'];
 const allowNeg=()=>!!settings().allowNegative;
 function availFor(pid){const inv=ED.inv;const before=ED.id&&ED.orig.storeId===inv.storeId?(ED.orig.lines||[]).filter(o=>o.pid===pid).reduce((s,o)=>s+(+o.qty||0),0):0;return qtyIn(pid,inv.storeId)+before}
-function bookQ(l,i){const inv=ED.inv;if(ED.id&&inv.type==='count'&&ED.orig.storeId===inv.storeId){const x=calc().line[ED.id+':'+i];if(x&&x.book!=null&&ED.orig.lines[i]?.pid===l.pid)return x.book}return qtyIn(l.pid,inv.storeId)}
+function bookQ(l,i){const inv=ED.inv;if(ED.id&&OUTT.includes(inv.type))return availFor(l.pid);if(ED.id&&inv.type==='count'&&ED.orig.storeId===inv.storeId){const x=calc().line[ED.id+':'+i];if(x&&x.book!=null&&ED.orig.lines[i]?.pid===l.pid)return x.book}return qtyIn(l.pid,inv.storeId)}
 function refreshAvail(){ED.inv.lines.forEach((l,i)=>{const a=CELL.av[i];if(a)a.textContent=fq(bookQ(l,i));updRow(i)})}
 function edTotals(all){
   const inv=ED.inv;if(all)inv.lines.forEach((_,i)=>updRow(i));const t=invTotals({...inv,paid:0});
@@ -789,8 +792,8 @@ function edTotals(all){
     <div class="l"><span class="muted">الباقي على الحساب</span><b class="num" id="tr"></b></div>
     <div class="l"><span class="small muted">الخزينة</span><select class="in" id="tsafe" style="width:160px">${opts(safes().map(s=>[s.id,s.name]),inv.safe||defSafe())}</select></div>`:''}
     <div class="l" id="tprw" ${inv.type==='sale'&&can('seeCost')?'':'hidden'}><span class="muted">ربح الفاتورة</span><b class="num" id="tpr"></b></div>`;
-    $('#td').oninput=e=>{inv.discount=numIn(e.target.value);edTotals()};
-    $('#tx').oninput=e=>{inv.taxRate=numIn(e.target.value);edTotals()};
+    $('#td').oninput=e=>{let v=numIn(e.target.value);const sub=invTotals({...inv,discount:0}).sub;if(v<0){v=0;e.target.value='0'}if(v>sub+0.001){v=Math.max(0,Math.round(sub*100)/100);e.target.value=v;toast('الخصم أكبر من إجمالي الفاتورة','err')}inv.discount=v;edTotals()};
+    $('#tx').oninput=e=>{let v=numIn(e.target.value);if(v<0||v>100){v=Math.min(100,Math.max(0,v));e.target.value=v}inv.taxRate=v;edTotals()};
     const pf=$('#pf');if(pf)pf.onchange=()=>{inv.payFull=pf.checked;if(!pf.checked)inv.paid=0;$('#tp').value=inv.paid;edTotals()};
     const tsf=$('#tsafe');if(tsf)tsf.onchange=()=>{inv.safe=tsf.value};
     const tp=$('#tp');if(tp)tp.oninput=e=>{inv.paid=numIn(e.target.value);inv.payFull=false;$('#pf').checked=false;edTotals()};
@@ -827,6 +830,32 @@ async function saveInv(andNew){
       if(!allowNeg()){toast(`الكمية أقل من المطلوبة — مينفعش الحفظ: ${msg}`,'err');refreshAvail();return}
       if(!(await confirmBox(`الكمية المتاحة أقل من المطلوب في: ${msg}. متابعة الحفظ؟`,'حفظ رغم ذلك')))return;}
   }
+  {const bad=lines.filter(l=>(+l.disc||0)<0||(+l.disc||0)>100||(+l.price||0)<0||(l.cost!==''&&l.cost!=null&&+l.cost<0));
+   if(bad.length){toast(`راجع السطور دي — خصم لازم يكون بين 0 و100% ومفيش أسعار بالسالب: ${bad.slice(0,4).map(l=>pname(l.pid)).join('، ')}`,'err');return}
+   const tt=invTotals({...inv,lines});if(tt.total<-0.009){toast('إجمالي الفاتورة طالع بالسالب — راجع الخصم','err');return}
+   if((+inv.discount||0)>tt.sub+0.009){toast('الخصم على الفاتورة أكبر من إجماليها','err');return}}
+  {const W=[];const lim=a=>a.slice(0,4).join('، ')+(a.length>4?` و${a.length-4} كمان`:'');
+   if(isSaleT(inv.type)&&inv.type!=='sret'){
+     const loss=[],high=[],odd=[],fz=[];
+     for(const l of lines){const p=G('products',l.pid);const unit=(+l.price||0)*(1-(+l.disc||0)/100);const avg=avgCost(l.pid);const man=l.cost!==''&&l.cost!=null;const c=man?+l.cost:avg;const cons=consOf(p);
+       if(c>0&&unit<c-0.005)loss.push(pname(l.pid));
+       if(cons>0&&(+l.price||0)>cons*1.5)high.push(`${pname(l.pid)} (${fmt(l.price)} والمستهلك ${fmt(cons)})`);
+       if(man&&avg>0&&(+l.cost<avg*0.5||+l.cost>avg*2))odd.push(`${pname(l.pid)} (${fmt(l.cost)} والمتوسط ${fmt(avg)})`);
+       if(Math.abs((+l.qty||0)-Math.round(+l.qty||0))>0.0001)fz.push(`${pname(l.pid)} (${fq(l.qty)})`)}
+     if(loss.length)W.push((can('seeCost')?'بيع بأقل من التكلفة: ':'سعر بيع أقل من المسموح: ')+lim(loss));
+     if(high.length)W.push('سعر البيع أعلى من سعر المستهلك بكتير: '+lim(high));
+     if(odd.length)W.push('تكلفة يدوي بعيدة عن متوسط التكلفة: '+lim(odd));
+     if(fz.length)W.push('كمية بكسور: '+lim(fz));
+   }
+   if(PURT.includes(inv.type)){
+     const lowc=[],jump=[];
+     for(const l of lines){const p=G('products',l.pid);const unit=(+l.price||0)*(1-(+l.disc||0)/100);const cons=l.consumer!=null&&l.consumer!==''?+l.consumer:consOf(p);const avg=avgCost(l.pid);
+       if(cons>0&&unit>cons+0.005)lowc.push(`${pname(l.pid)} (شراء ${fmt(unit)} ومستهلك ${fmt(cons)})`);
+       if(avg>0&&unit>0&&(unit>avg*2||unit<avg*0.5))jump.push(`${pname(l.pid)} (${fmt(unit)} والمتوسط ${fmt(avg)})`)}
+     if(lowc.length)W.push('سعر المستهلك أقل من سعر الشراء: '+lim(lowc));
+     if(jump.length)W.push('سعر شراء مختلف جدًا عن متوسط التكلفة: '+lim(jump));
+   }
+   if(W.length&&!(await confirmBox('راجع قبل الحفظ — '+W.join(' · ')+'. تحفظ كده؟','حفظ رغم ذلك')))return;}
   const now=new Date().toISOString();
   const doc={...inv,lines:lines.map(l=>({pid:l.pid,qty:+l.qty,price:+l.price||0,disc:+l.disc||0,cost:(l.cost===''||l.cost==null)?'':+l.cost,...(l.consumer!=null&&l.consumer!==''?{consumer:+l.consumer}:{}),...(l.bonus?{bonus:true}:{})})),discount:+inv.discount||0,taxRate:+inv.taxRate||0,paid:+inv.paid||0};
   if(isSaleT(doc.type)){const t=tierOf(doc.partyId);if(t&&+t.days)doc.dueDate=addDays(doc.date,+t.days);else delete doc.dueDate}
@@ -926,7 +955,9 @@ async function patchLine(invId,i,f,val,el){
   if(S.ro){toast('ليس لديك صلاحية التعديل','err');return}
   const o=G('invoices',invId);if(!o)return;const n=clone(o);const T=TYPES[n.type].full+' #'+n.no;let old,nw;
   if(f==='date'){if(!val)return;old=n.date;nw=val;n.date=val;await audit('invoice',invId,'التاريخ',old,nw,T)}
-  else{const l=n.lines[i];if(!l)return;old=l[f];nw=f==='cost'&&val===''?'':numIn(val);if(f==='qty'&&nw<=0){toast('الكمية يجب أن تكون أكبر من صفر','err');el.value=old;return}
+  else{const l=n.lines[i];if(!l)return;old=l[f];nw=f==='cost'&&val===''?'':numIn(val);if(f==='qty'&&nw<=0&&n.type!=='adj'){toast('الكمية يجب أن تكون أكبر من صفر','err');el.value=old;return}
+    if(f!=='qty'&&nw!==''&&nw<0){toast('مينفعش رقم بالسالب','err');el.value=old===''?'':old;return}
+    if(f==='qty'&&OUTT.includes(n.type)&&!allowNeg()&&nw>(+old||0)){const av=qtyIn(l.pid,n.storeId||MAIN)+(+old||0);if(nw>av+0.0001){toast(`الكمية أقل من المطلوبة — المتاح من «${pname(l.pid)}» ${fq(Math.max(0,av))} بس`,'err');el.value=old;return}}
     l[f]=nw;const lb={qty:'الكمية',price:'السعر',cost:'التكلفة'}[f];await audit('invoice',invId,pname(l.pid)+' — '+lb,old===''?'تلقائي':old,nw===''?'تلقائي':nw,T);
     if(n.payFull||(Math.abs(invTotals(o).total-(+o.paid||0))<0.01&&(n.type==='sale'||n.type==='sret')&&!n.partyId)){n.paid=Math.round(invTotals(n).total*100)/100}}
   n.updatedAt=new Date().toISOString();n.updatedBy=S.me.id||'';
@@ -1880,7 +1911,7 @@ async function loadDemo(){
 
 init();
 </script>
-<script src="/ui.js?v=2"></script>
+<script src="/ui.js?v=3"></script>
 <script src="/ai.js?v=3"></script>
 </body>
 </html>
