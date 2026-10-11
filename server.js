@@ -461,5 +461,38 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'خطأ في السيرفر' });
 });
 
-migrate().then(() => app.listen(PORT, () => console.log('ميزان يعمل على المنفذ', PORT)))
+/* one-time CRM seed: encrypted file in the repo, key only in the server env (CRM_SEED_KEY). Runs only if there are no leads yet. */
+async function seedCrm() {
+  const pass = process.env.CRM_SEED_KEY; const file = path.join(__dirname, 'seed', 'crm.enc');
+  if (!pass || !fs.existsSync(file)) return;
+  const { rows } = await pool.query(`SELECT count(*)::int n FROM docs WHERE col='x_leads' AND NOT deleted`);
+  if (rows[0].n > 0) { console.log('CRM seed: leads already exist, skipped'); return; }
+  let p;
+  try {
+    const buf = fs.readFileSync(file); const key = crypto.createHash('sha256').update(pass).digest();
+    const d = crypto.createDecipheriv('aes-256-gcm', key, buf.subarray(0, 12)); d.setAuthTag(buf.subarray(12, 28));
+    p = JSON.parse(zlib.gunzipSync(Buffer.concat([d.update(buf.subarray(28)), d.final()])).toString('utf8'));
+  } catch (e) { console.error('CRM seed: cannot decrypt', e.message); return; }
+  const client = await pool.connect(); const u = now();
+  try {
+    await client.query('BEGIN');
+    const up = (c, i, data) => client.query(`INSERT INTO docs(col,id,data,deleted,seq,updated_at,updated_by) VALUES($1,$2,$3,false,nextval('doc_seq'),$4,'seed')
+      ON CONFLICT (col,id) DO UPDATE SET data=EXCLUDED.data,deleted=false,seq=nextval('doc_seq'),updated_at=EXCLUDED.updated_at,updated_by='seed'`, [c, i, JSON.stringify(data), u]);
+    let n = 0;
+    for (const [cid, items] of Object.entries(p.chunks || {})) { await up('x_leads', cid, { items, u }); n += Object.keys(items).length; }
+    for (const [rid, r] of Object.entries(p.reps || {})) {
+      const ex = await client.query(`SELECT 1 FROM docs WHERE col='crm_reps' AND id=$1 AND NOT deleted`, [rid]);
+      if (!ex.rows.length) await up('crm_reps', rid, r);
+    }
+    if (p.settings) {
+      const cur = await client.query(`SELECT data FROM docs WHERE col='settings' AND id='main' AND NOT deleted`);
+      await up('settings', 'main', Object.assign({}, (cur.rows[0] && cur.rows[0].data) || {}, p.settings));
+    }
+    await client.query('COMMIT');
+    console.log('CRM seed: imported', n, 'leads and', Object.keys(p.reps || {}).length, 'reps');
+  } catch (e) { await client.query('ROLLBACK').catch(() => {}); console.error('CRM seed failed', e.message); }
+  finally { client.release(); }
+}
+
+migrate().then(seedCrm).then(() => app.listen(PORT, () => console.log('ميزان يعمل على المنفذ', PORT)))
   .catch(e => { console.error('startup failed', e); process.exit(1); });
