@@ -1227,6 +1227,11 @@ function cashModal(o){
   $('#c_sv').onclick=async()=>{const a=numIn($('#c_a').value);if(a<=0){toast('اكتب مبلغًا صحيحًا','err');return}const id=c.id||uid();const d=$('#c_d').value||today();if(isLocked(d)||(c.id&&isLocked(c.date))){toast(`الفترة مغلقة حتى ${settings().lockDate}`,'err');return}
     const n={...c,date:d,kind:c.kind,category:$('#c_c').value.trim()||cats[0],amount:a,safe:$('#c_s').value,partyId:$('#c_p').value,empId:$('#c_e').value,note:$('#c_n').value.trim(),exp:$('#c_x').checked||undefined,createdAt:c.createdAt||new Date().toISOString(),createdBy:c.createdBy||S.me.id||''};delete n.id;if(!n.exp)delete n.exp;
     if(n.category==='سلفة موظف'&&!n.empId){toast('اختر الموظف صاحب السلفة','err');return}
+    {const pk=n.partyId?G('parties',n.partyId)?.kind:'';const cat=n.category;
+     if(/تحصيل/.test(cat)&&cat.includes('عميل')&&!n.partyId){toast('اختار العميل اللي اتحصّل منه — من غير عميل الفلوس هتدخل الخزينة من غير ما تتخصم من حساب حد','err');return}
+     if(/سداد/.test(cat)&&cat.includes('مورد')&&!n.partyId){toast('اختار المورد اللي اتدفعله — من غير مورد المبلغ هيتخصم من الخزينة ومش هيقلّل حساب أي مورد','err');return}
+     if(/تحصيل/.test(cat)&&cat.includes('عميل')&&pk==='vendor'){toast('البند «تحصيل من عميل» والطرف المختار مورد — غيّر البند أو الطرف','err');return}
+     if(/سداد/.test(cat)&&cat.includes('مورد')&&pk&&pk!=='vendor'){toast('البند «سداد لمورد» والطرف المختار عميل — غيّر البند أو الطرف','err');return}}
     if(c.id){await audit('cash',id,'مبلغ السند',c.amount,a,n.category);if(c.safe!==n.safe)await audit('cash',id,'الخزينة',safeName(c.safe),safeName(n.safe),n.category)}await put('cash',id,n);closeModal();toast('تم حفظ السند')};
   const x=$('#c_del');if(x)x.onclick=async()=>{if(isLocked(c.date)){toast('الفترة مغلقة','err');return}await audit('cash',c.id,'حذف سند',c.amount,'',c.category);await del('cash',c.id);closeModal();toast('تم حذف السند')};
 }
@@ -1297,7 +1302,7 @@ let AT={tab:'today',emp:'',ym:today().slice(0,7),sel:''};
 let clockT=null;
 function vAttendance(){
   setTitle('الحضور والانصراف');const t=today();const emps=L('employees').filter(e=>!e.inactive).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
-  const mine=S.me.id&&emps.find(e=>e.userId===S.me.id);const cur=mine||(can('hr')?G('employees',AT.sel):null);
+  const mine=S.me.id&&emps.find(e=>e.userId===S.me.id);const cur=mine||(can('hr')&&AT.sel?emps.find(x=>x.id===AT.sel)||null:null);
   const rec=cur?G('attendance',cur.id+'_'+t):null;
   $('#view').innerHTML=`<div class="wrap"><div class="grid gat">
    <div class="card"><div class="clock" id="clk">${nowHM()}</div><div class="muted small">${DAYS[new Date().getDay()]} ${t}</div>
@@ -1317,7 +1322,7 @@ function vAttendance(){
     box.innerHTML=`<div class="tw"><table class="t"><thead><tr><th>الموظف</th><th>الحالة</th><th class="n">حضور</th><th class="n">انصراف</th><th class="n">تأخير</th><th class="n">ساعات العمل</th><th class="hide-m">سجّله</th></tr></thead><tbody>
     ${emps.map(e=>{const a=G('attendance',e.id+'_'+t);const s=dayStatus(e,a,t);const col={in:'var(--ok)',left:'var(--muted)',abs:'var(--danger)',off:'var(--gold)'}[s.k];return `<tr><td><b>${esc(e.name)}</b><div class="small muted">${esc(e.job||'')}</div></td><td><span class="dot" style="background:${col}"></span>${s.t}</td><td class="n">${a?.in||''}</td><td class="n">${a?.out||''}</td><td class="n ${s.late?'neg':''}">${s.late?s.late+' د':''}</td><td class="n">${s.work?hm(s.work):a?.in?'<span class="muted">جارٍ</span>':''}</td><td class="hide-m small muted">${esc(a?whoName(a.by):'')}</td></tr>`}).join('')}</tbody></table></div>`;
   }else{
-    const e=G('employees',AT.emp)||emps[0];if(!e){box.innerHTML='<div class="empty card"><b>لا يوجد موظفون</b></div>';return}AT.emp=e.id;
+    const e=(AT.emp&&emps.find(x=>x.id===AT.emp))||emps[0];if(!e){box.innerHTML='<div class="empty card"><b>لا يوجد موظفون</b></div>';return}AT.emp=e.id;
     const [y,m]=AT.ym.split('-').map(Number);const nd=new Date(y,m,0).getDate();let tl=0,to=0,tw=0,pres=0,abs=0;
     const rows=[];for(let d=1;d<=nd;d++){const date=`${AT.ym}-${pad(d)}`;if(date>t)break;const a=G('attendance',e.id+'_'+date);const s=dayStatus(e,a,date);tl+=s.late;to+=s.ot;tw+=s.work;if(a?.in)pres++;else if(s.k==='abs'&&date<t)abs++;rows.push({date,a,s})}
     box.innerHTML=`<div class="row" style="margin-bottom:10px"><select class="in" style="width:200px" id="ame">${opts(emps.map(x=>[x.id,x.name]),e.id)}</select><input class="in" type="month" style="width:170px" id="amm" value="${AT.ym}"><span class="sp"></span><button class="btn s" id="axl">${ic('dl')}Excel</button></div>
