@@ -783,6 +783,14 @@ const allowNeg=()=>!!settings().allowNegative;
 function availFor(pid){const inv=ED.inv;const before=ED.id&&ED.orig.storeId===inv.storeId?(ED.orig.lines||[]).filter(o=>o.pid===pid).reduce((s,o)=>s+(+o.qty||0),0):0;return qtyIn(pid,inv.storeId)+before}
 function bookQ(l,i){const inv=ED.inv;if(ED.id&&OUTT.includes(inv.type))return availFor(l.pid);if(ED.id&&inv.type==='count'&&ED.orig.storeId===inv.storeId){const x=calc().line[ED.id+':'+i];if(x&&x.book!=null&&ED.orig.lines[i]?.pid===l.pid)return x.book}return qtyIn(l.pid,inv.storeId)}
 function refreshAvail(){ED.inv.lines.forEach((l,i)=>{const a=CELL.av[i];if(a)a.textContent=fq(bookQ(l,i));updRow(i)})}
+function prevBal(inv){
+  const pid=inv.partyId;const p=pid&&G('parties',pid);if(!p||!['sale','sret','purchase','pret'].includes(inv.type))return null;
+  const sg=p.kind==='vendor'?-1:1;const sgn={sale:1,pret:1,sret:-1,purchase:-1};let now=sg*(calc().party[pid]||0);
+  const o=ED&&ED.id&&ED.orig&&ED.orig.partyId===pid?ED.orig:null;if(o){const b=balBefore(pid,ED.id);if(b!=null)return b}
+  return now;
+}
+function balBefore(pid,invId){const p=G('parties',pid);if(!p)return null;const sg=p.kind==='vendor'?-1:1;let b=sg*(+p.openBalance||0);
+  for(const r of stRows(pid)){if(r.inv===invId)return sg*b;b+=r.dr-r.cr}return null}
 function edTotals(all){
   const inv=ED.inv;if(all)inv.lines.forEach((_,i)=>updRow(i));const t=invTotals({...inv,paid:0});
   if(inv.payFull)inv.paid=Math.round(t.total*100)/100;
@@ -793,15 +801,16 @@ function edTotals(all){
     <div class="l"><span class="muted">عدد الأصناف / الكميات</span><b class="num" id="tq"></b></div>
     <div class="l"><span>الإجمالي قبل الخصم</span><b class="num" id="ts"></b></div>
     <div class="l"><span>خصم على الفاتورة</span><input class="in n" id="td" inputmode="decimal" value="${inv.discount||0}"></div>
-    <div class="l"><span>ضريبة %</span><input class="in n" id="tx" inputmode="decimal" value="${inv.taxRate||0}"></div>
-    <div class="l grand"><span>الصافي</span><span class="num" id="tt"></span></div>
+    <div class="l grand"><span>صافي الفاتورة</span><span class="num" id="tt"></span></div>
+    ${showPay?`<div class="l" id="tpbw" hidden><span>الرصيد السابق</span><b class="num" id="tpb"></b></div><div class="l" id="tgtw" hidden style="font-weight:700"><span>الإجمالي المستحق</span><b class="num" id="tgt"></b></div>`:''}
     ${showPay?`<div class="l"><label class="row small" style="gap:6px"><input type="checkbox" id="pf" ${inv.payFull?'checked':''}> ${inv.type==='sale'||inv.type==='pret'?'تحصيل نقدي بالكامل':'دفع نقدي بالكامل'}</label></div>
     <div class="l"><span>${inv.type==='sale'||inv.type==='pret'?'المحصّل':'المدفوع'}</span><input class="in n" id="tp" inputmode="decimal" value="${inv.paid||0}"></div>
-    <div class="l"><span class="muted">الباقي على الحساب</span><b class="num" id="tr"></b></div>
+    <div class="l"><span class="muted">الباقي من الفاتورة</span><b class="num" id="tr"></b></div>
+    <div class="l" id="tnbw" hidden><span>الرصيد بعد الفاتورة</span><b class="num" id="tnb"></b></div>
     <div class="l"><span class="small muted">الخزينة</span><select class="in" id="tsafe" style="width:160px">${opts(safes().map(s=>[s.id,s.name]),inv.safe||defSafe())}</select></div>`:''}
     <div class="l" id="tprw" ${inv.type==='sale'&&can('seeCost')?'':'hidden'}><span class="muted">ربح الفاتورة</span><b class="num" id="tpr"></b></div>`;
     $('#td').oninput=e=>{let v=numIn(e.target.value);const sub=invTotals({...inv,discount:0}).sub;if(v<0){v=0;e.target.value='0'}if(v>sub+0.001){v=Math.max(0,Math.round(sub*100)/100);e.target.value=v;toast('الخصم أكبر من إجمالي الفاتورة','err')}inv.discount=v;edTotals()};
-    $('#tx').oninput=e=>{let v=numIn(e.target.value);if(v<0||v>100){v=Math.min(100,Math.max(0,v));e.target.value=v}inv.taxRate=v;edTotals()};
+    const txe=$('#tx');if(txe)txe.oninput=e=>{let v=numIn(e.target.value);if(v<0||v>100){v=Math.min(100,Math.max(0,v));e.target.value=v}inv.taxRate=v;edTotals()};
     const pf=$('#pf');if(pf)pf.onchange=()=>{inv.payFull=pf.checked;if(!pf.checked)inv.paid=0;$('#tp').value=inv.paid;edTotals()};
     const tsf=$('#tsafe');if(tsf)tsf.onchange=()=>{inv.safe=tsf.value};
     const tp=$('#tp');if(tp)tp.oninput=e=>{inv.paid=numIn(e.target.value);inv.payFull=false;$('#pf').checked=false;edTotals()};
@@ -809,6 +818,8 @@ function edTotals(all){
   $('#tq').textContent=inv.lines.length+' / '+fq(qty);$('#ts').textContent=fmt(t.sub);$('#tt').textContent=fmt(t.total);
   if($('#tp')&&inv.payFull)$('#tp').value=inv.paid;
   if($('#tr'))$('#tr').textContent=fmt(t.total-(+inv.paid||0));
+  {const pb=prevBal(inv);const show=pb!=null;['tpbw','tgtw','tnbw'].forEach(k=>{const el=$('#'+k);if(el)el.hidden=!show});
+   if(show){const sgn=(G('parties',inv.partyId).kind==='vendor'?-1:1)*({sale:1,pret:1,sret:-1,purchase:-1}[inv.type]||0);$('#tpb').textContent=fmt(pb);$('#tgt').textContent=fmt(pb+sgn*t.total);$('#tnb').textContent=fmt(pb+sgn*(t.total-(+inv.paid||0)))}}
   if(inv.type==='sale'&&$('#tpr')&&can('seeCost')){let c=0;inv.lines.forEach(l=>{c+=(+l.qty||0)*((l.cost!==''&&l.cost!=null)?+l.cost:avgCost(l.pid))});const p=t.after-c;$('#tpr').textContent=fmt(p);$('#tpr').className='num '+(p<0?'neg':'pos')}
 }
 function addLine(pid){
@@ -906,7 +917,7 @@ function printInv(id){
   const lines=(inv.lines||[]).filter(l=>l.pid).slice().sort((a,b)=>pname(a.pid).localeCompare(pname(b.pid)));
   const showCons=isSaleT(inv.type);let qty=0;lines.forEach(l=>qty+=+l.qty||0);
   let bal=null;if(p&&['sale','sret','purchase','pret'].includes(inv.type)){const R=calc();const sg=p.kind==='vendor'?-1:1;const now=sg*(R.party[inv.partyId]||0);
-    const eff=sg*(({sale:1,pret:1,sret:-1,purchase:-1}[inv.type]||0)*(t.total-(+inv.paid||0)));bal=typeof id==='object'?{prev:now,now:now+eff}:{prev:now-eff,now}}
+    const sgn=sg*({sale:1,pret:1,sret:-1,purchase:-1}[inv.type]||0);const eff=sgn*(t.total-(+inv.paid||0));if(typeof id==='object')bal={prev:now,now:now+eff,sgn};else{const pv=balBefore(inv.partyId,id);const pr=pv!=null?pv:now-eff;bal={prev:pr,now:pr+eff,sgn}}}
   $('#print').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:8px">
      <div><h2 style="margin:0">${esc(s.company||'')}</h2><div>${[s.address,s.phone].filter(Boolean).map(esc).join(' — ')}</div></div>
      <div style="text-align:left"><h2 style="margin:0">${T.full}${inv.draft?' (مسودة)':''}</h2><div>رقم ${esc(String(inv.no))} — ${inv.date||today()}</div></div></div>
@@ -917,12 +928,13 @@ function printInv(id){
      <td style="border:0;padding:2px 0"><b>المخزن:</b> ${esc(storeName(inv.storeId))}${inv.type==='transfer'?' ← '+esc(storeName(inv.toStoreId)):''}</td>
      ${inv.empId?`<td style="border:0;padding:2px 0"><b>البائع:</b> ${esc(empName(inv.empId))}</td>`:''}</tr>
      ${p&&p.address?`<tr><td colspan="5" style="border:0;padding:2px 0"><b>العنوان:</b> ${esc(p.address)}</td></tr>`:''}</table>
-   <table><thead><tr><th style="width:30px">م</th><th>الصنف</th><th style="width:60px">الكمية</th>${showCons?'<th style="width:80px">سعر المستهلك</th>':''}<th style="width:80px">السعر</th><th style="width:50px">خصم%</th><th style="width:95px">الإجمالي</th></tr></thead><tbody>
+   <table><thead><tr><th style="width:30px">م</th><th>الصنف</th><th style="width:60px">الكمية</th>${showCons?'<th style="width:80px">سعر المستهلك</th>':''}<th style="width:80px">${showCons?'سعر البيع':'السعر'}</th><th style="width:50px">خصم%</th><th style="width:95px">الإجمالي</th></tr></thead><tbody>
    ${lines.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(pname(l.pid))}</td><td>${fq(l.qty)}</td>${showCons?`<td>${fmt(consOf(G('products',l.pid)))}</td>`:''}<td>${fmt(l.price)}</td><td>${+l.disc||''}</td><td>${fmt((+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100))}</td></tr>`).join('')}</tbody></table>
    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-top:10px">
      <div style="font-size:12px">عدد الأصناف: ${lines.length} — إجمالي الكميات: ${fq(qty)}${inv.notes?`<p>ملاحظات: ${esc(inv.notes)}</p>`:''}${tr&&+tr.days&&inv.type==='sale'?`<p>تاريخ الاستحقاق: ${addDays(inv.date||today(),+tr.days)}</p>`:''}</div>
-     <table style="width:300px"><tr><td>الإجمالي</td><td>${fmt(t.sub)}</td></tr>${+inv.discount?`<tr><td>خصم</td><td>${fmt(inv.discount)}</td></tr>`:''}${t.tax?`<tr><td>ضريبة</td><td>${fmt(t.tax)}</td></tr>`:''}<tr><td><b>الصافي</b></td><td><b>${fmt(t.total)}</b></td></tr><tr><td>المدفوع</td><td>${fmt(t.paid)}</td></tr><tr><td>الباقي</td><td>${fmt(t.rest)}</td></tr>
-     ${bal?`<tr><td>الرصيد السابق</td><td>${fmt(bal.prev)}</td></tr><tr><td><b>الرصيد الحالي</b></td><td><b>${fmt(bal.now)}</b></td></tr>`:''}</table></div>
+     <table style="width:300px">${+inv.discount?`<tr><td>إجمالي الأصناف</td><td>${fmt(t.sub)}</td></tr><tr><td>خصم</td><td>${fmt(inv.discount)}</td></tr>`:''}<tr><td><b>صافي الفاتورة</b></td><td><b>${fmt(t.total)}</b></td></tr>
+     ${bal&&Math.abs(bal.prev)>0.009?`<tr><td>الرصيد السابق</td><td>${fmt(bal.prev)}</td></tr><tr><td><b>الإجمالي المستحق</b></td><td><b>${fmt(bal.prev+bal.sgn*t.total)}</b></td></tr>`:''}
+     <tr><td>المدفوع</td><td>${fmt(t.paid)}</td></tr>${bal?`<tr><td><b>الرصيد بعد الفاتورة</b></td><td><b>${fmt(bal.now)}</b></td></tr>`:`<tr><td>الباقي</td><td>${fmt(t.rest)}</td></tr>`}</table></div>
    <div style="display:flex;justify-content:space-between;margin-top:36px"><div>المستلم: ..................</div><div>التوقيع: ..................</div></div>
    <p style="font-size:11px;margin-top:16px">طُبع من ميزان — ${today()} ${nowHM()}</p>`;
   setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50);
