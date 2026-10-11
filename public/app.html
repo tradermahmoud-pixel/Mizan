@@ -380,8 +380,9 @@ function salePrice(p,partyId){const t=tierOf(partyId);if(t){const c=avgCost(p.id
 const PURT=['purchase','porder','open'];
 function tierInfo(inv){if(!isSaleT(inv.type))return '';const t=tierOf(inv.partyId);
   if(!inv.partyId)return `<div class="small muted" style="margin-top:8px">عميل نقدي — البيع بسعر المستهلك</div>`;
-  if(!t)return `<div class="small" style="margin-top:8px;color:var(--gold)">العميل ده مالوش شريحة — البيع بسعر المستهلك. حدّد شريحته من بيانات العميل.</div>`;
-  return `<div class="row small" style="margin-top:8px;gap:8px"><span class="tag ok">${esc(t.name)}</span><span class="muted">السعر = التكلفة + ${fmt(t.markup)}%</span>${+t.days?`<span class="tag purchase">آجل ${t.days} يوم — يستحق ${addDays(inv.date||today(),+t.days)}</span>`:''}</div>`}
+  const ed=(can('parties')||S.isAdmin)&&!S.ro;
+  const sel=ed?`<select class="in" id="tierSel" style="width:auto;padding:4px 8px;font-size:13px" title="تغيير شريحة العميل">${opts(tiers().map(x=>[x.id,`${x.name} (التكلفة + ${fmt(x.markup)}%)`]),t?t.id:'','بدون شريحة — سعر المستهلك')}</select>`:(t?`<span class="tag ok">${esc(t.name)}</span>`:'');
+  return `<div class="row small" style="margin-top:8px;gap:8px"><span class="muted">شريحة العميل:</span>${sel}${t?`<span class="muted">السعر = التكلفة + ${fmt(t.markup)}%</span>${+t.days?`<span class="tag purchase">آجل ${t.days} يوم — يستحق ${addDays(inv.date||today(),+t.days)}</span>`:''}`:`<span style="color:var(--gold)">البيع بسعر المستهلك</span>`}</div>`}
 const PIX={v:-1,a:[]};
 function pIndex(){if(PIX.v===(CV.products||0))return PIX.a;PIX.a=L('products').map(p=>({p,n:norm(p.name),c:norm(p.code),b:[String(p.barcode||''),...(p.barcodes||[])].join(' ')}));PIX.v=(CV.products||0);return PIX.a}
 function pSearch(q,lim){q=String(q||'').trim();if(!q)return [];const nq=norm(q);const out=[];for(const x of pIndex()){if(x.n.includes(nq)||x.c.includes(nq)||x.b.includes(q)){out.push(x.p);if(lim&&out.length>=lim)break}}return out}
@@ -608,6 +609,7 @@ function closeModal(){$('#modal').classList.remove('on');$('#modal').innerHTML='
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal'||e.target.closest('[data-close]'))closeModal()});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'||e.key==='S')){const b=$('#save');if(b&&!b.disabled){e.preventDefault();const a=document.activeElement;if(a&&a.blur)a.blur();setTimeout(()=>b.click(),30)}}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#modal').classList.contains('on'))closeModal()});
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='p'||e.key==='P')&&ED&&$('#prt')&&!$('#modal').classList.contains('on')){e.preventDefault();$('#prt').click()}});
 window.addEventListener('keydown',e=>{const k=(e.key||'').toLowerCase(),c=e.code||'';
   const dev=k==='f12'||c==='F12'||((e.ctrlKey||e.metaKey)&&e.shiftKey&&['KeyI','KeyJ','KeyC','KeyK'].includes(c))||((e.ctrlKey||e.metaKey)&&c==='KeyU')||(/^f([1-9]|1[01])$/.test(k)&&document.activeElement&&document.activeElement.id==='ps');
   if(!dev)return;e.preventDefault();e.stopPropagation();
@@ -713,7 +715,7 @@ function vEditor(type,id){
    <div class="stickybar">
      <button class="btn p" id="save" ${S.ro?'disabled':''}>حفظ (Ctrl+S)</button>
      ${!ED.id?`<button class="btn" id="saveNew" ${S.ro?'disabled':''}>حفظ وفاتورة جديدة</button>`:''}
-     ${ED.id?`<button class="btn" id="prt">${ic('print')}طباعة</button><button class="btn" id="newB">${ic('plus')}جديد</button>`:''}
+     ${!ED.id&&!S.ro?`<button class="btn" id="savePrt">${ic('print')}حفظ وطباعة</button>`:''}<button class="btn" id="prt">${ic('print')}طباعة${ED.id?'':' (مسودة)'}</button>${ED.id?`<button class="btn" id="newB">${ic('plus')}جديد</button>`:''}
      ${ED.id&&T.doc&&inv.status!=='converted'?`<button class="btn g" id="conv" ${S.ro?'disabled':''}>تحويل إلى ${TYPES[T.to].full}</button>`:''}
      ${ED.id&&T.doc&&inv.status==='converted'&&G('invoices',inv.convertedTo)?`<a class="btn" href="#/inv/${inv.convertedTo}">فتح ${TYPES[T.to].full} #${G('invoices',inv.convertedTo).no}</a>`:''}
      <span class="sp"></span>
@@ -725,6 +727,10 @@ function vEditor(type,id){
     if(k==='partyId'&&isSaleT(inv.type)){if(!ED.id&&inv.lines.length){inv.lines.forEach(l=>{const pp=G('products',l.pid);if(pp&&!l.bonus)l.price=salePrice(pp,inv.partyId)});const t=tierOf(inv.partyId);toast('تم تسعير الأصناف '+(t?'بشريحة '+t.name:'بسعر المستهلك'))}render()}});
   $$('[data-type]').forEach(b=>b.onclick=()=>{const k=b.dataset.type;const ln=inv.lines;ED.inv={...newInv(k),lines:ln,date:inv.date,storeId:inv.storeId};const P=TYPES[k].party;if(P!==T.party)ED.inv.partyId='';render()});
   const ap=$('#addParty');if(ap)ap.onclick=()=>partyModal(null,pk,id=>{inv.partyId=id;render()});
+  const tsel=$('#tierSel');if(tsel)tsel.onchange=async()=>{const p=G('parties',inv.partyId);if(!p)return;const old=tierOf(inv.partyId);const nt=tiers().find(x=>x.id===tsel.value);
+    await put('parties',inv.partyId,{...p,tier:tsel.value});await audit('party',inv.partyId,'شريحة الأسعار',old?old.name:'بدون',nt?nt.name:'بدون',p.name);
+    if(inv.lines.length&&(!ED.id||await confirmBox('تحديث أسعار أصناف الفاتورة دي على الشريحة الجديدة؟','تحديث الأسعار'))){inv.lines.forEach(l=>{const pp=G('products',l.pid);if(pp&&!l.bonus)l.price=salePrice(pp,inv.partyId)})}
+    toast(`شريحة ${p.name} بقت: ${nt?nt.name:'بدون شريحة'}`);render()};
   // lines events
   const lt=$('#lt');
   lt.addEventListener('input',e=>{const el=e.target;if(!el.dataset.f)return;const i=+el.dataset.i,f=el.dataset.f;let v=f==='cost'&&el.value===''?'':numIn(el.value);
@@ -743,7 +749,8 @@ function vEditor(type,id){
   // actions
   $('#save').onclick=()=>saveInv(false);
   const sn=$('#saveNew');if(sn)sn.onclick=()=>saveInv(true);
-  const pr=$('#prt');if(pr)pr.onclick=()=>printInv(ED.id);
+  const pr=$('#prt');if(pr)pr.onclick=()=>printInv(ED.id||{...inv,no:'—',draft:true});
+  const sp=$('#savePrt');if(sp)sp.onclick=async()=>{const id=await saveInv(false);if(id)printInv(id)};
   const nb=$('#newB');if(nb)nb.onclick=()=>{const t=inv.type;ED=null;go(grpOf(t))};
   const cv=$('#conv');if(cv)cv.onclick=()=>convertDoc(ED.id);
   const dl=$('#delInv');if(dl)dl.onclick=async()=>{if(!can('editInv')||isLocked(ED.orig.date)){toast('غير مسموح بحذف هذه الفاتورة','err');return}if(await confirmBox(`حذف ${T.full} رقم ${inv.no} نهائيًا؟ ستتعدل الأرصدة والأرباح تلقائيًا.`,'حذف',true)){const n=inv.no;await audit('invoice',ED.id,'حذف الفاتورة',`#${n} — ${fmt(invTotals(ED.orig).total)}`,'محذوفة',T.full);await del('invoices',ED.id);ED=null;toast('تم حذف الفاتورة');go('invoices')}};
@@ -811,7 +818,9 @@ function addLine(pid){
     if(cur+1>av+0.0001){toast(`الكمية أقل من المطلوبة — المتاح من «${p?.name||''}» ${fq(av)} بس`,'err');return}}
   if(ex>=0){if(inv.type!=='count')inv.lines[ex].qty=(+inv.lines[ex].qty||0)+1}
   else{const sale=isSaleT(inv.type);inv.lines.push({pid,qty:inv.type==='count'?Math.max(0,Math.round(qtyIn(pid,inv.storeId)*1000)/1000):1,price:sale?salePrice(p,inv.partyId):Math.round(avgCost(pid)*100)/100||(+p.cost||0),disc:0,cost:'',...(PURT.includes(inv.type)?{consumer:consOf(p)}:{})})}
-  render();setTimeout(()=>{const i=ex>=0?ex:inv.lines.length-1;const q=$(`input[data-i="${i}"][data-f="qty"]`);if(q){q.focus();q.select();q.classList.add('flash')}},30);
+  let ni=ex>=0?ex:inv.lines.length-1;
+  if(isSaleT(inv.type)||inv.type==='transfer'){const cur=inv.lines[ni];inv.lines.sort((a,b)=>pname(a.pid).localeCompare(pname(b.pid)));ni=inv.lines.indexOf(cur)}
+  render();setTimeout(()=>{const i=ni;const q=$(`input[data-i="${i}"][data-f="qty"]`);if(q){q.focus();q.select();q.classList.add('flash')}},30);
 }
 async function saveInv(andNew){
   const inv=ED.inv,T=TYPES[inv.type];
@@ -874,6 +883,7 @@ async function saveInv(andNew){
   toast(`تم حفظ ${T.full} رقم ${doc.no}`);
   if(andNew){ED={id:null,inv:newInv(inv.type),grp:grpOf(inv.type)};render()}
   else{ED={id,inv:clone(doc),orig:clone(doc)};if(route().p!=='inv')history.replaceState(null,'','#/inv/'+id);render()}
+  return id;
 }
 async function diffAudit(o,n,id){
   const T=TYPES[n.type].full+' #'+n.no;const ops=[];
@@ -891,13 +901,31 @@ async function diffAudit(o,n,id){
 
 /* ============ print ============ */
 function printInv(id){
-  const inv=G('invoices',id);if(!inv)return;const t=invTotals(inv);const s=settings();const T=TYPES[inv.type];$('#print').className='';
-  $('#print').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-start"><div><h2 style="margin:0">${esc(s.company||'')}</h2><div>${esc(s.phone||'')} ${esc(s.address||'')}</div></div><div style="text-align:left"><h2 style="margin:0">${T.full}</h2><div>رقم ${inv.no} — ${inv.date}</div></div></div>
-  <p>${T.party?(T.party==='customer'?'العميل: ':'المورد: ')+esc(partyName(inv.partyId)||'نقدي'):''} — المخزن: ${esc(storeName(inv.storeId))}</p>
-  <table><thead><tr><th>م</th><th>الصنف</th><th>الكمية</th><th>السعر</th><th>خصم%</th><th>الإجمالي</th></tr></thead><tbody>${inv.lines.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(pname(l.pid))}</td><td>${fq(l.qty)}</td><td>${fmt(l.price)}</td><td>${l.disc||0}</td><td>${fmt(l.qty*l.price*(1-(l.disc||0)/100))}</td></tr>`).join('')}</tbody></table>
-  <table style="width:300px;margin-top:10px;margin-inline-start:auto"><tr><td>الإجمالي</td><td>${fmt(t.sub)}</td></tr><tr><td>خصم</td><td>${fmt(inv.discount)}</td></tr><tr><td>ضريبة</td><td>${fmt(t.tax)}</td></tr><tr><td><b>الصافي</b></td><td><b>${fmt(t.total)}</b></td></tr><tr><td>المدفوع</td><td>${fmt(t.paid)}</td></tr><tr><td>الباقي</td><td>${fmt(t.rest)}</td></tr></table>
-  ${inv.notes?`<p>ملاحظات: ${esc(inv.notes)}</p>`:''}`;
-  try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}
+  const inv=typeof id==='object'?id:G('invoices',id);if(!inv)return;const t=invTotals(inv);const s=settings();const T=TYPES[inv.type];$('#print').className='';
+  const p=inv.partyId?G('parties',inv.partyId):null;const tr=p&&isSaleT(inv.type)?tierOf(inv.partyId):null;
+  const lines=(inv.lines||[]).filter(l=>l.pid).slice().sort((a,b)=>pname(a.pid).localeCompare(pname(b.pid)));
+  const showCons=isSaleT(inv.type);let qty=0;lines.forEach(l=>qty+=+l.qty||0);
+  let bal=null;if(p&&['sale','sret','purchase','pret'].includes(inv.type)){const R=calc();const sg=p.kind==='vendor'?-1:1;const now=sg*(R.party[inv.partyId]||0);
+    const eff=sg*(({sale:1,pret:1,sret:-1,purchase:-1}[inv.type]||0)*(t.total-(+inv.paid||0)));bal=typeof id==='object'?{prev:now,now:now+eff}:{prev:now-eff,now}}
+  $('#print').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:8px">
+     <div><h2 style="margin:0">${esc(s.company||'')}</h2><div>${[s.address,s.phone].filter(Boolean).map(esc).join(' — ')}</div></div>
+     <div style="text-align:left"><h2 style="margin:0">${T.full}${inv.draft?' (مسودة)':''}</h2><div>رقم ${esc(String(inv.no))} — ${inv.date||today()}</div></div></div>
+   <table style="margin:8px 0;border:0"><tr>
+     ${T.party?`<td style="border:0;padding:2px 0"><b>${T.party==='customer'?'العميل':'المورد'}:</b> ${esc(p?p.name:'نقدي')}</td>`:''}
+     ${p&&p.phone?`<td style="border:0;padding:2px 0"><b>التليفون:</b> ${esc(p.phone)}</td>`:''}
+     ${tr?`<td style="border:0;padding:2px 0"><b>الشريحة:</b> ${esc(tr.name)}</td>`:''}
+     <td style="border:0;padding:2px 0"><b>المخزن:</b> ${esc(storeName(inv.storeId))}${inv.type==='transfer'?' ← '+esc(storeName(inv.toStoreId)):''}</td>
+     ${inv.empId?`<td style="border:0;padding:2px 0"><b>البائع:</b> ${esc(empName(inv.empId))}</td>`:''}</tr>
+     ${p&&p.address?`<tr><td colspan="5" style="border:0;padding:2px 0"><b>العنوان:</b> ${esc(p.address)}</td></tr>`:''}</table>
+   <table><thead><tr><th style="width:30px">م</th><th>الصنف</th><th style="width:60px">الكمية</th>${showCons?'<th style="width:80px">سعر المستهلك</th>':''}<th style="width:80px">السعر</th><th style="width:50px">خصم%</th><th style="width:95px">الإجمالي</th></tr></thead><tbody>
+   ${lines.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(pname(l.pid))}</td><td>${fq(l.qty)}</td>${showCons?`<td>${fmt(consOf(G('products',l.pid)))}</td>`:''}<td>${fmt(l.price)}</td><td>${+l.disc||''}</td><td>${fmt((+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100))}</td></tr>`).join('')}</tbody></table>
+   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-top:10px">
+     <div style="font-size:12px">عدد الأصناف: ${lines.length} — إجمالي الكميات: ${fq(qty)}${inv.notes?`<p>ملاحظات: ${esc(inv.notes)}</p>`:''}${tr&&+tr.days&&inv.type==='sale'?`<p>تاريخ الاستحقاق: ${addDays(inv.date||today(),+tr.days)}</p>`:''}</div>
+     <table style="width:300px"><tr><td>الإجمالي</td><td>${fmt(t.sub)}</td></tr>${+inv.discount?`<tr><td>خصم</td><td>${fmt(inv.discount)}</td></tr>`:''}${t.tax?`<tr><td>ضريبة</td><td>${fmt(t.tax)}</td></tr>`:''}<tr><td><b>الصافي</b></td><td><b>${fmt(t.total)}</b></td></tr><tr><td>المدفوع</td><td>${fmt(t.paid)}</td></tr><tr><td>الباقي</td><td>${fmt(t.rest)}</td></tr>
+     ${bal?`<tr><td>الرصيد السابق</td><td>${fmt(bal.prev)}</td></tr><tr><td><b>الرصيد الحالي</b></td><td><b>${fmt(bal.now)}</b></td></tr>`:''}</table></div>
+   <div style="display:flex;justify-content:space-between;margin-top:36px"><div>المستلم: ..................</div><div>التوقيع: ..................</div></div>
+   <p style="font-size:11px;margin-top:16px">طُبع من ميزان — ${today()} ${nowHM()}</p>`;
+  setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50);
 }
 
 /* ============ INVOICES LIST ============ */
