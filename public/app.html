@@ -706,7 +706,7 @@ function vEditor(type,id){
    </div>
    ${tierInfo(inv)}<div class="psearch">${ic('search')}<input class="in" id="ps" placeholder="امسح الباركود أو اكتب اسم/كود الصنف ثم Enter" autocomplete="off"><div class="sugg" id="sugg" hidden></div></div>
    ${inv.type==='count'&&!ED.id?`<div class="row" style="margin:-4px 0 12px"><button class="btn s" id="cntAll">إضافة كل الأصناف بأرصدتها الدفترية</button><span class="small muted">ثم عدّل عمود "الكمية الفعلية" بما عددته على الرف. الفروقات تُسوّى بمتوسط التكلفة عند الحفظ.</span></div>`:''}
-   <div class="tw"><table class="t" id="lt"><thead><tr><th>#</th><th style="min-width:180px">الصنف</th>${inv.type==='count'?'<th class="n">الرصيد الدفتري</th><th>الكمية الفعلية</th>':'<th class="n">المتاح</th><th>الكمية</th>'}<th>${isSale?'سعر البيع':PURT.includes(inv.type)?'سعر الشراء':'السعر'}</th>${PURT.includes(inv.type)?'<th>سعر المستهلك</th><th class="n">التكلفة الحالية</th>':isSale?'<th class="n">سعر المستهلك</th>':''}<th>خصم %</th>${showC?'<th title="اتركها فارغة للحساب التلقائي بمتوسط التكلفة">التكلفة</th>':''}<th class="n">${inv.type==='count'?'الفرق':'الإجمالي'}</th>${showC?'<th class="n">الربح</th>':''}<th></th></tr></thead>
+   <div class="tw"><table class="t" id="lt"><thead><tr><th>#</th><th style="min-width:180px">الصنف</th>${inv.type==='count'?'<th class="n">الرصيد الدفتري</th><th>الكمية الفعلية</th>':'<th class="n">المتاح</th><th>الكمية</th>'}<th>${isSale?'سعر الصيدلي':PURT.includes(inv.type)?'سعر الشراء':'السعر'}</th>${PURT.includes(inv.type)?'<th>سعر المستهلك</th><th class="n">التكلفة الحالية</th>':isSale?'<th class="n">سعر المستهلك</th>':''}${noDisc(inv)?'':'<th>خصم %</th>'}${showC?'<th title="اتركها فارغة للحساب التلقائي بمتوسط التكلفة">التكلفة</th>':''}<th class="n">${inv.type==='count'?'الفرق':'الإجمالي'}</th>${showC?'<th class="n">الربح</th>':''}<th></th></tr></thead>
    <tbody>${inv.lines.length?inv.lines.map((l,i)=>lineRow(l,i,showC)).join(''):`<tr><td colspan="10"><div class="empty" style="padding:24px"><b>الفاتورة فاضية</b>ابحث عن صنف بالأعلى أو امسح الباركود لإضافته.</div></td></tr>`}</tbody></table></div>
    <div class="totals">
      <label class="f">ملاحظات<textarea class="in" rows="3" data-h="notes">${esc(inv.notes)}</textarea></label>
@@ -760,6 +760,7 @@ function vEditor(type,id){
   if(lockMsg){$$('#view input,#view select,#view textarea').forEach(x=>x.disabled=true);['save','delInv','conv','clr'].forEach(k=>{const b=$('#'+k);if(b)b.disabled=true});$$('[data-rm]').forEach(b=>b.disabled=true);$('#view .wrap').insertAdjacentHTML('afterbegin',`<div class="card" style="margin-bottom:12px;padding:10px 14px;border-color:var(--gold)">${lockMsg}</div>`);return}
   if(!ED.id||!inv.lines.length)setTimeout(()=>{if(!editing())ps.focus()},50);
 }
+const noDisc=inv=>isSaleT(inv.type)&&!(inv.lines||[]).some(l=>+l.disc);
 function lineRow(l,i,isSale){
   const inv=ED.inv;const p=G('products',l.pid);const auto=avgCost(l.pid);
   const man=l.cost!==''&&l.cost!=null;
@@ -768,7 +769,7 @@ function lineRow(l,i,isSale){
    <td><input class="cell n" data-i="${i}" data-f="qty" inputmode="decimal" value="${l.qty}"></td>
    <td><input class="cell n" data-i="${i}" data-f="price" inputmode="decimal" value="${l.price??0}" ${isSaleT(inv.type)&&!can('editPrice')?'readonly title="تغيير السعر غير مسموح لصلاحيتك"':''}></td>
    ${PURT.includes(inv.type)?`<td><input class="cell n" data-i="${i}" data-f="consumer" inputmode="decimal" value="${l.consumer??consOf(p)}" title="تعديله هنا بيحدّث سعر المستهلك في بيانات الصنف عند الحفظ"></td><td class="n muted" title="متوسط التكلفة قبل الفاتورة دي">${fmt(auto)}</td>`:isSaleT(inv.type)?`<td class="n muted">${fmt(consOf(p))}</td>`:''}
-   <td><input class="cell n" style="min-width:56px" data-i="${i}" data-f="disc" ${ED.inv.type==='count'?'readonly':''} inputmode="decimal" value="${l.disc||0}"></td>
+   ${noDisc(inv)?'':`<td><input class="cell n" style="min-width:56px" data-i="${i}" data-f="disc" ${ED.inv.type==='count'?'readonly':''} inputmode="decimal" value="${l.disc||0}"></td>`}
    ${isSale?`<td><input class="cell n ${man?'man':''}" data-i="${i}" data-f="cost" inputmode="decimal" value="${man?l.cost:''}" placeholder="${fmt(auto)}" title="فارغ = متوسط التكلفة تلقائيًا"></td>`:''}
    <td class="n" data-tot="${i}"></td>${isSale?`<td class="n" data-pr="${i}"></td>`:''}
    <td><button class="btn ic s" data-rm="${i}" title="حذف السطر" aria-label="حذف السطر">${ic('x')}</button></td></tr>`;
@@ -864,7 +865,7 @@ async function saveInv(andNew){
        if(man&&avg>0&&(+l.cost<avg*0.5||+l.cost>avg*2))odd.push(`${pname(l.pid)} (${fmt(l.cost)} والمتوسط ${fmt(avg)})`);
        if(Math.abs((+l.qty||0)-Math.round(+l.qty||0))>0.0001)fz.push(`${pname(l.pid)} (${fq(l.qty)})`)}
      if(loss.length)W.push((can('seeCost')?'بيع بأقل من التكلفة: ':'سعر بيع أقل من المسموح: ')+lim(loss));
-     if(high.length)W.push('سعر البيع أعلى من سعر المستهلك بكتير: '+lim(high));
+     if(high.length)W.push('سعر الصيدلي أعلى من سعر المستهلك بكتير: '+lim(high));
      if(odd.length)W.push('تكلفة يدوي بعيدة عن متوسط التكلفة: '+lim(odd));
      if(fz.length)W.push('كمية بكسور: '+lim(fz));
    }
@@ -915,7 +916,7 @@ function printInv(id){
   const inv=typeof id==='object'?id:G('invoices',id);if(!inv)return;const t=invTotals(inv);const s=settings();const T=TYPES[inv.type];$('#print').className='';
   const p=inv.partyId?G('parties',inv.partyId):null;const tr=p&&isSaleT(inv.type)?tierOf(inv.partyId):null;
   const lines=(inv.lines||[]).filter(l=>l.pid).slice().sort((a,b)=>pname(a.pid).localeCompare(pname(b.pid)));
-  const showCons=isSaleT(inv.type);let qty=0;lines.forEach(l=>qty+=+l.qty||0);
+  const showCons=isSaleT(inv.type);const nd=noDisc(inv);let qty=0;lines.forEach(l=>qty+=+l.qty||0);
   let bal=null;if(p&&['sale','sret','purchase','pret'].includes(inv.type)){const R=calc();const sg=p.kind==='vendor'?-1:1;const now=sg*(R.party[inv.partyId]||0);
     const sgn=sg*({sale:1,pret:1,sret:-1,purchase:-1}[inv.type]||0);const eff=sgn*(t.total-(+inv.paid||0));if(typeof id==='object')bal={prev:now,now:now+eff,sgn};else{const pv=balBefore(inv.partyId,id);const pr=pv!=null?pv:now-eff;bal={prev:pr,now:pr+eff,sgn}}}
   $('#print').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:8px">
@@ -928,8 +929,8 @@ function printInv(id){
      <td style="border:0;padding:2px 0"><b>المخزن:</b> ${esc(storeName(inv.storeId))}${inv.type==='transfer'?' ← '+esc(storeName(inv.toStoreId)):''}</td>
      ${inv.empId?`<td style="border:0;padding:2px 0"><b>البائع:</b> ${esc(empName(inv.empId))}</td>`:''}</tr>
      ${p&&p.address?`<tr><td colspan="5" style="border:0;padding:2px 0"><b>العنوان:</b> ${esc(p.address)}</td></tr>`:''}</table>
-   <table><thead><tr><th style="width:30px">م</th><th>الصنف</th><th style="width:60px">الكمية</th>${showCons?'<th style="width:80px">سعر المستهلك</th>':''}<th style="width:80px">${showCons?'سعر البيع':'السعر'}</th><th style="width:50px">خصم%</th><th style="width:95px">الإجمالي</th></tr></thead><tbody>
-   ${lines.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(pname(l.pid))}</td><td>${fq(l.qty)}</td>${showCons?`<td>${fmt(consOf(G('products',l.pid)))}</td>`:''}<td>${fmt(l.price)}</td><td>${+l.disc||''}</td><td>${fmt((+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100))}</td></tr>`).join('')}</tbody></table>
+   <table><thead><tr><th style="width:30px">م</th><th>الصنف</th><th style="width:60px">الكمية</th><th style="width:80px">${showCons?'سعر الصيدلي':'السعر'}</th>${showCons?'<th style="width:80px">سعر المستهلك</th>':''}${nd?'':'<th style="width:50px">خصم%</th>'}<th style="width:95px">الإجمالي</th></tr></thead><tbody>
+   ${lines.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(pname(l.pid))}</td><td>${fq(l.qty)}</td><td>${fmt(l.price)}</td>${showCons?`<td>${fmt(consOf(G('products',l.pid)))}</td>`:''}${nd?'':`<td>${+l.disc||''}</td>`}<td>${fmt((+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100))}</td></tr>`).join('')}</tbody></table>
    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-top:10px">
      <div style="font-size:12px">عدد الأصناف: ${lines.length} — إجمالي الكميات: ${fq(qty)}${inv.notes?`<p>ملاحظات: ${esc(inv.notes)}</p>`:''}${tr&&+tr.days&&inv.type==='sale'?`<p>تاريخ الاستحقاق: ${addDays(inv.date||today(),+tr.days)}</p>`:''}</div>
      <table style="width:300px">${+inv.discount?`<tr><td>إجمالي الأصناف</td><td>${fmt(t.sub)}</td></tr><tr><td>خصم</td><td>${fmt(inv.discount)}</td></tr>`:''}<tr><td><b>صافي الفاتورة</b></td><td><b>${fmt(t.total)}</b></td></tr>
