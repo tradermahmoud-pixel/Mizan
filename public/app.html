@@ -713,7 +713,9 @@ function vEditor(type,id){
    </div>
    ${['sret','pret'].includes(inv.type)&&!ED.id?(inv.fromInv&&G('invoices',inv.fromInv)?`<div class="card" style="margin:12px 0 0;padding:10px 14px;border-color:var(--brand)"><div class="row"><span>${ic('ret','style="width:18px;height:18px;vertical-align:-4px"')} مرتجع من ${esc(TYPES[G('invoices',inv.fromInv).type].full)} رقم <b>${esc(G('invoices',inv.fromInv).no)}</b> بتاريخ ${esc(G('invoices',inv.fromInv).date)}</span><span class="sp"></span><button class="btn s" id="retPick">تعديل الأصناف</button><button class="btn s" id="retUnlink">فك الربط</button></div></div>`
      :`<div class="card" style="margin:12px 0 0;padding:10px 14px"><div class="row"><b>${ic('ret','style="width:18px;height:18px;vertical-align:-4px"')} مرتجع برقم الفاتورة:</b><input class="in n" id="retNo" style="width:150px" inputmode="numeric" placeholder="رقم ${inv.type==='sret'?'فاتورة البيع':'فاتورة الشراء'}"><button class="btn s p" id="retLoad">تحميل أصنافها</button><span class="small muted">أو ابحث بالصنف تحت — السعر هيتجاب من آخر ${inv.type==='sret'?'فاتورة بيع للعميل':'فاتورة شراء من المورد'}.</span></div></div>`):''}
-   ${tierInfo(inv)}<div class="psearch">${ic('search')}<input class="in" id="ps" placeholder="امسح الباركود أو اكتب اسم/كود الصنف ثم Enter" autocomplete="off"><div class="sugg" id="sugg" hidden></div></div>
+   ${tierInfo(inv)}<div class="row" style="margin:16px 0 12px;gap:8px"><div class="psearch" style="flex:1 1 320px;margin:0">${ic('search')}<input class="in" id="ps" placeholder="امسح الباركود أو اكتب اسم/كود الصنف ثم Enter" autocomplete="off"><div class="sugg" id="sugg" hidden></div></div>
+     <div class="seg" title="طريقة البحث بالاسم"><button type="button" data-sm="start" class="${SMODE()==='start'?'on':''}">أول الكلمة</button><button type="button" data-sm="any" class="${SMODE()==='any'?'on':''}">جزء من الكلمة</button></div>
+     <button type="button" class="btn" id="psWide" title="عرض كل النتايج في شاشة كبيرة">${ic('search')}توسيع البحث</button></div>
    ${inv.type==='count'&&!ED.id?`<div class="row" style="margin:-4px 0 12px"><button class="btn s" id="cntAll">إضافة كل الأصناف بأرصدتها الدفترية</button><span class="small muted">ثم عدّل عمود "الكمية الفعلية" بما عددته على الرف. الفروقات تُسوّى بمتوسط التكلفة عند الحفظ.</span></div>`:''}
    <div class="tw"><table class="t" id="lt"><thead><tr><th>#</th><th style="min-width:180px">الصنف</th>${inv.type==='count'?'<th class="n">الرصيد الدفتري</th><th>الكمية الفعلية</th>':'<th class="n">المتاح</th><th>الكمية</th>'}<th>${isSale?'سعر الصيدلي':PURT.includes(inv.type)?'سعر الشراء':'السعر'}</th>${PURT.includes(inv.type)?'<th>سعر المستهلك</th><th class="n">التكلفة الحالية</th>':isSale?'<th class="n">سعر المستهلك</th>':''}${noDisc(inv)?'':'<th>خصم %</th>'}${showC?'<th title="اتركها فارغة للحساب التلقائي بمتوسط التكلفة">التكلفة</th>':''}<th class="n">${inv.type==='count'?'الفرق':'الإجمالي'}</th>${showC?'<th class="n">الربح</th>':''}<th></th></tr></thead>
    <tbody>${inv.lines.length?inv.lines.map((l,i)=>lineRow(l,i,showC)).join(''):`<tr><td colspan="10"><div class="empty" style="padding:24px"><b>الفاتورة فاضية</b>ابحث عن صنف بالأعلى أو امسح الباركود لإضافته.</div></td></tr>`}</tbody></table></div>
@@ -751,10 +753,13 @@ function vEditor(type,id){
   lt.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.f){e.preventDefault();const all=$$('#lt input[data-f]');const k=all.indexOf(e.target);if(e.target.dataset.f==='qty'||k===all.length-1)$('#ps').focus();else all[k+1]?.focus()}});
   // search
   const ps=$('#ps'),sg=$('#sugg');let hits=[],hi=0;
-  const draw=()=>{if(!hits.length){sg.hidden=true;return}sg.hidden=false;sg.innerHTML=hits.map((p,k)=>`<button data-k="${k}" class="${k===hi?'on':''}"><b style="flex:1;text-align:right">${esc(p.name)}</b><span class="small muted">${esc(p.code||'')}</span><span class="tag num">${fq(qtyIn(p.id,inv.storeId))}</span><span class="num">${fmt(isSale?salePrice(p,inv.partyId):avgCost(p.id))}</span><span class="small muted num" title="سعر المستهلك">م ${fmt(consOf(p))}</span></button>`).join('')};
-  ps.oninput=()=>{const q=norm(ps.value);hi=0;if(!q){hits=[];draw();return}hits=pSearch(ps.value,8);draw()};
+  const draw=()=>{if(!hits.length){sg.hidden=true;return}sg.hidden=false;sg.innerHTML=hits.map((p,k)=>`<button data-k="${k}" class="${k===hi?'on':''}"><b style="flex:1;text-align:right">${esc(p.name)}</b><span class="small muted">${esc(p.code||'')}</span><span class="tag num">${fq(qtyIn(p.id,inv.storeId))}</span><span class="num">${fmt(isSale?salePrice(p,inv.partyId):avgCost(p.id))}</span><span class="small muted num" title="سعر المستهلك">م ${fmt(consOf(p))}</span></button>`).join('')+(tot>hits.length?`<button data-wide="1" style="justify-content:center;color:var(--brand-ink);font-weight:600">${ic('search')} عرض كل النتايج (${tot}) — توسيع البحث</button>`:'')};
+  let tot=0;
+  ps.oninput=()=>{const q=norm(ps.value);hi=0;if(!q){hits=[];tot=0;draw();return}const all=pFind(ps.value,SMODE(),300);tot=all.length;hits=all.slice(0,8);draw()};
+  $$('[data-sm]').forEach(b=>b.onmousedown=e=>{e.preventDefault();setSMODE(b.dataset.sm);$$('[data-sm]').forEach(x=>x.classList.toggle('on',x===b));ps.oninput();ps.focus()});
+  $('#psWide').onclick=()=>wideSearch(ps.value,inv,isSale);
   ps.onkeydown=e=>{if(e.key==='ArrowDown'){hi=Math.min(hi+1,hits.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){hi=Math.max(0,hi-1);draw();e.preventDefault()}else if(e.key==='Enter'){e.preventDefault();const v=ps.value.replace(/[\u0000-\u001f]/g,'').trim();if(!v)return;const ex=L('products').find(p=>bcMatch(p,v,true));const p=ex||hits[hi];if(p)addLine(p.id);else toast('الصنف غير موجود — أضفه من شاشة الأصناف','err')}else if(e.key==='Escape'){hits=[];draw()}};
-  sg.onmousedown=e=>{const b=e.target.closest('[data-k]');if(b){e.preventDefault();addLine(hits[+b.dataset.k].id)}};
+  sg.onmousedown=e=>{const w=e.target.closest('[data-wide]');if(w){e.preventDefault();sg.hidden=true;wideSearch(ps.value,inv,isSale);return}const b=e.target.closest('[data-k]');if(b){e.preventDefault();addLine(hits[+b.dataset.k].id)}};
   ps.onblur=()=>setTimeout(()=>{sg.hidden=true},150);
   // actions
   $('#save').onclick=()=>saveInv(false);
@@ -776,6 +781,38 @@ function vEditor(type,id){
   if(!ED.id||!inv.lines.length)setTimeout(()=>{if(!editing())ps.focus()},50);
 }
 const noDisc=inv=>isSaleT(inv.type)&&!(inv.lines||[]).some(l=>+l.disc);
+const SMODE=()=>{try{return localStorage.getItem('mizan.smode')||'start'}catch(e){return 'start'}};
+const setSMODE=v=>{try{localStorage.setItem('mizan.smode',v)}catch(e){}};
+function pFind(q,mode,lim){q=String(q||'').trim();if(!q)return [];const nq=norm(q);const ws=nq.split(/\s+/).filter(Boolean);const out=[],seen=new Set();
+  const push=p=>{if(!seen.has(p.id)){seen.add(p.id);out.push(p)}};
+  const idx=pIndex();
+  for(const x of idx){if(x.c===nq||x.b.split(' ').includes(q))push(x.p)}
+  if(mode==='start'){
+    for(const x of idx){if(x.n.startsWith(nq)||x.c.startsWith(nq))push(x.p)}
+    if(ws.length>1)for(const x of idx){if(x.n.startsWith(ws[0])&&ws.slice(1).every(w=>x.n.includes(w)))push(x.p)}
+  }else{
+    for(const x of idx){if(x.n.startsWith(nq))push(x.p)}
+    for(const x of idx){if(x.n.includes(nq)||x.c.includes(nq)||x.b.includes(q))push(x.p)}
+    if(ws.length>1)for(const x of idx){if(ws.every(w=>x.n.includes(w)))push(x.p)}
+  }
+  return lim?out.slice(0,lim):out}
+function wideSearch(q0,inv,isSale){
+  let q=q0||'',mode=SMODE(),onlyStock=false,added=0;
+  const draw=()=>{let xs=pFind(q,mode,500);if(!q.trim())xs=L('products').slice().sort((a,b)=>a.name.localeCompare(b.name)).slice(0,500);if(onlyStock)xs=xs.filter(p=>qtyIn(p.id,inv.storeId)>0);
+    $('#wsT').innerHTML=xs.map(p=>{const av=qtyIn(p.id,inv.storeId);return `<tr class="click" data-wa="${esc(p.id)}"><td><b>${esc(p.name)}</b><div class="small muted">${esc(p.code||'')}${p.group?' · '+esc(p.group):''}</div></td><td class="n ${av<=0?'neg':''}">${fq(av)}</td><td class="n">${fmt(isSale?salePrice(p,inv.partyId):avgCost(p.id))}</td><td class="n muted">${fmt(consOf(p))}</td><td style="width:70px"><button class="btn s p" data-wa="${esc(p.id)}">إضافة</button></td></tr>`}).join('')||'<tr><td colspan="5" class="muted">مفيش نتايج</td></tr>';
+    $('#wsN').textContent=xs.length+(xs.length>=500?'+':'')+' صنف';
+    $$('#wsT [data-wa]').forEach(el=>el.onclick=e=>{e.stopPropagation();const pid=el.dataset.wa;const before=ED.inv.lines.length;addLine(pid);added++;$('#wsA').textContent=added?`اتضاف ${added}`:'';const tr=el.closest('tr');if(tr)tr.style.background='var(--brand-soft)'})};
+  modal(`<h2>توسيع البحث عن صنف</h2><div class="row" style="margin-bottom:10px"><input class="in" id="wsQ" style="flex:1;min-width:220px" placeholder="اكتب جزء من الاسم أو الكود" value="${esc(q)}">
+    <div class="seg"><button type="button" data-wm="start" class="${mode==='start'?'on':''}">أول الكلمة</button><button type="button" data-wm="any" class="${mode==='any'?'on':''}">جزء من الكلمة</button></div>
+    <label class="row small" style="gap:6px"><input type="checkbox" id="wsS">اللي ليه رصيد بس</label><span class="small muted" id="wsN"></span></div>
+    <div class="tw" style="max-height:60vh;overflow:auto"><table class="t"><thead><tr><th>الصنف</th><th class="n">المتاح</th><th class="n">${isSale?'سعر الصيدلي':'التكلفة'}</th><th class="n">سعر المستهلك</th><th></th></tr></thead><tbody id="wsT"></tbody></table></div>
+    <div class="row" style="margin-top:12px"><span class="small pos" id="wsA"></span><span class="sp"></span><button class="btn p" data-close>تمام</button></div>`,true);
+  const qi=$('#wsQ');let tm=null;qi.oninput=()=>{clearTimeout(tm);tm=setTimeout(()=>{q=qi.value;draw()},120)};
+  qi.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();const f=$('#wsT [data-wa]');if(f)f.click()}};
+  $$('[data-wm]').forEach(b=>b.onclick=()=>{mode=b.dataset.wm;setSMODE(mode);$$('[data-wm]').forEach(x=>x.classList.toggle('on',x===b));draw()});
+  $('#wsS').onchange=e=>{onlyStock=e.target.checked;draw()};
+  draw();setTimeout(()=>{qi.focus();qi.select()},40);
+}
 function lineRow(l,i,isSale){
   const inv=ED.inv;const p=G('products',l.pid);const auto=avgCost(l.pid);
   const man=l.cost!==''&&l.cost!=null;
