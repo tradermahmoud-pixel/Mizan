@@ -319,7 +319,7 @@ const isSaleT=t=>['sale','sret','quote'].includes(t);
 const MAIN='main';
 
 /* ============ data store (cloud db with local fallback) ============ */
-const COLS=['products','parties','stores','invoices','cash','cheques','employees','attendance','adjust','audit','settings','members','roles','roledefs','safes','accounts','journal','leads','crm_reps'];
+const COLS=['products','parties','stores','invoices','cash','cheques','employees','attendance','adjust','audit','settings','members','roles','roledefs','safes','accounts','journal','leads','crm_reps','prints'];
 const S={mode:'loading',db:null,user:null,me:{id:null,name:''},data:{},names:{},ro:false};
 COLS.forEach(c=>S.data[c]=new Map());
 let V=0;const CV={};const bump=c=>{CV[c]=(CV[c]||0)+1;V++};
@@ -333,7 +333,7 @@ function dbErr(e){
   else toast('تعذّر الحفظ، حاول مرة أخرى','err');
   console.error(e);
 }
-const CHUNKED={products:64,parties:16,invoices:256,cash:32,attendance:32,audit:32,cheques:16,leads:32};
+const CHUNKED={products:64,parties:16,invoices:256,cash:32,attendance:32,audit:32,cheques:16,leads:32,prints:32};
 const fnv=s=>{let h=2166136261;for(const ch of String(s)){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0};
 S.loc={};
 const chunkOf=(c,id)=>(S.loc[c]&&S.loc[c].get(id))||('b'+String(fnv(id)%CHUNKED[c]).padStart(3,'0'));
@@ -398,16 +398,17 @@ const empName=id=>G('employees',id)?.name||'';
 const whoName=id=>{if(!id)return '';if(id===S.me.id)return S.me.name||'أنت';const su=window.MZ&&MZ.users&&MZ.users.find(u=>u.id===id);return su?su.name:(S.names[id]||'مستخدم')};
 
 /* ============ permissions ============ */
-const PERMS=[['sell','البيع والمرتجعات وعروض الأسعار'],['buy','الشراء وأوامر التوريد والتحويلات'],['editPrice','تغيير سعر البيع في الفاتورة'],['editInv','تعديل وحذف الفواتير المحفوظة وشبكة الحركات'],['seeCost','رؤية التكلفة والأرباح'],['products','الأصناف والأسعار والاستيراد والباركود'],['parties','العملاء والموردون وكشوف الحساب'],['cash','الخزينة والشيكات'],['reports','التقارير ولوحة الأرقام'],['hr','الموظفون والرواتب وتعديل الحضور'],['accounting','المحاسبة: شجرة الحسابات والقيود والقوائم المالية'],['crm','CRM الصيدليات: متابعة الصيدليات المتوزعة عليه'],['crmManage','CRM الصيدليات: التوزيع وإدارة الفريق وكل البيانات']];
+const PERMS=[['sell','البيع والمرتجعات وعروض الأسعار'],['buy','الشراء وأوامر التوريد والتحويلات'],['editPrice','تغيير سعر البيع في الفاتورة'],['editInv','تعديل وحذف الفواتير المحفوظة وشبكة الحركات'],['seeCost','رؤية التكلفة والأرباح'],['products','الأصناف والأسعار والاستيراد والباركود'],['parties','العملاء والموردون وكشوف الحساب'],['cash','الخزينة والشيكات'],['reports','التقارير ولوحة الأرقام'],['hr','الموظفون والرواتب وتعديل الحضور'],['accounting','المحاسبة: شجرة الحسابات والقيود والقوائم المالية'],['crm','CRM الصيدليات: متابعة الصيدليات المتوزعة عليه'],['crmManage','CRM الصيدليات: التوزيع وإدارة الفريق وكل البيانات'],['prep','التحضير والطباعة: طباعة فواتير السيلز وتسجيل التحضير']];
 const DEF_ROLES={
  manager:{name:'مدير فرع',perms:PERMS.map(p=>p[0]),maxDisc:''},
  accountant:{name:'محاسب',perms:['sell','buy','editPrice','editInv','seeCost','parties','cash','reports','accounting'],maxDisc:''},
  cashier:{name:'كاشير',perms:['sell','parties'],maxDisc:5},
  store:{name:'أمين مخزن',perms:['buy','products'],maxDisc:0},
  sales:{name:'مندوب مبيعات',perms:['crm'],maxDisc:0},
+ prep:{name:'مسئول التحضير',perms:['prep'],maxDisc:0},
  salesmgr:{name:'مدير/ة مبيعات',perms:['crm','crmManage','parties','reports','sell'],maxDisc:''},
 };
-const roleDefs=()=>{const d=G('roledefs','main');if(!d||!d.roles)return DEF_ROLES;const r={...d.roles};for(const k of ['sales','salesmgr'])if(!r[k]&&!(d.removed||[]).includes(k))r[k]=DEF_ROLES[k];return r};
+const roleDefs=()=>{const d=G('roledefs','main');if(!d||!d.roles)return DEF_ROLES;const r={...d.roles};for(const k of ['sales','salesmgr','prep'])if(!r[k]&&!(d.removed||[]).includes(k))r[k]=DEF_ROLES[k];return r};
 function computePerms(){
   const cloudUser=S.mode==='cloud'&&S.user&&S.me.id;
   S.isAdmin=!cloudUser||S.isOwner;S.fullRole=false;
@@ -417,8 +418,8 @@ function computePerms(){
   S.roleName=S.fullRole?'مدير عام — كل الصلاحيات':S.isAdmin?'المالك — كل الصلاحيات':(def?def.name:'بانتظار تحديد الصلاحية');
 }
 const can=p=>S.isAdmin||(S.perms||[]).includes(p);
-const ROUTEP={sret:'sell',pret:'buy',crm:'@crm',accounts:'accounting',sale:'sell',purchase:'buy',lines:'editInv',products:'products',import:'products',orders:'buy',barcode:'products',parties:'parties',cash:'cash',cheques:'cash',reports:'reports',employees:'hr',payroll:'hr',audit:'@',settings:'@',users:'@'};
-function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='crm')return can('crm')||can('crmManage');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
+const ROUTEP={prep:'@prep',sret:'sell',pret:'buy',crm:'@crm',accounts:'accounting',sale:'sell',purchase:'buy',lines:'editInv',products:'products',import:'products',orders:'buy',barcode:'products',parties:'parties',cash:'cash',cheques:'cash',reports:'reports',employees:'hr',payroll:'hr',audit:'@',settings:'@',users:'@'};
+function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='crm')return can('crm')||can('crmManage');if(k==='prep')return can('prep')||can('sell');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
 const isLocked=d=>!S.isAdmin&&!!settings().lockDate&&!!d&&d<=settings().lockDate;
 function ensureMember(){if(S.mode==='cloud'&&S.me.id&&S.memLoaded&&!S.regDone&&!G('members',S.me.id)&&!S.ro){S.regDone=true;put('members',S.me.id,{first:new Date().toISOString()}).catch(()=>{})}}
 function denied(msg){$('#view').innerHTML=`<div class="wrap"><div class="empty card"><b>${msg||'هذه الشاشة غير متاحة لصلاحيتك'}</b>صلاحيتك الحالية: ${esc(S.roleName)}. اطلب من المدير تعديلها من شاشة المستخدمين والصلاحيات.</div></div>`}
@@ -566,7 +567,7 @@ document.addEventListener('pointercancel',()=>{ptr=false;flushPend()},true);
 document.addEventListener('focusout',flushPend);
 
 const NAV=[
- ['البيع والشراء',[['dash','الرئيسية','home'],['sale','فاتورة بيع','sale'],['sret','مرتجع مبيعات','ret'],['purchase','فاتورة شراء','buy'],['pret','مرتجع مشتريات','ret'],['invoices','كل الفواتير','doc'],['lines','شبكة الحركات','grid'],['crm','CRM الصيدليات','users']]],
+ ['البيع والشراء',[['dash','الرئيسية','home'],['sale','فاتورة بيع','sale'],['sret','مرتجع مبيعات','ret'],['purchase','فاتورة شراء','buy'],['pret','مرتجع مشتريات','ret'],['invoices','كل الفواتير','doc'],['prep','التحضير والطباعة','print'],['lines','شبكة الحركات','grid'],['crm','CRM الصيدليات','users']]],
  ['المخزون',[['products','الأصناف والأرصدة','box'],['import','استيراد من Excel','up'],['orders','أوامر التوريد وعروض الأسعار','doc'],['barcode','طباعة الباركود','bar']]],
  ['الحسابات',[['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['cheques','الشيكات','chq'],['reports','التقارير والأرباح','chart'],['accounts','المحاسبة والقوائم المالية','ledger']]],
  ['الموظفون',[['attendance','الحضور والانصراف','clock'],['employees','بيانات الموظفين','badge'],['payroll','الرواتب','wallet']]],
@@ -592,7 +593,7 @@ function render_(){
   lastR=performance.now();computePerms();ensureMember();
   const {p,a}=route();renderShell(p);syncBadge();
   if(!canRoute(p)){setTitle('غير مسموح');denied();return}
-  const V_={sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
+  const V_={prep:vPrep,sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
   const f=V_[p]||vDash;
   if(S.mode==='cloud'&&!allReady()){loadingView();return}
   if(S.mode==='loading'&&!S.data.products.size){$('#title').textContent='ميزان';$('#view').innerHTML='<div class="empty"><b>جارٍ تحميل البيانات…</b></div>';return}
@@ -699,7 +700,7 @@ function vEditor(type,id){
   $('#view').innerHTML=`<div class="wrap">
    ${segTypes.length>1?`<div class="seg" style="margin-bottom:14px">${segTypes.map(k=>`<button data-type="${k}" class="${inv.type===k?'on':''}">${TYPES[k].full}</button>`).join('')}</div>`:''}
    ${inv.fromOrder&&!ED.id?`<div class="card" style="margin-bottom:12px;padding:12px;border-color:var(--gold)">تحويل ${esc(TYPES[G('invoices',inv.fromOrder)?.type]?.full||'')} رقم ${esc(G('invoices',inv.fromOrder)?.no||'')} — راجع الكميات والأسعار ثم احفظ.</div>`:''}
-   ${ED.id?`<div class="row" style="margin-bottom:12px"><span class="tag ${inv.type}">${T.t}</span>${T.doc?(inv.status==='converted'?` <span class="tag ok">تم التحويل</span>`:` <span class="tag purchase">مفتوح</span>`):''}<span class="small muted">أنشأها ${esc(whoName(inv.createdBy)||inv.orgaUser||'')} · ${(inv.createdAt||'').slice(0,16).replace('T',' ')}${inv.updatedAt?` · آخر تعديل ${inv.updatedAt.slice(0,16).replace('T',' ')}`:''}</span></div>`:''}
+   ${ED.id?`<div class="row" style="margin-bottom:12px"><span class="tag ${inv.type}">${T.t}</span>${T.doc?(inv.status==='converted'?` <span class="tag ok">تم التحويل</span>`:` <span class="tag purchase">مفتوح</span>`):''}<span class="small muted">أنشأها ${esc(whoName(inv.createdBy)||inv.orgaUser||'')} · ${ltm(inv.createdAt)}${inv.updatedAt?` · آخر تعديل ${ltm(inv.updatedAt)}`:''}</span></div>`:''}
    <div class="edhead">
      <label class="f">التاريخ<input class="in" type="date" data-h="date" value="${esc(inv.date)}"></label>
      ${pk?`<label class="f">${pk==='customer'?'العميل':'المورد'}<div class="row" style="flex-wrap:nowrap;gap:6px"><select class="in" data-h="partyId">${opts(parties.map(p=>[p.id,p.name]),inv.partyId,pk==='customer'?'عميل نقدي':'— اختر المورد —')}</select><button class="btn ic" id="addParty" title="إضافة جديد">${ic('plus')}</button></div></label>`:''}
@@ -721,7 +722,7 @@ function vEditor(type,id){
      <button class="btn p" id="save" ${S.ro?'disabled':''}>حفظ (Ctrl+S)</button>
      ${!ED.id?`<button class="btn" id="saveNew" ${S.ro?'disabled':''}>حفظ وفاتورة جديدة</button>`:''}
      ${ED.id&&['sale','purchase'].includes(inv.type)&&can(inv.type==='sale'?'sell':'buy')&&!S.ro?`<button class="btn" id="mkRet">${ic('ret')}مرتجع من الفاتورة</button>`:''}
-     ${!ED.id&&!S.ro?`<button class="btn" id="savePrt">${ic('print')}حفظ وطباعة</button>`:''}<button class="btn" id="prt">${ic('print')}طباعة${ED.id?'':' (مسودة)'}</button>${ED.id?`<button class="btn" id="newB">${ic('plus')}جديد</button>`:''}
+     ${settings().printOnlyPrep&&!canPrep()&&['sale','sret'].includes(inv.type)?`<span class="small muted" style="align-self:center">${ED.id?(prn(ED.id)&&prn(ED.id).n?'✓ اتطبعت '+prn(ED.id).n+' مرة':'لسه ما اتطبعتش')+' — ':''}الطباعة من شاشة التحضير</span>`:`${!ED.id&&!S.ro?`<button class="btn" id="savePrt">${ic('print')}حفظ وطباعة</button>`:''}<button class="btn" id="prt">${ic('print')}طباعة${ED.id?(prn(ED.id)&&prn(ED.id).n?' (اتطبعت '+prn(ED.id).n+')':''):' (مسودة)'}</button>`}${ED.id?`<button class="btn" id="newB">${ic('plus')}جديد</button>`:''}
      ${ED.id&&T.doc&&inv.status!=='converted'?`<button class="btn g" id="conv" ${S.ro?'disabled':''}>تحويل إلى ${TYPES[T.to].full}</button>`:''}
      ${ED.id&&T.doc&&inv.status==='converted'&&G('invoices',inv.convertedTo)?`<a class="btn" href="#/inv/${inv.convertedTo}">فتح ${TYPES[T.to].full} #${G('invoices',inv.convertedTo).no}</a>`:''}
      <span class="sp"></span>
@@ -965,16 +966,16 @@ function pickReturnLines(o){
     if(!out.length){toast('اكتب كمية لصنف واحد على الأقل','err');return}
     inv.lines=out.sort((a,b)=>pname(a.pid).localeCompare(pname(b.pid)));inv.fromInv=o.id;closeModal();render();toast(`اتضاف ${out.length} صنف للمرتجع`)};
 }
-function printInv(id){
-  const inv=typeof id==='object'?id:G('invoices',id);if(!inv)return;const t=invTotals(inv);const s=settings();const T=TYPES[inv.type];$('#print').className='';
+function invPrintHTML(id,label){
+  const inv=typeof id==='object'?id:G('invoices',id);if(!inv)return;const t=invTotals(inv);const s=settings();const T=TYPES[inv.type];
   const p=inv.partyId?G('parties',inv.partyId):null;const tr=p&&isSaleT(inv.type)?tierOf(inv.partyId):null;
   const lines=(inv.lines||[]).filter(l=>l.pid).slice().sort((a,b)=>pname(a.pid).localeCompare(pname(b.pid)));
   const showCons=isSaleT(inv.type);const nd=noDisc(inv);let qty=0;lines.forEach(l=>qty+=+l.qty||0);
   let bal=null;if(p&&['sale','sret','purchase','pret'].includes(inv.type)){const R=calc();const sg=p.kind==='vendor'?-1:1;const now=sg*(R.party[inv.partyId]||0);
     const sgn=sg*({sale:1,pret:1,sret:-1,purchase:-1}[inv.type]||0);const eff=sgn*(t.total-(+inv.paid||0));if(typeof id==='object')bal={prev:now,now:now+eff,sgn};else{const pv=balBefore(inv.partyId,id);const pr=pv!=null?pv:now-eff;bal={prev:pr,now:pr+eff,sgn}}}
-  $('#print').innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:8px">
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:8px">
      <div><h2 style="margin:0">${esc(s.company||'')}</h2><div>${[s.address,s.phone].filter(Boolean).map(esc).join(' — ')}</div></div>
-     <div style="text-align:left"><h2 style="margin:0">${T.full}${inv.draft?' (مسودة)':''}</h2><div>رقم ${esc(String(inv.no))} — ${inv.date||today()}</div></div></div>
+     <div style="text-align:left">${label?`<div style="border:1.5px solid #000;padding:1px 10px;display:inline-block;font-weight:700;margin-bottom:4px">${esc(label)}</div>`:''}<h2 style="margin:0">${T.full}${inv.draft?' (مسودة)':''}</h2><div>رقم ${esc(String(inv.no))} — ${inv.date||today()}</div></div></div>
    <table style="margin:8px 0;border:0"><tr>
      ${T.party?`<td style="border:0;padding:2px 0"><b>${T.party==='customer'?'العميل':'المورد'}:</b> ${esc(p?p.name:'نقدي')}</td>`:''}
      ${p&&p.phone?`<td style="border:0;padding:2px 0"><b>التليفون:</b> ${esc(p.phone)}</td>`:''}
@@ -990,11 +991,73 @@ function printInv(id){
      ${bal&&Math.abs(bal.prev)>0.009?`<tr><td>الرصيد السابق</td><td>${fmt(bal.prev)}</td></tr><tr><td><b>الإجمالي المستحق</b></td><td><b>${fmt(bal.prev+bal.sgn*t.total)}</b></td></tr>`:''}
      <tr><td>المدفوع</td><td>${fmt(t.paid)}</td></tr>${bal?`<tr><td><b>الرصيد بعد الفاتورة</b></td><td><b>${fmt(bal.now)}</b></td></tr>`:`<tr><td>الباقي</td><td>${fmt(t.rest)}</td></tr>`}</table></div>
    <div style="display:flex;justify-content:space-between;margin-top:36px"><div>المستلم: ..................</div><div>التوقيع: ..................</div></div>
-   <p style="font-size:11px;margin-top:16px">طُبع من ميزان — ${today()} ${nowHM()}</p>`;
-  setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50);
+   <p style="font-size:11px;margin-top:16px">طُبع من ميزان — ${today()} ${nowHM()}${inv.createdBy?' — أنشأها '+esc(whoName(inv.createdBy)):''}</p>`;
 }
 
 /* ============ INVOICES LIST ============ */
+const ltm=iso=>{if(!iso)return '';const d=new Date(iso);if(isNaN(d))return String(iso).slice(0,16).replace('T',' ');const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`};
+const prn=id=>G('prints',id)||null;
+function prnLabel(id){const p=prn(id);return p&&p.n?`نسخة مكررة (${p.n+1})`:'أصل'}
+async function recordPrint(ids){const at=new Date().toISOString(),who=(S.me&&S.me.name)||'';
+  await putMany(ids.map(id=>{const c=prn(id)||{};return ['prints',id,{...c,n:(c.n||0)+1,first:c.first||at,last:at,lastBy:who,log:[{at,by:who},...(c.log||[])].slice(0,20)}]}))}
+function printInv(id,opt={}){
+  if(typeof id==='object'){$('#print').className='';$('#print').innerHTML=invPrintHTML(id,'');setTimeout(()=>{try{window.print()}catch(e){}},50);return}
+  const go_=async()=>{$('#print').className='';$('#print').innerHTML=invPrintHTML(id,prnLabel(id));await recordPrint([id]).catch(()=>{});setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50)};
+  const p=prn(id);if(p&&p.n&&!opt.force){confirmBox(`الفاتورة دي اتطبعت قبل كده ${p.n} مرة — آخر مرة ${ltm(p.last)}${p.lastBy?' بواسطة '+p.lastBy:''}. تطبع نسخة مكررة؟`,'طباعة نسخة مكررة').then(ok=>{if(ok)go_()});return}
+  go_();
+}
+async function printMany(ids){if(!ids.length)return;$('#print').className='';
+  $('#print').innerHTML=ids.map(id=>invPrintHTML(id,prnLabel(id))).join('<div style="page-break-after:always;break-after:page"></div>');
+  await recordPrint(ids).catch(()=>{});setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50)}
+
+/* ============ PREP / PRINT QUEUE ============ */
+let PQ_={f:'todo',days:1,q:'',who:'',type:'sale'};
+const canPrep=()=>S.isAdmin||can('prep');
+function vPrep(){
+  setTitle('التحضير والطباعة');const t=today();const from=addDays(t,-(+PQ_.days||1)+1);
+  let xs=L('invoices').filter(i=>(PQ_.type==='all'?['sale','sret','transfer'].includes(i.type):i.type===PQ_.type)&&(i.date||'')>=from);
+  const st=i=>{const p=prn(i.id);return p&&p.n?'printed':'todo'};const prepd=i=>{const p=prn(i.id);return !!(p&&p.prepAt)};
+  const cnt={todo:xs.filter(i=>st(i)==='todo').length,printed:xs.filter(i=>st(i)==='printed'&&!prepd(i)).length,done:xs.filter(prepd).length,all:xs.length};
+  const users=[...new Set(xs.map(i=>i.createdBy).filter(Boolean))];
+  if(PQ_.who)xs=xs.filter(i=>i.createdBy===PQ_.who);
+  if(PQ_.q){const q=norm(PQ_.q);xs=xs.filter(i=>String(i.no)===PQ_.q||norm(partyName(i.partyId)).includes(q))}
+  xs=xs.filter(i=>PQ_.f==='all'||(PQ_.f==='todo'?st(i)==='todo':PQ_.f==='printed'?st(i)==='printed'&&!prepd(i):prepd(i)));
+  xs.sort((a,b)=>PQ_.f==='todo'?(a.createdAt||'').localeCompare(b.createdAt||''):(b.createdAt||'').localeCompare(a.createdAt||''));
+  const R=calc();const sel=PQ_.sel||(PQ_.sel=new Set());
+  $('#view').innerHTML=`<div class="wrap">
+    <div class="strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px"><div><div class="k">لسه ما اتطبعتش</div><div class="v">${cnt.todo}</div><div class="s">${PQ_.days==1?'النهارده':'آخر '+PQ_.days+' أيام'}</div></div><div><div class="k">اتطبعت ومستنية التحضير</div><div class="v">${cnt.printed}</div></div><div><div class="k">اتحضرت</div><div class="v pos">${cnt.done}</div></div></div>
+    <div class="card" style="padding:12px 14px;margin-bottom:12px"><div class="row">
+      <div class="seg">${[['todo','لسه ما اتطبعتش',cnt.todo],['printed','اتطبعت',cnt.printed],['done','اتحضرت',cnt.done],['all','الكل',cnt.all]].map(([k,tt,n])=>`<button data-pf="${k}" class="${PQ_.f===k?'on':''}">${tt} <span class="small muted num">${n}</span></button>`).join('')}</div>
+      <select class="in" style="width:150px" id="pqT">${opts([['sale','فواتير البيع'],['sret','مرتجع المبيعات'],['transfer','التحويلات'],['all','الكل']],PQ_.type)}</select>
+      <select class="in" style="width:130px" id="pqD">${opts([[1,'النهارده'],[2,'من امبارح'],[7,'آخر أسبوع'],[30,'آخر شهر']],String(PQ_.days))}</select>
+      <select class="in" style="width:160px" id="pqW">${opts(users.map(u=>[u,whoName(u)]),PQ_.who,'كل السيلز')}</select>
+      <input class="in" style="width:170px" id="pqQ" placeholder="رقم الفاتورة أو العميل" value="${esc(PQ_.q)}">
+      <span class="sp"></span>${canPrep()?`<button class="btn p" id="pqAll" ${!cnt.todo?'disabled':''}>${ic('print')}اطبع كل اللي ما اتطبعتش (${cnt.todo})</button>`:''}</div>
+      ${canPrep()?`<div class="row small" id="pqSelBar" style="margin-top:10px;${sel.size?'':'display:none'}"><b id="pqSelN">${sel.size} مختارة</b><button class="btn s" id="pqSelP">${ic('print')}طباعة المختار</button><button class="btn s" id="pqSelD">تم تحضير المختار</button><button class="btn s" id="pqSelC">إلغاء الاختيار</button></div>`:''}</div>
+    <div class="tw"><table class="t" id="pqTbl"><thead><tr>${canPrep()?'<th style="width:30px"><input type="checkbox" id="pqChkAll"></th>':''}<th>رقم</th><th>الوقت</th><th>العميل</th><th>السيلز</th><th class="n">أصناف</th><th class="n">الصافي</th><th>الطباعة</th><th>التحضير</th><th></th></tr></thead><tbody>
+    ${xs.slice(0,400).map(i=>{const p=prn(i.id);const tt=R.inv[i.id]||invTotals(i);return `<tr data-pid="${i.id}" style="${!p||!p.n?'background:color-mix(in srgb,var(--gold-soft) 55%,transparent)':''}">${canPrep()?`<td><input type="checkbox" data-psel="${i.id}" ${sel.has(i.id)?'checked':''}></td>`:''}
+      <td class="num"><b>${esc(i.no)}</b>${i.type!=='sale'?` <span class="tag ${i.type}">${TYPES[i.type].t}</span>`:''}</td><td class="num small">${i.date!==t?esc(i.date)+' ':''}${esc(ltm(i.createdAt).slice(11))}</td>
+      <td>${esc(partyName(i.partyId)||'نقدي')}</td><td class="small">${esc(whoName(i.createdBy)||i.orgaUser||'')}</td><td class="n">${(i.lines||[]).length}</td><td class="n">${fmt(tt.total)}</td>
+      <td>${p&&p.n?`<span class="tag ok" title="${esc((p.log||[]).map(e=>ltm(e.at)+' — '+(e.by||'')).join('\n'))}">اتطبعت ${p.n===1?'مرة':p.n+' مرات'}</span> <span class="small muted">${esc(ltm(p.last).slice(11))} ${esc(p.lastBy||'')}</span>`:'<span class="tag bad">لسه</span>'}</td>
+      <td>${p&&p.prepAt?`<span class="tag ok">اتحضرت</span> <span class="small muted">${esc(ltm(p.prepAt).slice(11))} ${esc(p.prepBy||'')}</span>`:canPrep()&&p&&p.n?`<button class="btn s" data-pdone="${i.id}">تم التحضير</button>`:'<span class="small muted">—</span>'}</td>
+      <td style="white-space:nowrap">${canPrep()?`<button class="btn s ${!p||!p.n?'p':''}" data-pprint="${i.id}">${ic('print')}${p&&p.n?'نسخة':'طباعة'}</button>`:''} <button class="btn s" data-popen="${i.id}">فتح</button></td></tr>`}).join('')||`<tr><td colspan="10"><div class="empty"><b>${PQ_.f==='todo'?'كل الفواتير اتطبعت ✓':'مفيش فواتير'}</b></div></td></tr>`}</tbody></table></div>
+    <p class="small muted">الشاشة بتتحدّث لوحدها أول ما السيلز يحفظ فاتورة. كل طباعة بتتسجّل باسم اللي طبع ووقتها، والنسخ اللي بعد الأولى بيتكتب عليها «نسخة مكررة».</p></div>`;
+  $$('[data-pf]').forEach(b=>b.onclick=()=>{PQ_.f=b.dataset.pf;sel.clear();render()});
+  $('#pqT').onchange=e=>{PQ_.type=e.target.value;render()};$('#pqD').onchange=e=>{PQ_.days=+e.target.value;render()};$('#pqW').onchange=e=>{PQ_.who=e.target.value;render()};$('#pqQ').onchange=e=>{PQ_.q=e.target.value.trim();render()};
+  const todoIds=()=>L('invoices').filter(i=>(PQ_.type==='all'?['sale','sret','transfer'].includes(i.type):i.type===PQ_.type)&&(i.date||'')>=from&&!(prn(i.id)&&prn(i.id).n)).sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||'')).map(i=>i.id);
+  const pa=$('#pqAll');if(pa)pa.onclick=async()=>{const ids=todoIds();if(!ids.length)return;if(ids.length>1&&!(await confirmBox(`طباعة ${ids.length} فاتورة مرة واحدة؟`,'طباعة')))return;printMany(ids)};
+  $$('[data-pprint]').forEach(b=>b.onclick=()=>printInv(b.dataset.pprint));
+  $$('[data-popen]').forEach(b=>b.onclick=()=>go('inv/'+b.dataset.popen));
+  const markDone=async ids=>{const at=new Date().toISOString(),who=(S.me&&S.me.name)||'';await putMany(ids.map(id=>{const c=prn(id)||{};return ['prints',id,{...c,prepAt:at,prepBy:who}]}));toast(ids.length>1?`اتسجل تحضير ${ids.length} فاتورة`:'اتسجل التحضير')};
+  $$('[data-pdone]').forEach(b=>b.onclick=()=>markDone([b.dataset.pdone]));
+  const upd=()=>{const bar=$('#pqSelBar');if(bar){bar.style.display=sel.size?'':'none';$('#pqSelN').textContent=sel.size+' مختارة'}};
+  $$('[data-psel]').forEach(c=>c.onchange=()=>{if(c.checked)sel.add(c.dataset.psel);else sel.delete(c.dataset.psel);upd()});
+  const ca=$('#pqChkAll');if(ca)ca.onchange=()=>{$$('[data-psel]').forEach(c=>{c.checked=ca.checked;if(ca.checked)sel.add(c.dataset.psel);else sel.delete(c.dataset.psel)});upd()};
+  const sp=$('#pqSelP');if(sp)sp.onclick=()=>{const ids=[...sel];sel.clear();printMany(ids)};
+  const sd=$('#pqSelD');if(sd)sd.onclick=()=>{const ids=[...sel];sel.clear();markDone(ids)};
+  const sc=$('#pqSelC');if(sc)sc.onclick=()=>{sel.clear();render()};
+}
+
 let IF={type:'',q:'',from:'',to:''};
 function vInvoices(){
   setTitle('كل الفواتير');const R=calc();
@@ -1802,6 +1865,8 @@ function vUsers(){
    <tr><td></td>${Object.keys(defs).map(k=>`<td style="text-align:center"><button class="btn s d" data-rdel="${k}">حذف</button></td>`).join('')}</tr></tbody></table></div></div>
    <div class="card"><h3>غلق الفترات المحاسبية</h3><p class="small muted" style="margin-top:0">بعد الجرد أو إقفال الشهر، اقفل الفترة: محدش غير المالك يقدر يضيف أو يعدّل أو يحذف فواتير بتاريخ قبل أو يساوي تاريخ الغلق.</p>
    <div class="row"><input class="in" type="date" id="lockD" style="width:180px" value="${s.lockDate||''}"><button class="btn p" id="lockS">${s.lockDate?'تحديث الغلق':'غلق الفترة'}</button>${s.lockDate?`<button class="btn" id="lockX">فتح الفترات</button><span class="tag purchase">مغلق حتى ${s.lockDate}</span>`:''}</div></div>
+   <div class="card" style="margin-top:16px"><h3>طباعة فواتير البيع</h3><p class="small muted" style="margin-top:0">لو فعّلتها، السيلز يحفظ الفاتورة بس، والطباعة تبقى من شاشة «التحضير والطباعة» لمسئول التحضير (صلاحية «التحضير والطباعة»). كل فاتورة بيتسجّل عدد مرات طباعتها.</p>
+   <label class="row" style="gap:8px"><input type="checkbox" id="pOnly" ${s.printOnlyPrep?'checked':''}> الطباعة من شاشة التحضير بس</label></div>
    <div class="card" style="margin-top:16px"><h3>البيع بدون رصيد</h3><p class="small muted" style="margin-top:0">الوضع الافتراضي: البرنامج بيمنع بيع أو مرتجع شراء أو تحويل أي كمية أكبر من الرصيد المتاح في المخزن (زي «الكمية أقل من المطلوبة» في أورجا).</p>
    <label class="row" style="gap:8px"><input type="checkbox" id="negA" ${s.allowNegative?'checked':''}> السماح بالبيع بالسالب (مع رسالة تأكيد قبل الحفظ)</label></div></div>`;
   const working=clone(defs);
@@ -1825,6 +1890,7 @@ function vUsers(){
   $('#addRole').onclick=async()=>{working['r'+uid().slice(-5)]={name:'دور جديد',perms:['sell'],maxDisc:''};await put('roledefs','main',{...(G('roledefs','main')||{}),roles:working});};
   $('#saveRoles').onclick=async()=>{await put('roledefs','main',{...(G('roledefs','main')||{}),roles:working});await audit('roles','main','الأدوار','','تم التعديل','الصلاحيات');toast('تم حفظ الأدوار')};
   $('#lockS').onclick=async()=>{const d=$('#lockD').value;if(!d){toast('اختر تاريخ الغلق','err');return}await put('settings','main',{...settings(),lockDate:d});await audit('settings','main','غلق الفترة',s.lockDate||'',d,'الإعدادات');toast('تم غلق الفترة حتى '+d)};
+  {const po=$('#pOnly');if(po)po.onchange=async()=>{await put('settings','main',{...settings(),printOnlyPrep:po.checked});toast(po.checked?'الطباعة بقت من شاشة التحضير بس':'السيلز يقدر يطبع تاني')}}
   {const ng=$('#negA');if(ng)ng.onchange=async()=>{const v=ng.checked;await put('settings','main',{...settings(),allowNegative:v});await audit('settings','main','البيع بدون رصيد',v?'ممنوع':'مسموح',v?'مسموح':'ممنوع','الإعدادات');toast(v?'تم السماح بالبيع بالسالب':'تم منع البيع بدون رصيد')}}
   const lx=$('#lockX');if(lx)lx.onclick=async()=>{const n={...settings()};delete n.lockDate;await put('settings','main',n);await audit('settings','main','غلق الفترة',s.lockDate,'مفتوح','الإعدادات');toast('تم فتح الفترات')};
 }
@@ -2067,7 +2133,7 @@ async function loadDemo(){
 init();
 </script>
 <script src="/accounting.js?v=4"></script>
-<script src="/crm.js?v=1"></script>
+<script src="/crm.js?v=2"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=4"></script>
 </body>
