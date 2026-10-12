@@ -6,6 +6,7 @@
   const H = { 'Content-Type': 'application/json', 'X-Mizan': '1' };
   async function api(path, opts) {
     const r = await fetch(path, Object.assign({ credentials: 'same-origin' }, opts || {}));
+    try { const sd = r.headers.get('date'); if (sd) { const t = new Date(sd).getTime(); if (t) window.MZ.skew = t - Date.now(); } } catch (e) {}
     if (r.status === 401) { location.href = '/login'; throw Object.assign(new Error('login'), { code: 'unauthenticated' }); }
     let j = null; try { j = await r.json(); } catch (e) {}
     if (!r.ok) throw Object.assign(new Error((j && j.error) || ('HTTP ' + r.status)), { code: r.status === 403 ? 'permission_denied' : 'server', status: r.status });

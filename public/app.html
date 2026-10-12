@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon.svg">
-<script src="/shim.js"></script>
+<script src="/shim.js?v=2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Readex+Pro:wght@400;500;600;700&family=Reem+Kufi:wght@500;700&display=swap" rel="stylesheet">
@@ -259,9 +259,12 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const clone=o=>JSON.parse(JSON.stringify(o));
 const pad=n=>String(n).padStart(2,'0');
 const ds=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
-const today=()=>ds(new Date());
+const nowD=()=>new Date(Date.now()+((window.MZ&&MZ.skew)||0));
+const BIZ_TZ='Africa/Cairo';
+const today=()=>{try{return new Intl.DateTimeFormat('en-CA',{timeZone:BIZ_TZ,year:'numeric',month:'2-digit',day:'2-digit'}).format(nowD())}catch(e){return ds(nowD())}};
+const dateEditOK=()=>!!(typeof settings==='function'&&settings().allowDateEdit);
 const addDays=(s,n)=>{const d=new Date(s+'T12:00:00');d.setDate(d.getDate()+n);return ds(d)};
-const nowHM=()=>{const d=new Date();return pad(d.getHours())+':'+pad(d.getMinutes())};
+const nowHM=()=>{try{return new Intl.DateTimeFormat('en-GB',{timeZone:BIZ_TZ,hour:'2-digit',minute:'2-digit',hour12:false}).format(nowD())}catch(e){const d=nowD();return pad(d.getHours())+':'+pad(d.getMinutes())}};
 const toMin=t=>{if(!t)return null;const [h,m]=String(t).split(':').map(Number);return h*60+(m||0)};
 const hm=m=>{m=Math.round(m||0);const s=m<0?'-':'';m=Math.abs(m);return s+Math.floor(m/60)+':'+pad(m%60)};
 const DAYS=['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
@@ -702,7 +705,7 @@ function vEditor(type,id){
    ${inv.fromOrder&&!ED.id?`<div class="card" style="margin-bottom:12px;padding:12px;border-color:var(--gold)">تحويل ${esc(TYPES[G('invoices',inv.fromOrder)?.type]?.full||'')} رقم ${esc(G('invoices',inv.fromOrder)?.no||'')} — راجع الكميات والأسعار ثم احفظ.</div>`:''}
    ${ED.id?`<div class="row" style="margin-bottom:12px"><span class="tag ${inv.type}">${T.t}</span>${T.doc?(inv.status==='converted'?` <span class="tag ok">تم التحويل</span>`:` <span class="tag purchase">مفتوح</span>`):''}<span class="small muted">أنشأها ${esc(whoName(inv.createdBy)||inv.orgaUser||'')} · ${ltm(inv.createdAt)}${inv.updatedAt?` · آخر تعديل ${ltm(inv.updatedAt)}`:''}</span></div>`:''}
    <div class="edhead">
-     <label class="f">التاريخ<input class="in" type="date" data-h="date" value="${esc(inv.date)}"></label>
+     <label class="f">التاريخ${dateEditOK()?`<input class="in" type="date" data-h="date" value="${esc(inv.date)}">`:`<input class="in" type="date" value="${esc(ED.id?inv.date:today())}" disabled title="التاريخ بيتسجل تلقائي من السيرفر">`}</label>
      ${pk?`<label class="f">${pk==='customer'?'العميل':'المورد'}<div class="row" style="flex-wrap:nowrap;gap:6px"><select class="in" data-h="partyId">${opts(parties.map(p=>[p.id,p.name]),inv.partyId,pk==='customer'?'عميل نقدي':'— اختر المورد —')}</select><button class="btn ic" id="addParty" title="إضافة جديد">${ic('plus')}</button></div></label>`:''}
      <label class="f">${inv.type==='transfer'?'من مخزن':'المخزن'}<select class="in" data-h="storeId">${opts(stores().map(s=>[s.id,s.name]),inv.storeId)}</select></label>
      ${inv.type==='transfer'?`<label class="f">إلى مخزن<select class="in" data-h="toStoreId">${opts(stores().map(s=>[s.id,s.name]),inv.toStoreId,'— اختر —')}</select></label>`:''}
@@ -854,6 +857,7 @@ async function saveInv(andNew){
   if(S.maxDisc!=null&&isSaleT(inv.type)){const tt=invTotals(inv);const over=inv.lines.some(l=>(+l.disc||0)>S.maxDisc)||(tt.sub>0&&(+inv.discount||0)/tt.sub*100>S.maxDisc+0.001);if(over){toast(`الخصم أكبر من المسموح لصلاحيتك (${S.maxDisc}%)`,'err');return}}
   const lines=inv.lines.filter(l=>l.pid&&((+l.qty||0)>0||(inv.type==='adj'&&(+l.qty||0)!==0)||(inv.type==='count'&&l.qty!==''&&l.qty!=null&&(+l.qty)>=0)));
   if(!lines.length){toast('أضف صنفًا واحدًا على الأقل بكمية أكبر من صفر','err');return}
+  if(!dateEditOK()){if(!ED.id)inv.date=today();else inv.date=ED.orig.date}
   if(!inv.date){toast('حدّد تاريخ الفاتورة','err');return}
   if(inv.type==='transfer'&&(!inv.toStoreId||inv.toStoreId===inv.storeId)){toast('اختر مخزنًا مختلفًا للتحويل إليه','err');return}
   const t=invTotals({...inv,lines});
@@ -1092,7 +1096,7 @@ function vLines(){
    <input class="in" style="width:200px" id="lq" placeholder="صنف / طرف / رقم" value="${esc(LF.q)}"><input class="in" type="date" style="width:150px" id="lf" value="${LF.from}"><input class="in" type="date" style="width:150px" id="lto" value="${LF.to}"></div>
    ${rows.length?`<div class="tw"><table class="t" id="gt"><thead><tr><th>تاريخ الفاتورة</th><th>النوع</th><th>رقم</th><th>الطرف</th><th>الصنف</th><th>الكمية</th><th>السعر</th>${isSale?'<th>التكلفة</th>':''}<th class="n">الإجمالي</th>${isSale?'<th class="n">الربح</th>':''}</tr></thead><tbody>
    ${shown.map(({inv,l,i})=>{const x=R.line[inv.id+':'+i]||{};const sl=inv.type==='sale'||inv.type==='sret';return `<tr>
-     <td><input class="cell" type="date" style="min-width:140px" data-g="${inv.id}" data-i="${i}" data-f="date" value="${inv.date}"></td>
+     <td>${dateEditOK()?`<input class="cell" type="date" style="min-width:140px" data-g="${inv.id}" data-i="${i}" data-f="date" value="${inv.date}">`:`<span class="num">${esc(inv.date)}</span>`}</td>
      <td><span class="tag ${inv.type}">${TYPES[inv.type].t}</span></td><td><a href="#/inv/${inv.id}">${inv.no}</a></td><td>${esc(partyName(inv.partyId)||'—')}</td><td>${esc(pname(l.pid))}</td>
      <td><input class="cell n" inputmode="decimal" data-g="${inv.id}" data-i="${i}" data-f="qty" value="${l.qty}"></td>
      <td><input class="cell n" inputmode="decimal" data-g="${inv.id}" data-i="${i}" data-f="price" value="${l.price??0}" ${isSaleT(inv.type)&&!can('editPrice')?'readonly title="تغيير السعر غير مسموح لصلاحيتك"':''}></td>
@@ -1112,6 +1116,7 @@ async function patchLine(invId,i,f,val,el){
   {const o0=G('invoices',invId);if(o0&&(isLocked(o0.date)||(f==='date'&&isLocked(val)))){toast(`الفترة مغلقة حتى ${settings().lockDate}`,'err');el.value=f==='date'?o0.date:(o0.lines[i]||{})[f]??'';return}}
   if(S.ro){toast('ليس لديك صلاحية التعديل','err');return}
   const o=G('invoices',invId);if(!o)return;const n=clone(o);const T=TYPES[n.type].full+' #'+n.no;let old,nw;
+  if(f==='date'&&!dateEditOK()){toast('تعديل التاريخ مقفول','err');return}
   if(f==='date'){if(!val)return;old=n.date;nw=val;n.date=val;await audit('invoice',invId,'التاريخ',old,nw,T)}
   else{const l=n.lines[i];if(!l)return;old=l[f];nw=f==='cost'&&val===''?'':numIn(val);if(f==='qty'&&nw<=0&&n.type!=='adj'){toast('الكمية يجب أن تكون أكبر من صفر','err');el.value=old;return}
     if(f!=='qty'&&nw!==''&&nw<0){toast('مينفعش رقم بالسالب','err');el.value=old===''?'':old;return}
@@ -1418,7 +1423,7 @@ function vCash(){
 function cashModal(o){
   const c={date:today(),kind:'in',category:'',amount:'',partyId:'',empId:'',note:'',safe:defSafe(),...o};const cats=[...new Set([...(c.kind==='in'?CATS_IN:CATS_OUT),...L('cash').filter(x=>x.kind===c.kind&&!x.nocash).map(x=>x.category).filter(Boolean)])];if(!c.category)c.category=cats[0];
   modal(`<h2>${c.id?'تعديل':''} ${c.kind==='in'?'سند قبض':'سند صرف'}${c.no?' #'+c.no:''}</h2><div class="grid g2">
-   <label class="f">المبلغ *<input class="in n" id="c_a" inputmode="decimal" value="${c.amount}"></label><label class="f">التاريخ<input class="in" type="date" id="c_d" value="${c.date}"></label>
+   <label class="f">المبلغ *<input class="in n" id="c_a" inputmode="decimal" value="${c.amount}"></label><label class="f">التاريخ<input class="in" type="date" id="c_d" value="${c.id?c.date:today()}" ${dateEditOK()?'':'disabled title="التاريخ بيتسجل تلقائي"'}></label>
    <label class="f">الخزينة<select class="in" id="c_s">${opts(safes().map(s=>[s.id,s.name]),c.safe||defSafe())}</select></label>
    <label class="f">البند<input class="in" id="c_c" list="catl" value="${esc(c.category)}"><datalist id="catl">${cats.map(x=>`<option value="${esc(x)}">`).join('')}</datalist></label>
    <label class="f">العميل / المورد<select class="in" id="c_p">${opts(L('parties').sort((a,b)=>a.name.localeCompare(b.name,'ar')).map(p=>[p.id,(p.kind==='vendor'?'مورد: ':'عميل: ')+p.name]),c.partyId,'—')}</select></label>
@@ -1427,7 +1432,7 @@ function cashModal(o){
    <label class="row small" style="gap:6px;margin-top:10px"><input type="checkbox" id="c_x" ${c.exp?'checked':''}>يُحسب مصروفًا في قائمة الدخل</label>
    <p class="small muted">سند الصرف لموظف ببند "سلفة موظف" بيتخصم تلقائيًا من راتب نفس الشهر.</p>
    <div class="row" style="margin-top:14px"><button class="btn p" id="c_sv" ${S.ro?'disabled':''}>حفظ</button><button class="btn" data-close>إلغاء</button><span class="sp"></span>${c.id?`<button class="btn d" id="c_del">حذف</button>`:''}</div>`);
-  $('#c_sv').onclick=async()=>{const a=numIn($('#c_a').value);if(a<=0){toast('اكتب مبلغًا صحيحًا','err');return}const id=c.id||uid();const d=$('#c_d').value||today();if(isLocked(d)||(c.id&&isLocked(c.date))){toast(`الفترة مغلقة حتى ${settings().lockDate}`,'err');return}
+  $('#c_sv').onclick=async()=>{const a=numIn($('#c_a').value);if(a<=0){toast('اكتب مبلغًا صحيحًا','err');return}const id=c.id||uid();const d=dateEditOK()?($('#c_d').value||today()):(c.id?c.date:today());if(isLocked(d)||(c.id&&isLocked(c.date))){toast(`الفترة مغلقة حتى ${settings().lockDate}`,'err');return}
     const n={...c,date:d,kind:c.kind,category:$('#c_c').value.trim()||cats[0],amount:a,safe:$('#c_s').value,partyId:$('#c_p').value,empId:$('#c_e').value,note:$('#c_n').value.trim(),exp:$('#c_x').checked||undefined,createdAt:c.createdAt||new Date().toISOString(),createdBy:c.createdBy||S.me.id||''};delete n.id;if(!n.exp)delete n.exp;
     if(n.category==='سلفة موظف'&&!n.empId){toast('اختر الموظف صاحب السلفة','err');return}
     {const pk=n.partyId?G('parties',n.partyId)?.kind:'';const cat=n.category;
@@ -1865,6 +1870,8 @@ function vUsers(){
    <tr><td></td>${Object.keys(defs).map(k=>`<td style="text-align:center"><button class="btn s d" data-rdel="${k}">حذف</button></td>`).join('')}</tr></tbody></table></div></div>
    <div class="card"><h3>غلق الفترات المحاسبية</h3><p class="small muted" style="margin-top:0">بعد الجرد أو إقفال الشهر، اقفل الفترة: محدش غير المالك يقدر يضيف أو يعدّل أو يحذف فواتير بتاريخ قبل أو يساوي تاريخ الغلق.</p>
    <div class="row"><input class="in" type="date" id="lockD" style="width:180px" value="${s.lockDate||''}"><button class="btn p" id="lockS">${s.lockDate?'تحديث الغلق':'غلق الفترة'}</button>${s.lockDate?`<button class="btn" id="lockX">فتح الفترات</button><span class="tag purchase">مغلق حتى ${s.lockDate}</span>`:''}</div></div>
+   <div class="card" style="margin-top:16px"><h3>تاريخ الفواتير والسندات</h3><p class="small muted" style="margin-top:0">الوضع الافتراضي: التاريخ بيتسجل تلقائي بتاريخ السيرفر (توقيت القاهرة) ومحدش يقدر يغيّره، ولا حتى من شبكة الحركات. فعّلها بس لو محتاج تسجّل حركات قديمة.</p>
+   <label class="row" style="gap:8px"><input type="checkbox" id="dEdit" ${s.allowDateEdit?'checked':''}> السماح بتعديل التاريخ</label></div>
    <div class="card" style="margin-top:16px"><h3>طباعة فواتير البيع</h3><p class="small muted" style="margin-top:0">لو فعّلتها، السيلز يحفظ الفاتورة بس، والطباعة تبقى من شاشة «التحضير والطباعة» لمسئول التحضير (صلاحية «التحضير والطباعة»). كل فاتورة بيتسجّل عدد مرات طباعتها.</p>
    <label class="row" style="gap:8px"><input type="checkbox" id="pOnly" ${s.printOnlyPrep?'checked':''}> الطباعة من شاشة التحضير بس</label></div>
    <div class="card" style="margin-top:16px"><h3>البيع بدون رصيد</h3><p class="small muted" style="margin-top:0">الوضع الافتراضي: البرنامج بيمنع بيع أو مرتجع شراء أو تحويل أي كمية أكبر من الرصيد المتاح في المخزن (زي «الكمية أقل من المطلوبة» في أورجا).</p>
@@ -1890,6 +1897,7 @@ function vUsers(){
   $('#addRole').onclick=async()=>{working['r'+uid().slice(-5)]={name:'دور جديد',perms:['sell'],maxDisc:''};await put('roledefs','main',{...(G('roledefs','main')||{}),roles:working});};
   $('#saveRoles').onclick=async()=>{await put('roledefs','main',{...(G('roledefs','main')||{}),roles:working});await audit('roles','main','الأدوار','','تم التعديل','الصلاحيات');toast('تم حفظ الأدوار')};
   $('#lockS').onclick=async()=>{const d=$('#lockD').value;if(!d){toast('اختر تاريخ الغلق','err');return}await put('settings','main',{...settings(),lockDate:d});await audit('settings','main','غلق الفترة',s.lockDate||'',d,'الإعدادات');toast('تم غلق الفترة حتى '+d)};
+  {const de=$('#dEdit');if(de)de.onchange=async()=>{await put('settings','main',{...settings(),allowDateEdit:de.checked});await audit('settings','main','تعديل التاريخ',de.checked?'مقفول':'مسموح',de.checked?'مسموح':'مقفول','الإعدادات');toast(de.checked?'تعديل التاريخ بقى مسموح':'التاريخ بقى تلقائي ومقفول')}}
   {const po=$('#pOnly');if(po)po.onchange=async()=>{await put('settings','main',{...settings(),printOnlyPrep:po.checked});toast(po.checked?'الطباعة بقت من شاشة التحضير بس':'السيلز يقدر يطبع تاني')}}
   {const ng=$('#negA');if(ng)ng.onchange=async()=>{const v=ng.checked;await put('settings','main',{...settings(),allowNegative:v});await audit('settings','main','البيع بدون رصيد',v?'ممنوع':'مسموح',v?'مسموح':'ممنوع','الإعدادات');toast(v?'تم السماح بالبيع بالسالب':'تم منع البيع بدون رصيد')}}
   const lx=$('#lockX');if(lx)lx.onclick=async()=>{const n={...settings()};delete n.lockDate;await put('settings','main',n);await audit('settings','main','غلق الفترة',s.lockDate,'مفتوح','الإعدادات');toast('تم فتح الفترات')};
