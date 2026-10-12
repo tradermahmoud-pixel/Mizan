@@ -290,6 +290,7 @@ app.post('/api/write', auth(false), async (req, res, next) => {
 
 /* ---------------- AI assistant (OpenAI-compatible providers, key stays on the server) ---------------- */
 const AI_PRESETS = {
+  local: { name: 'المساعد المدمج (مجاني — بدون مفتاح)', url: '', model: '' },
   groq: { name: 'Groq', url: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b' },
   gemini: { name: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.8-flash' },
   anthropic: { name: 'Claude (Anthropic)', url: 'https://api.anthropic.com/v1', model: 'claude-sonnet-5-5' },
@@ -300,7 +301,7 @@ const AI_PRESETS = {
 async function aiCfg() {
   let c = {};
   try { const { rows } = await pool.query(`SELECT v FROM kv WHERE k='ai'`); if (rows[0]) c = rows[0].v || {}; } catch (e) {}
-  const provider = c.provider || process.env.AI_PROVIDER || 'groq';
+  const provider = c.provider || process.env.AI_PROVIDER || ((c.key || process.env.AI_KEY) ? 'groq' : 'local');
   const pre = AI_PRESETS[provider] || AI_PRESETS.custom;
   return {
     provider, enabled: c.enabled !== false,
@@ -346,7 +347,7 @@ function aiErr(r) {
 app.get('/api/ai/config', auth(false), async (req, res, next) => {
   try {
     const c = await aiCfg(); const adm = await isAdmin(req.user);
-    const o = { enabled: c.enabled && !!c.key && !!c.model && !!c.url, provider: c.provider, model: c.model };
+    const o = { enabled: c.provider === 'local' ? c.enabled : (c.enabled && !!c.key && !!c.model && !!c.url), provider: c.provider, model: c.provider === 'local' ? '' : c.model };
     if (adm) Object.assign(o, { admin: true, url: c.url, hasKey: !!c.key, keyHint: c.key ? '…' + c.key.slice(-4) : '', on: c.enabled, workspace: c.workspace || '', presets: AI_PRESETS });
     res.json(o);
   } catch (e) { next(e); }

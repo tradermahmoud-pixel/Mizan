@@ -308,7 +308,7 @@ ${reps || 'مفيش صلاحية تقارير'}`;
   }
   function draw(thinking) {
     const box = document.getElementById('aiM'); if (!box) return;
-    document.getElementById('aiMd').textContent = AI.cfg ? (AI.cfg.model || '') : '';
+    document.getElementById('aiMd').textContent = isLocal() ? 'المساعد المدمج — مجاني' : (AI.cfg.model || '');
     let h = '';
     const vis = AI.msgs.filter(m => m.ui);
     if (!vis.length) {
@@ -324,10 +324,82 @@ ${reps || 'مفيش صلاحية تقارير'}`;
   }
   const TOOL_LABEL = { search_products: 'بدوّر في الأصناف', run_report: 'بشغّل التقرير', find_party: 'بدوّر على العميل/المورد', list_invoices: 'بجيب الفواتير', get_invoice: 'بفتح الفاتورة', overview: 'بحسب الملخص', open_screen: 'بفتح الشاشة' };
 
+  /* ---------- المساعد المدمج: مجاني وبدون إنترنت — بيفهم الأسئلة الشائعة ويرد من بيانات البرنامج ---------- */
+  const HELP = [
+    [/فاتور[هة] ?بيع|ابيع|أبيع|البيع/, 'sale', 'فاتورة البيع', ['من القائمة: «فاتورة بيع».', 'اختار العميل (السعر بيتحسب لوحده حسب شريحته، والنقدي بسعر المستهلك).', 'امسح الباركود أو اكتب أول اسم الصنف واضغط Enter — ولو عايز نتايج أكتر دوس «توسيع البحث».', 'عدّل الكمية أو السعر في الخلية، واحفظ بـ Ctrl+S.']],
+    [/مرتجع ?(مبيعات|بيع)|ترجيع من عميل|العميل رجع/, 'sret', 'مرتجع المبيعات', ['من القائمة: «مرتجع مبيعات».', 'اكتب رقم فاتورة البيع ودوس «تحميل أصنافها» واختار الكميات، أو اختار العميل وابحث بالصنف (السعر بيتجاب من آخر فاتورة).', 'احفظ.']],
+    [/مرتجع ?(مشتريات|شراء)|ترجيع للمورد/, 'pret', 'مرتجع المشتريات', ['من القائمة: «مرتجع مشتريات».', 'برقم فاتورة الشراء أو بالصنف بعد اختيار المورد.', 'البرنامج مش هيقبل ترجّع أكتر من الرصيد.']],
+    [/فاتور[هة] ?شراء|اشتري|أشتري|الشراء|توريد/, 'purchase', 'فاتورة الشراء', ['من القائمة: «فاتورة شراء» واختار المورد.', 'ضيف الأصناف — بيظهر لك سعر المستهلك والتكلفة الحالية.', 'أمر التوريد بيتحوّل لفاتورة شراء من «أوامر التوريد وعروض الأسعار».']],
+    [/اكسيل|إكسيل|excel|استيراد|ارفع|أرفع/i, 'import', 'استيراد الأصناف من Excel', ['من القائمة: «استيراد من Excel».', 'اسحب الشيت أو اختاره، والبرنامج بيتعرّف على الأعمدة لوحده (تقدر تعدّلها).', 'راجع الصفوف ودوس «استيراد».']],
+    [/باركود/, 'barcode', 'طباعة الباركود', ['من القائمة: «طباعة الباركود».', 'اختار الأصناف والعدد ومقاس الستيكر واطبع.']],
+    [/جرد/, 'purchase', 'الجرد', ['من «فاتورة شراء» اختار نوع «جرد وتسوية مخزن».', 'دوس «إضافة كل الأصناف بأرصدتها» وعدّل الكمية الفعلية.', 'الفروقات بتتسوّى بمتوسط التكلفة لما تحفظ.']],
+    [/تحويل/, 'sale', 'التحويل بين المخازن', ['من «فاتورة بيع» اختار «تحويل بين المخازن».', 'حدد من مخزن وإلى مخزن وضيف الأصناف.']],
+    [/سند|قبض|صرف|مصروف|خزن[هة]/, 'cash', 'الخزينة والسندات', ['من القائمة: «الخزينة».', 'سند قبض أو صرف، واختار البند — والتحصيل لازم يتحدد فيه العميل، والسداد المورد.', 'التحويل بين الخزائن من نفس الشاشة.']],
+    [/شيك/, 'cheques', 'الشيكات', ['من القائمة: «الشيكات».', 'سجّل الشيك الوارد أو الصادر، وبعدين: تحصيل / صرف / رفض / تظهير لمورد.']],
+    [/كشف حساب/, 'parties', 'كشف الحساب', ['من «العملاء والموردون» دوس «كشف حساب» جنب الاسم.', 'اختار الفترة و«تفصيلي بالأصناف» لو عايز، واطبع أو ابعته واتساب.']],
+    [/حضور|انصراف|بصم/, 'attendance', 'الحضور والانصراف', ['من القائمة: «الحضور والانصراف».', 'سجّل حضور/انصراف، والكشف الشهري قابل للتعديل للمدير.']],
+    [/مرتب|رواتب|راتب|سلف/, 'payroll', 'الرواتب', ['من القائمة: «الرواتب» — بتتحسب من الحضور والتأخير والإضافي والجزاءات والسلف.']],
+    [/صلاحي|مستخدم|حساب دخول|باسورد|كلم[هة] (السر|المرور)/, 'users', 'المستخدمين والصلاحيات', ['من القائمة: «المستخدمون والصلاحيات» (للمدير).', 'اعمل مستخدم باسم دخول وكلمة مرور، واختار دوره (كاشير، محاسب، مندوب، مسئول تحضير…).']],
+    [/نسخ[هة] احتياطي|باك ?اب|backup/i, 'settings', 'النسخ الاحتياطي', ['من «الإعدادات» ← «تنزيل نسخة احتياطية كاملة».', 'احتفظ بالملف على جهازك أو Google Drive.']],
+    [/طباع|اطبع|التحضير/, 'prep', 'الطباعة والتحضير', ['الفاتورة بتتطبع من زرار «طباعة» أو Ctrl+P.', 'شاشة «التحضير والطباعة» بتوريك اللي اتطبع واللي لأ وكام مرة، وتطبع الكل مرة واحدة.']],
+    [/شريح[هة]|تسعير/, 'settings', 'شرائح الأسعار', ['من «الإعدادات» ← «شرائح أسعار العملاء» (التكلفة + نسبة).', 'وتغيّر شريحة العميل من الفاتورة نفسها أو من بياناته.']],
+    [/غلق|قفل الفتر|إقفال/, 'accounts/periods', 'غلق الفترات', ['من «المحاسبة والقوائم المالية» ← «الفترات المحاسبية».', 'اختار التاريخ ودوس «غلق الفترة».']],
+    [/ميزاني[هة]|ميزان المراجع[هة]|قائم[هة] الدخل|قيد|شجر[هة] الحسابات|أستاذ|استاذ/, 'accounts', 'المحاسبة والقوائم المالية', ['من القائمة: «المحاسبة والقوائم المالية»: ميزان المراجعة، قائمة الدخل، الميزانية، دفتر الأستاذ، اليومية، شجرة الحسابات.']],
+    [/صيدليات|crm|مندوب|سيلز/i, 'crm', 'CRM الصيدليات', ['من القائمة: «CRM الصيدليات» — التوزيع على المندوبين والمتابعات والحالات.']],
+  ];
+  const STOPW = new Set('رصيد كام كم متاح موجود في فى من عندنا عندي المخزن الصنف صنف اللي بتاع ايه إيه هو هي قد ايش يا لو سمحت ممكن عايز عاوز اعرف أعرف سعر بكام'.split(' '));
+  const STOP = { strip: t => t.split(/\s+/).filter(w => !STOPW.has(w)).join(' ') };
+  function periodOf(q) {
+    const t = today(); const m0 = t.slice(0, 8) + '01';
+    if (/امبارح|أمس|امس/.test(q)) { const y = addDays(t, -1); return { from: y, to: y, label: 'امبارح' }; }
+    if (/النهار[دةه]|اليوم|انهارد/.test(q)) return { from: t, to: t, label: 'النهارده' };
+    if (/الشهر (اللي|الي) فات|الشهر الماضي|الشهر السابق/.test(q)) { const e = addDays(m0, -1); return { from: e.slice(0, 8) + '01', to: e, label: 'الشهر اللي فات' }; }
+    if (/الاسبوع|الأسبوع|اسبوع|أسبوع/.test(q)) return { from: addDays(t, -6), to: t, label: 'آخر 7 أيام' };
+    if (/السن[هة]|العام/.test(q)) return { from: t.slice(0, 5) + '01-01', to: t, label: 'السنة دي' };
+    return { from: m0, to: t, label: 'الشهر ده' };
+  }
+  const tbl = (cols, rows) => '| ' + cols.join(' | ') + ' |\n|' + cols.map(() => '---').join('|') + '|\n' + rows.map(r => '| ' + r.join(' | ') + ' |').join('\n');
+  const F = v => fmt(v);
+  function localAnswer(qRaw) {
+    const q = String(qRaw || '').trim(); const n = norm(q); const T = TOOLS;
+    const num = (q.match(/\d+/) || [])[0];
+    if (/^(ازيك|إزيك|ازيكم|اهلا|أهلا|هاي|هلا|السلام|سلام|صباح|مساء|شكرا|شكرًا|تسلم|متشكر|مرسي|hi|hello)/i.test(q)) return /شكر|تسلم|متشكر|مرسي/.test(q) ? 'العفو 🌿 تحت أمرك في أي سؤال تاني.' : `أهلًا ${(S.me && S.me.name) || ''} 👋 أنا المساعد المدمج في ميزان. اسألني مثلًا: «مبيعات النهارده»، «رصيد بانتين»، «حساب ص حسام»، «النواقص»، أو «إزاي أعمل مرتجع».`;
+    // invoice by number
+    if (/فاتور[هة]/.test(q) && num && !/ازاي|إزاي|كيف/.test(q)) { const r = T.get_invoice.run({ no: num }); if (r.error) return r.error;
+      return `**${r.type} رقم ${r.no}** — ${r.date} — ${r.party}\n\n` + tbl(['الصنف', 'الكمية', 'السعر', 'الصافي'], r.lines.map(l => [l.item, l.qty, F(l.price), F(l.net)])) + `\n\n**الإجمالي:** ${F(r.total)} — المدفوع ${F(r.paid)} — الباقي ${F(r.rest)}`; }
+    // how-to
+    if (/ازاي|إزاي|كيف|ازى|طريق[هة]|اعمل ايه|أعمل/.test(q)) { const h = HELP.find(([re]) => re.test(q)); if (h) { if (canRoute(h[1].split('/')[0])) setTimeout(() => go(h[1]), 400); return `**${h[2]}:**\n` + h[3].map((s, i) => `${i + 1}. ${s}`).join('\n') + (canRoute(h[1].split('/')[0]) ? '\n\nفتحتلك الشاشة.' : ''); } }
+    // reports
+    const rep = (id, a, title, cols) => { const r = T.run_report.run(Object.assign({ report_id: id, limit: 10 }, a)); if (r.error) return r.error; if (!r.rows.length) return 'مفيش بيانات في الفترة دي.';
+      const keys = cols.map(c => c[0]); return `**${title}**${r.filters && r.filters.from ? ` (${r.filters.from} ← ${r.filters.to})` : ''} — ${r.total_rows} صف\n\n` + tbl(cols.map(c => c[1]), r.rows.map(x => keys.map(k => typeof x[k] === 'number' ? F(x[k]) : (x[k] ?? '')))); };
+    if (/نواقص|قربت تخلص|هتخلص|خلصان|حد الطلب|محتاج اطلب|محتاج أطلب/.test(q)) return rep('stock_low', { days: 60 }, 'النواقص', [['name', 'الصنف'], ['q', 'الرصيد'], ['sold', 'المباع'], ['sug', 'المقترح'], ['lastV', 'آخر مورد']]);
+    if (/راكد|رواكد|مبيتباعش|واقف/.test(q)) return rep('stock_stagnant', { days: +num || 90 }, 'الأصناف الراكدة', [['name', 'الصنف'], ['q', 'الرصيد'], ['last', 'آخر بيع'], ['idle', 'أيام الركود']]);
+    if (/(اكتر|أكتر|اعلى|أعلى|افضل|أفضل)/.test(q) && /صنف|اصناف|أصناف|منتج/.test(q)) { const p = periodOf(q); return rep('sales_items', { from: p.from, to: p.to, sort_by: /ربح/.test(q) && can('seeCost') ? 'profit' : 'net' }, 'أكتر الأصناف مبيعًا — ' + p.label, [['name', 'الصنف'], ['q', 'الكمية'], ['net', 'المبيعات']].concat(can('seeCost') ? [['profit', 'الربح']] : [])); }
+    if (/(اكتر|أكتر|اعلى|أعلى|افضل|أفضل)/.test(q) && /عميل|عملاء|زبون/.test(q) && !/عليهم|ديون|مديون/.test(q)) { const p = periodOf(q); return rep('sales_customers', { from: p.from, to: p.to }, 'أكتر العملاء شراءً — ' + p.label, [['name', 'العميل'], ['net', 'المشتريات'], ['cnt', 'الفواتير']]); }
+    if (/عليهم|ديون|مديوني|مستحق لنا|فلوس برة|فلوس بره/.test(q) || (/عملاء/.test(q) && /رصيد|حساب/.test(q))) return rep('cust_balances', {}, 'أكتر العملاء عليهم فلوس', [['name', 'العميل'], ['bal', 'الرصيد'], ['a90', 'أكتر من 90 يوم']]);
+    if (/مورد/.test(q) && /علينا|لهم|مستحق|ديون|رصيد|ارصد|أرصد|حساب|فلوس/.test(q) && !/[^\s]{3,}\s+مورد/.test('')) { if (!/رصيد المورد|حساب المورد/.test(q)) return rep('vend_balances', {}, 'أرصدة الموردين', [['name', 'المورد'], ['bal', 'الرصيد']]); }
+    if (/متوقف|مشتروش|ماشتروش|بطلوا|بطّلوا|مبطل|بطلت|اختفوا|مش بيشتر|انقطع|مش بيسحب|مبيسحبوش/.test(q)) return rep('cust_inactive', { days: +num || 30 }, 'العملاء المتوقفين', [['name', 'العميل'], ['last', 'آخر شراء'], ['idleH', 'منذ'], ['bal', 'رصيده']]);
+    // party balance
+    const pm = q.match(/(?:رصيد|حساب|كشف)\s+(?:العميل|المورد|عميل|مورد|الصيدلي[هة]|ص)?\s*(.+)/);
+    if (pm || /عليه كام|عليه قد ايه|ليه كام/.test(q)) { const name = (pm ? pm[1] : q.replace(/عليه.*|ليه.*/, '')).replace(/[؟?]/g, '').trim(); if (name.length >= 2) { const r = T.find_party.run({ query: name, limit: 6 });
+        if (!r.error && r.parties && r.parties.length) return tbl(['الاسم', 'النوع', 'الرصيد', 'آخر تعامل', 'آخر سداد'], r.parties.map(p => [p.name, p.kind, F(p.balance) + (p.balance > 0.009 ? (p.kind === 'عميل' ? ' (عليه)' : ' (لنا)') : p.balance < -0.009 ? (p.kind === 'عميل' ? ' (له)' : ' (علينا)') : ''), p.last_deal || '—', p.last_payment || '—'])) + '\n\nلكشف الحساب الكامل: العملاء والموردون ← كشف حساب.'; } }
+    // money overview
+    if (/مبيع|بعنا|ربح|ارباح|أرباح|مكسب|ايراد|إيراد|خزن[هة]|خزين[هة]|كاش|الفلوس|ملخص|اخبار|أخبار|الدنيا/.test(q)) { const p = periodOf(q); const o = T.overview.run({ from: p.from, to: p.to }); if (o.error) return o.error;
+      let s = `**ملخص ${p.label}** (${o.period.from} ← ${o.period.to})\n\n` + tbl(['البند', 'القيمة'], [['صافي المبيعات', F(o.net_sales)], ['عدد فواتير البيع', o.sale_invoices], ['مرتجعات المبيعات', F(o.sales_returns)], ...(o.gross_profit != null ? [['مجمل الربح', F(o.gross_profit)]] : []), ['المشتريات', F(o.purchases)], ['على العملاء لنا', F(o.customers_owe_us)], ['علينا للموردين', F(o.we_owe_vendors)]]);
+      if (o.safes) s += '\n\n**الخزائن:**\n' + tbl(['الخزينة', 'الرصيد'], Object.entries(o.safes).map(([k, v]) => [k, F(v)])); return s; }
+    // product lookup (default)
+    const pq = STOP.strip(q.replace(/[؟?]/g, ' ')).replace(/\s+/g, ' ').trim();
+    if (pq.length >= 2) { const r = T.search_products.run({ query: pq, limit: 8 }); if (r.products && r.products.length) return `لقيت ${r.count} صنف:\n\n` + tbl(['الصنف', 'الكود', 'الرصيد', 'سعر المستهلك'].concat(can('seeCost') ? ['متوسط التكلفة'] : []), r.products.map(p => [p.name, p.code, p.qty_total, F(p.consumer_price)].concat(can('seeCost') ? [F(p.avg_cost)] : [])));
+      const fp = T.find_party.run({ query: pq, limit: 6 }); if (!fp.error && fp.parties && fp.parties.length) return tbl(['الاسم', 'النوع', 'الرصيد', 'آخر تعامل'], fp.parties.map(p => [p.name, p.kind, F(p.balance), p.last_deal || '—']));
+      const h = HELP.find(([re]) => re.test(q)); if (h) return `**${h[2]}:**\n` + h[3].map((s, i) => `${i + 1}. ${s}`).join('\n'); }
+    return 'مفهمتش السؤال 🙏 جرّب مثلًا:\n- «مبيعات النهارده» أو «أرباح الشهر اللي فات»\n- «رصيد بانتين» (أي صنف)\n- «حساب ص حسام» (أي عميل أو مورد)\n- «النواقص» أو «الرواكد من 60 يوم»\n- «أكتر 10 أصناف مبيعًا السنة دي»\n- «مين العملاء اللي عليهم فلوس»\n- «فاتورة رقم 7786»\n- «إزاي أعمل مرتجع مبيعات»';
+  }
+
+  const isLocal = () => !AI.cfg || !AI.cfg.enabled || AI.cfg.provider === 'local';
   async function send() {
     const inp = document.getElementById('aiI'); const text = inp.value.trim();
     if (!text || AI.busy) return;
-    if (!AI.cfg || !AI.cfg.enabled) { AI.msgs.push({ ui: 'e', content: 'المساعد مش متفعّل لسه. المدير يفعّله من الإعدادات ← المساعد الذكي.' }); draw(); return; }
+    if (isLocal()) { inp.value = ''; inp.style.height = 'auto'; AI.msgs.push({ ui: 'u', content: text }); let a; try { a = localAnswer(text); } catch (e) { a = 'حصل خطأ: ' + (e.message || e); } AI.msgs.push({ ui: 'a', content: a }); draw(); return; }
     inp.value = ''; inp.style.height = 'auto';
     AI.msgs.push({ role: 'user', content: text, ui: 'u' }); AI.busy = true; draw('بفكر');
     try {
@@ -360,14 +432,15 @@ ${reps || 'مفيش صلاحية تقارير'}`;
         break;
       }
     } catch (e) {
-      AI.msgs.push({ ui: 'e', content: e.message || String(e) });
+      AI.msgs.push({ ui: 'e', content: (e.message || String(e)) + ' — رديت عليك من المساعد المدمج بدل كده:' });
+      try { AI.msgs.push({ ui: 'a', content: localAnswer(text) }); } catch (x) {}
     } finally { AI.busy = false; draw(); }
   }
 
   AI.loadCfg = async function () {
     try { const r = await fetch('/api/ai/config', { credentials: 'same-origin' }); if (r.ok) AI.cfg = await r.json(); } catch (e) {}
     const fab = document.getElementById('aiFab');
-    if (fab) fab.style.display = AI.cfg && (AI.cfg.enabled || AI.cfg.admin) ? '' : 'none';
+    if (fab) fab.style.display = '';
     return AI.cfg;
   };
   async function boot() {
@@ -379,6 +452,7 @@ ${reps || 'مفيش صلاحية تقارير'}`;
     if (!c || !c.admin) { el.remove(); return; }
     const P = c.presets || {};
     const help = {
+      local: 'مجاني 100% ومن غير أي مفتاح أو إنترنت خارجي: المساعد بيفهم الأسئلة الشائعة ويحسبها من بيانات البرنامج مباشرة — مبيعات/أرباح النهارده أو الشهر، رصيد عميل أو مورد، النواقص، الأصناف الراكدة، أكتر الأصناف والعملاء مبيعًا، الديون، فاتورة برقمها، وإزاي تعمل أي حاجة في البرنامج. لو عايز يفهم أي صيغة سؤال حرة اختار Groq أو Gemini (مجانيين بمفتاح).',
       groq: 'مجاني: ادخل <b>console.groq.com</b> ← سجّل بإيميلك ← API Keys ← Create API Key، وانسخ المفتاح (بيبدأ بـ gsk_). الموديل المقترح openai/gpt-oss-120b. ميزته إن الشركة مش بتستخدم بياناتك في التدريب.',
       gemini: 'مجاني: ادخل <b>aistudio.google.com</b> ← Get API key ← Create API key. الموديل المقترح gemini-3.8-flash. ملحوظة: في الخطة المجانية جوجل ممكن تستخدم الأسئلة والردود لتحسين منتجاتها.',
       anthropic: 'ادخل <b>console.anthropic.com</b> (platform.claude.com) ← API Keys ← Create Key (المفتاح بيبدأ بـ sk-ant-). الموديل المقترح <code>claude-sonnet-5-5</code> (سريع وكويس جدًا في العربي)، أو <code>claude-haiku-5-5</code> لو عايز أرخص، أو <code>claude-opus-5-5</code> للأقوى. مدفوع حسب الاستخدام — اشحن رصيد من Billing. Anthropic مش بتدرّب على بيانات الـ API.',
@@ -386,7 +460,7 @@ ${reps || 'مفيش صلاحية تقارير'}`;
       openrouter: 'ادخل <b>openrouter.ai</b> ← Keys ← Create key، واختار أي موديل اسمه منتهي بـ <code>:free</code> من زرار "جيب الموديلات".',
       custom: 'أي مزوّد متوافق مع OpenAI (رابط ينتهي غالبًا بـ /v1).',
     };
-    const prov = c.provider || 'groq';
+    const prov = c.provider || 'local';
     el.innerHTML = `<h3>المساعد الذكي ${c.enabled ? '<span class="tag ok">شغّال</span>' : '<span class="tag">مش متفعّل</span>'}</h3>
       <p class="small muted" style="margin-top:0">زرار ✨ في الركن بيفتح مساعد بيرد على أسئلة الموظفين عن المبيعات والأرصدة والأصناف والعملاء ويشرح استخدام البرنامج. بيقرا بس — مابيعدّلش أي بيانات — وبيحترم صلاحية كل مستخدم. المفتاح بيتحفظ على السيرفر بس، والأسئلة بتروح لمزوّد الذكاء الاصطناعي اللي تختاره.</p>
       <div class="grid g2">
@@ -402,10 +476,12 @@ ${reps || 'مفيش صلاحية تقارير'}`;
       <p class="small" id="ai_r" style="min-height:20px;margin-bottom:0"></p>`;
     const $e = id => el.querySelector('#' + id);
     const msg = (t, bad) => { const r = $e('ai_r'); r.textContent = t; r.style.color = bad ? 'var(--danger)' : 'var(--brand)'; };
-    $e('ai_p').onchange = () => { const v = $e('ai_p').value; $e('ai_uw').style.display = v === 'custom' ? '' : 'none'; $e('ai_ww').style.display = v === 'anthropic' ? '' : 'none'; $e('ai_h').innerHTML = help[v] || ''; $e('ai_m').value = (P[v] || {}).model || ''; $e('ai_m').placeholder = (P[v] || {}).model || ''; };
+    $e('ai_p').onchange = () => { const v = $e('ai_p').value; $e('ai_uw').style.display = v === 'custom' ? '' : 'none'; $e('ai_ww').style.display = v === 'anthropic' ? '' : 'none'; loc(v); $e('ai_h').innerHTML = help[v] || ''; $e('ai_m').value = (P[v] || {}).model || ''; $e('ai_m').placeholder = (P[v] || {}).model || ''; };
+    const loc = v => { for (const id of ['ai_m', 'ai_k']) { const l = $e(id).closest('label'); if (l) l.style.display = v === 'local' ? 'none' : ''; } $e('ai_ls').style.display = v === 'local' ? 'none' : ''; };
+    loc(prov);
     const save = async () => {
       const v = $e('ai_p').value; const body = { provider: v, model: $e('ai_m').value.trim() || (P[v] || {}).model || '', enabled: $e('ai_on').checked, url: v === 'custom' ? $e('ai_u').value.trim() : '', workspace: v === 'anthropic' ? $e('ai_w').value.trim() : undefined };
-      const k = $e('ai_k').value.trim();
+      const k = v === 'local' ? '' : $e('ai_k').value.trim();
       if (k) { if (k.length < 20 || /\s/.test(k)) throw new Error('ده مش شكل مفتاح API — المفتاح طويل (من موقع المزوّد) وبيبدأ غالبًا بـ gsk_ أو sk- أو sk-ant- أو AIza. امسح الخانة والصق المفتاح الصح.'); body.key = k; }
       const r = await fetch('/api/ai/config', { method: 'POST', credentials: 'same-origin', headers: H, body: JSON.stringify(body) });
       const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'فشل الحفظ');
@@ -419,6 +495,7 @@ ${reps || 'مفيش صلاحية تقارير'}`;
     };
     $e('ai_t').onclick = async () => {
       try { await save(); msg('جارٍ التجربة…'); const t0 = performance.now();
+        if (isLocal()) { const a = localAnswer('مبيعات النهارده'); msg(`شغّال ✓ — المساعد المدمج رد في ${Math.round(performance.now() - t0)} مللي ثانية: ${String(a).replace(/[*#|_]/g, ' ').replace(/\s+/g, ' ').slice(0, 70)}…`); return; }
         const r = await fetch('/api/ai/chat', { method: 'POST', credentials: 'same-origin', headers: H, body: JSON.stringify({ messages: [{ role: 'user', content: 'رد بكلمة واحدة: تمام' }] }) });
         const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'فشل');
         msg(`شغّال ✓ — الرد: "${String(j.message.content || '').slice(0, 40)}" في ${Math.round(performance.now() - t0)} مللي ثانية`); }
