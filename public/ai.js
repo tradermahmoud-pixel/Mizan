@@ -395,7 +395,7 @@ ${reps || 'مفيش صلاحية تقارير'}`;
     return 'مفهمتش السؤال 🙏 جرّب مثلًا:\n- «مبيعات النهارده» أو «أرباح الشهر اللي فات»\n- «رصيد بانتين» (أي صنف)\n- «حساب ص حسام» (أي عميل أو مورد)\n- «النواقص» أو «الرواكد من 60 يوم»\n- «أكتر 10 أصناف مبيعًا السنة دي»\n- «مين العملاء اللي عليهم فلوس»\n- «فاتورة رقم 7786»\n- «إزاي أعمل مرتجع مبيعات»';
   }
 
-  const isLocal = () => !AI.cfg || !AI.cfg.enabled || AI.cfg.provider === 'local';
+  const isLocal = () => AI.down || !AI.cfg || !AI.cfg.enabled || AI.cfg.provider === 'local';
   async function send() {
     const inp = document.getElementById('aiI'); const text = inp.value.trim();
     if (!text || AI.busy) return;
@@ -432,12 +432,13 @@ ${reps || 'مفيش صلاحية تقارير'}`;
         break;
       }
     } catch (e) {
-      AI.msgs.push({ ui: 'e', content: (e.message || String(e)) + ' — رديت عليك من المساعد المدمج بدل كده:' });
-      try { AI.msgs.push({ ui: 'a', content: localAnswer(text) }); } catch (x) {}
+      AI.down = true; console.warn('AI provider failed, using built-in assistant:', e && e.message);
+      let a; try { a = localAnswer(text); } catch (x) { a = 'مفهمتش السؤال 🙏 جرّب تكتبه بشكل تاني.'; }
+      AI.msgs.push({ ui: 'a', content: a });
     } finally { AI.busy = false; draw(); }
   }
 
-  AI.loadCfg = async function () {
+  AI.loadCfg = async function () { AI.down = false;
     try { const r = await fetch('/api/ai/config', { credentials: 'same-origin' }); if (r.ok) AI.cfg = await r.json(); } catch (e) {}
     const fab = document.getElementById('aiFab');
     if (fab) fab.style.display = '';
