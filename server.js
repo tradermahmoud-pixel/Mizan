@@ -292,6 +292,7 @@ app.post('/api/write', auth(false), async (req, res, next) => {
 const AI_PRESETS = {
   groq: { name: 'Groq', url: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b' },
   gemini: { name: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.8-flash' },
+  anthropic: { name: 'Claude (Anthropic)', url: 'https://api.anthropic.com/v1', model: 'claude-sonnet-5-5' },
   openai: { name: 'OpenAI (مدفوع)', url: 'https://api.openai.com/v1', model: 'gpt-5-mini' },
   openrouter: { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1', model: '' },
   custom: { name: 'مخصص', url: '', model: '' },
@@ -323,7 +324,8 @@ async function aiFetch(cfg, pathPart, body) {
     const r = await fetch(cfg.url + pathPart, {
       method: body ? 'POST' : 'GET', signal: ac.signal,
       headers: Object.assign({ Authorization: 'Bearer ' + cfg.key }, body ? { 'Content-Type': 'application/json' } : {},
-        cfg.provider === 'openrouter' ? { 'HTTP-Referer': 'https://mizan.app', 'X-Title': 'Mizan' } : {}),
+        cfg.provider === 'openrouter' ? { 'HTTP-Referer': 'https://mizan.app', 'X-Title': 'Mizan' } : {},
+        cfg.provider === 'anthropic' ? { 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01' } : {}),
       body: body ? JSON.stringify(body) : undefined,
     });
     let j = null; const txt = await r.text(); try { j = JSON.parse(txt); } catch (e) {}
@@ -335,6 +337,7 @@ function aiErr(r) {
   if (r.status === 401 || r.status === 403) return 'مفتاح الذكاء الاصطناعي غير صحيح أو مش مفعّل — راجع الإعدادات';
   if (r.status === 429 && /quota|billing|insufficient/i.test(r.txt || '')) return 'رصيد حساب الذكاء الاصطناعي خلص أو مفيش وسيلة دفع — اشحن رصيد من موقع المزوّد (Billing)';
   if (r.status === 429) return 'وصلت لحد الاستخدام المجاني عند مزوّد الذكاء الاصطناعي — استنى دقيقة وجرب تاني';
+  if (r.status === 529 || r.status === 503) return 'مزوّد الذكاء الاصطناعي مشغول دلوقتي — جرب تاني بعد شوية';
   if (r.status === 404) return 'اسم الموديل غير موجود عند المزوّد — اختار موديل تاني من الإعدادات';
   return 'خطأ من مزوّد الذكاء الاصطناعي: ' + String(typeof m === 'string' ? m : JSON.stringify(m)).slice(0, 300);
 }
@@ -379,6 +382,7 @@ app.post('/api/ai/chat', auth(false), async (req, res, next) => {
     if (!Array.isArray(b.messages) || !b.messages.length) return res.status(400).json({ error: 'رسالة فاضية' });
     const size = JSON.stringify(b).length; if (size > 120000) return res.status(413).json({ error: 'المحادثة طويلة قوي — ابدأ محادثة جديدة' });
     const body = { model: c.model, messages: b.messages, temperature: 0.2, max_tokens: 1800 };
+    if (c.provider === 'anthropic') { delete body.temperature; body.max_tokens = 3000; body.messages = body.messages.map(m => (m && m.role === 'assistant' && m.tool_calls && !m.content) ? Object.assign({}, m, { content: null }) : m); }
     if (c.provider === 'openai') { delete body.temperature; delete body.max_tokens; body.max_completion_tokens = 4000; }
     if (Array.isArray(b.tools) && b.tools.length) { body.tools = b.tools; body.tool_choice = 'auto'; }
     const t0 = now();
