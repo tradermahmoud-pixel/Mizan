@@ -393,6 +393,7 @@ ${reps || 'مفيش صلاحية تقارير'}`;
         <label class="f">المزوّد<select class="in" id="ai_p">${Object.entries(P).map(([k, v]) => `<option value="${k}" ${k === prov ? 'selected' : ''}>${esc(v.name)}</option>`).join('')}</select></label>
         <label class="f">الموديل<input class="in" id="ai_m" name="mz-ai-model" autocomplete="off" dir="ltr" list="ai_ml" value="${esc(c.model || '')}" placeholder="${esc((P[prov] || {}).model || '')}"><datalist id="ai_ml"></datalist></label>
         <label class="f" id="ai_uw" style="${prov === 'custom' ? '' : 'display:none'}">رابط الـ API<input class="in" id="ai_u" name="mz-ai-url" autocomplete="off" data-lpignore="true" data-1p-ignore dir="ltr" value="${esc(prov === 'custom' ? c.url || '' : '')}" placeholder="https://…/v1"></label>
+        <label class="f" id="ai_ww" style="${prov === 'anthropic' ? '' : 'display:none'}">رقم الـ Workspace <span class="small muted">(اختياري — لو المفتاح مش تابع لـ Workspace)</span><input class="in" id="ai_w" name="mz-ai-ws" autocomplete="off" dir="ltr" value="${esc(c.workspace || '')}" placeholder="wrkspc_..."></label>
         <label class="f">مفتاح الـ API ${c.hasKey ? `<span class="small muted">(محفوظ ${esc(c.keyHint)} — سيبه فاضي لو مش هتغيّره)</span>` : ''}<input class="in" id="ai_k" type="text" name="mz-ai-key" dir="ltr" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore style="-webkit-text-security:disc" placeholder="${c.hasKey ? '••••••••' : 'الصق المفتاح هنا'}"></label>
       </div>
       <p class="small" id="ai_h" style="background:var(--surface2);padding:8px 10px;border-radius:8px">${help[prov] || ''}</p>
@@ -401,9 +402,9 @@ ${reps || 'مفيش صلاحية تقارير'}`;
       <p class="small" id="ai_r" style="min-height:20px;margin-bottom:0"></p>`;
     const $e = id => el.querySelector('#' + id);
     const msg = (t, bad) => { const r = $e('ai_r'); r.textContent = t; r.style.color = bad ? 'var(--danger)' : 'var(--brand)'; };
-    $e('ai_p').onchange = () => { const v = $e('ai_p').value; $e('ai_uw').style.display = v === 'custom' ? '' : 'none'; $e('ai_h').innerHTML = help[v] || ''; $e('ai_m').value = (P[v] || {}).model || ''; $e('ai_m').placeholder = (P[v] || {}).model || ''; };
+    $e('ai_p').onchange = () => { const v = $e('ai_p').value; $e('ai_uw').style.display = v === 'custom' ? '' : 'none'; $e('ai_ww').style.display = v === 'anthropic' ? '' : 'none'; $e('ai_h').innerHTML = help[v] || ''; $e('ai_m').value = (P[v] || {}).model || ''; $e('ai_m').placeholder = (P[v] || {}).model || ''; };
     const save = async () => {
-      const v = $e('ai_p').value; const body = { provider: v, model: $e('ai_m').value.trim() || (P[v] || {}).model || '', enabled: $e('ai_on').checked, url: v === 'custom' ? $e('ai_u').value.trim() : '' };
+      const v = $e('ai_p').value; const body = { provider: v, model: $e('ai_m').value.trim() || (P[v] || {}).model || '', enabled: $e('ai_on').checked, url: v === 'custom' ? $e('ai_u').value.trim() : '', workspace: v === 'anthropic' ? $e('ai_w').value.trim() : undefined };
       const k = $e('ai_k').value.trim();
       if (k) { if (k.length < 20 || /\s/.test(k)) throw new Error('ده مش شكل مفتاح API — المفتاح طويل (من موقع المزوّد) وبيبدأ غالبًا بـ gsk_ أو sk- أو sk-ant- أو AIza. امسح الخانة والصق المفتاح الصح.'); body.key = k; }
       const r = await fetch('/api/ai/config', { method: 'POST', credentials: 'same-origin', headers: H, body: JSON.stringify(body) });

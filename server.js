@@ -307,6 +307,7 @@ async function aiCfg() {
     url: (c.url || process.env.AI_URL || pre.url || '').replace(/\/+$/, ''),
     model: c.model || process.env.AI_MODEL || pre.model,
     key: c.key || process.env.AI_KEY || '',
+    workspace: c.workspace || process.env.AI_WORKSPACE || '',
   };
 }
 const aiUse = new Map();
@@ -325,7 +326,7 @@ async function aiFetch(cfg, pathPart, body) {
       method: body ? 'POST' : 'GET', signal: ac.signal,
       headers: Object.assign({ Authorization: 'Bearer ' + cfg.key }, body ? { 'Content-Type': 'application/json' } : {},
         cfg.provider === 'openrouter' ? { 'HTTP-Referer': 'https://mizan.app', 'X-Title': 'Mizan' } : {},
-        cfg.provider === 'anthropic' ? { 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01' } : {}),
+        cfg.provider === 'anthropic' ? Object.assign({ 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01' }, cfg.workspace ? { 'anthropic-workspace-id': cfg.workspace } : {}) : {}),
       body: body ? JSON.stringify(body) : undefined,
     });
     let j = null; const txt = await r.text(); try { j = JSON.parse(txt); } catch (e) {}
@@ -334,6 +335,7 @@ async function aiFetch(cfg, pathPart, body) {
 }
 function aiErr(r) {
   const m = (r.j && (r.j.error && (r.j.error.message || r.j.error) || r.j.message)) || r.txt || '';
+  if (/workspace/i.test(r.txt || '') && /scoped/i.test(r.txt || '')) return 'المفتاح ده مش تابع لـ Workspace — حط «رقم الـ Workspace» في الإعدادات (من console.anthropic.com ← Settings ← Workspaces، بيبدأ بـ wrkspc_)، أو اعمل مفتاح جديد من جوّه Workspace معيّن';
   if (r.status === 401 || r.status === 403) return 'مفتاح الذكاء الاصطناعي غير صحيح أو مش مفعّل — راجع الإعدادات';
   if (r.status === 429 && /quota|billing|insufficient/i.test(r.txt || '')) return 'رصيد حساب الذكاء الاصطناعي خلص أو مفيش وسيلة دفع — اشحن رصيد من موقع المزوّد (Billing)';
   if (r.status === 429) return 'وصلت لحد الاستخدام المجاني عند مزوّد الذكاء الاصطناعي — استنى دقيقة وجرب تاني';
@@ -345,7 +347,7 @@ app.get('/api/ai/config', auth(false), async (req, res, next) => {
   try {
     const c = await aiCfg(); const adm = await isAdmin(req.user);
     const o = { enabled: c.enabled && !!c.key && !!c.model && !!c.url, provider: c.provider, model: c.model };
-    if (adm) Object.assign(o, { admin: true, url: c.url, hasKey: !!c.key, keyHint: c.key ? '…' + c.key.slice(-4) : '', on: c.enabled, presets: AI_PRESETS });
+    if (adm) Object.assign(o, { admin: true, url: c.url, hasKey: !!c.key, keyHint: c.key ? '…' + c.key.slice(-4) : '', on: c.enabled, workspace: c.workspace || '', presets: AI_PRESETS });
     res.json(o);
   } catch (e) { next(e); }
 });
@@ -357,6 +359,7 @@ app.post('/api/ai/config', auth(true), async (req, res, next) => {
     if (b.provider !== undefined) { if (!AI_PRESETS[b.provider]) return res.status(400).json({ error: 'مزوّد غير معروف' }); n.provider = b.provider; }
     if (b.url !== undefined) { const u = String(b.url || '').trim(); if (u && !/^https:\/\/[^\s]+$/.test(u)) return res.status(400).json({ error: 'الرابط لازم يبدأ بـ https://' }); n.url = u; }
     if (b.model !== undefined) n.model = String(b.model || '').trim().slice(0, 120);
+    if (b.workspace !== undefined) { const w = String(b.workspace || '').trim(); if (w && !/^[A-Za-z0-9_-]{3,80}$/.test(w)) return res.status(400).json({ error: 'رقم الـ Workspace مش مظبوط — بيبدأ غالبًا بـ wrkspc_' }); n.workspace = w; }
     if (typeof b.key === 'string' && b.key.trim()) { const k = b.key.trim(); if (k.length < 20 || /\s/.test(k)) return res.status(400).json({ error: 'المفتاح ده مش صحيح — الصق مفتاح الـ API من موقع المزوّد' }); n.key = k.slice(0, 400); }
     if (b.key === null) delete n.key;
     if (b.enabled !== undefined) n.enabled = !!b.enabled;
