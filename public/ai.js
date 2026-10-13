@@ -208,7 +208,7 @@
 النهارده ${today()} (${DAYS[new Date().getDay()]}). المستخدم: ${S.me && S.me.name || ''} — دوره: ${S.roleName || ''}. صلاحياته: ${perms || 'محدودة'}.
 قواعد:
 - أي رقم (مبيعات، أرصدة، أسعار، كميات) لازم يجي من الأدوات — ماتخترعش أرقام أبدًا. لو الأداة رجّعت خطأ أو مفيش بيانات قول كده.
-- انت بتقرا بس، ماتقدرش تعدّل أو تحفظ حاجة. لو المستخدم عايز يعمل حاجة اشرحله الخطوات وافتحله الشاشة بـ open_screen.
+- لو المستخدم طلب يعمل حاجة (فاتورة، سند، كشف حساب، طباعة، مرتجع، تغيير سعر، عميل جديد) استخدم do_action — بيتنفّذ بصلاحياته هو، والفواتير والسندات بتتفتح له يراجعها ويحفظ بنفسه، وتغيير السعر محتاج تأكيده. ماتقولش إنه اتحفظ. لأي حاجة تانية اشرح الخطوات وافتح الشاشة بـ open_screen.
 - العملة جنيه مصري (ج.م). اكتب الأرقام بفواصل الآلاف. استخدم جدول Markdown صغير لما تعرض أكتر من 3 صفوف.
 - "الشهر ده" = من أول الشهر لحد النهارده. "الشهر اللي فات" = الشهر الكامل السابق. السنة = من أول يناير.
 - لو المستخدم مالوش صلاحية حاجة، قوله إنها مش متاحة لدوره.
@@ -249,6 +249,7 @@ ${reps || 'مفيش صلاحية تقارير'}`;
 .aidot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--muted);margin:0 2px;animation:aib 1s infinite}.aidot:nth-child(2){animation-delay:.15s}.aidot:nth-child(3){animation-delay:.3s}
 @keyframes aib{0%,80%,100%{opacity:.25}40%{opacity:1}}
 @media (max-width:860px){#aiFab{bottom:calc(76px + env(safe-area-inset-bottom,0px));left:12px;width:50px;height:50px}#aiP{inset:0;width:auto;height:auto;left:0;bottom:0;border-radius:0}#aiP header{padding-top:calc(12px + env(safe-area-inset-top,0px))}}
+#aiP .aiacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}#aiP .aiacts .btn{font-size:13px;padding:6px 12px}
 @media print{#aiFab,#aiP{display:none!important}}`;
   const SPARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>';
   const SUGG = [
@@ -316,13 +317,14 @@ ${reps || 'مفيش صلاحية تقارير'}`;
       const sg = SUGG.filter(([, perm]) => !perm || can(perm) || (perm === 'parties' && can('sell')));
       h += `<div id="aiS">${sg.map(([t]) => `<button type="button">${esc(t)}</button>`).join('')}</div>`;
     }
-    for (const m of vis) h += m.ui === 'u' ? `<div class="aim u">${esc(m.content)}</div>` : m.ui === 'e' ? `<div class="aim e">${esc(m.content)}</div>` : m.ui === 't' ? `<div class="aim t">${esc(m.content)}</div>` : `<div class="aim a">${md(m.content)}</div>`;
+    for (const m of vis) h += m.ui === 'u' ? `<div class="aim u">${esc(m.content)}</div>` : m.ui === 'e' ? `<div class="aim e">${esc(m.content)}</div>` : m.ui === 't' ? `<div class="aim t">${esc(m.content)}</div>` : `<div class="aim a">${md(m.content)}${m.acts && m.acts.length ? `<div class="aiacts">${m.acts.map(a => `<button type="button" class="btn s ${a.kind === 'p' ? 'p' : ''}" data-act="${a.id}" ${a.done ? 'disabled' : ''}>${esc(a.label)}</button>`).join('')}</div>` : ''}</div>`;
     if (thinking) h += `<div class="aim t">${esc(typeof thinking === 'string' ? thinking : '')} <span class="aidot"></span><span class="aidot"></span><span class="aidot"></span></div>`;
     box.innerHTML = h; box.scrollTop = box.scrollHeight;
     box.querySelectorAll('#aiS button').forEach(b => b.onclick = () => { document.getElementById('aiI').value = b.textContent; send(); });
+    box.querySelectorAll('[data-act]').forEach(b => b.onclick = () => runAct(b.dataset.act));
     const btn = document.getElementById('aiB'); if (btn) btn.disabled = AI.busy;
   }
-  const TOOL_LABEL = { search_products: 'بدوّر في الأصناف', run_report: 'بشغّل التقرير', find_party: 'بدوّر على العميل/المورد', list_invoices: 'بجيب الفواتير', get_invoice: 'بفتح الفاتورة', overview: 'بحسب الملخص', open_screen: 'بفتح الشاشة' };
+  const TOOL_LABEL = { search_products: 'بدوّر في الأصناف', run_report: 'بشغّل التقرير', find_party: 'بدوّر على العميل/المورد', list_invoices: 'بجيب الفواتير', get_invoice: 'بفتح الفاتورة', overview: 'بحسب الملخص', open_screen: 'بفتح الشاشة', do_action: 'بجهّز الطلب' };
 
   /* ---------- المساعد المدمج: مجاني وبدون إنترنت — بيفهم الأسئلة الشائعة ويرد من بيانات البرنامج ---------- */
   const HELP = [
@@ -395,11 +397,35 @@ ${reps || 'مفيش صلاحية تقارير'}`;
     return 'مفهمتش السؤال 🙏 جرّب مثلًا:\n- «مبيعات النهارده» أو «أرباح الشهر اللي فات»\n- «رصيد بانتين» (أي صنف)\n- «حساب ص حسام» (أي عميل أو مورد)\n- «النواقص» أو «الرواكد من 60 يوم»\n- «أكتر 10 أصناف مبيعًا السنة دي»\n- «مين العملاء اللي عليهم فلوس»\n- «فاتورة رقم 7786»\n- «إزاي أعمل مرتجع مبيعات»';
   }
 
+  const ACTS = new Map(); let actSeq = 0;
+  function pushLocal(res) {
+    if (!res) return; if (typeof res === 'string') res = { md: res, acts: [] };
+    const acts = (res.acts || []).map(a => { const id = 'a' + (++actSeq); ACTS.set(id, a); return { id, label: a.label, kind: a.kind, once: a.once, done: false }; });
+    AI.msgs.push({ ui: 'a', content: res.md, acts });
+  }
+  function localReply(text) { try { return AI.brain ? AI.brain(text) : { md: localAnswer(text), acts: [] }; } catch (e) { console.error(e); return { md: 'حصل خطأ: ' + (e.message || e), acts: [] }; } }
+  const navClose = h0 => { setTimeout(() => { if (location.hash !== h0 && window.innerWidth <= 860 && AI.open) toggle(false); }, 120); };
+  async function runAct(id) {
+    const h0 = location.hash;
+    const a = ACTS.get(id); if (!a) return;
+    const msg = AI.msgs.find(m => m.acts && m.acts.some(x => x.id === id));
+    if (msg && a.once) msg.acts.forEach(x => x.done = true);
+    draw();
+    try {
+      let r = a.fn(); if (r && r.then) r = await r;
+      if (r && (typeof r === 'string' || r.md)) {
+        pushLocal(r);
+        const autos = (r.acts || []).filter(x => x.auto); if (autos.length === 1) { try { const x = autos[0].fn(); if (x && x.then) x.catch(() => {}); } catch (e) {} }
+      }
+    } catch (e) { pushLocal('حصل خطأ: ' + (e.message || e)); }
+    draw(); navClose(h0);
+  }
+  AI.pushLocal = pushLocal;
   const isLocal = () => AI.down || !AI.cfg || !AI.cfg.enabled || AI.cfg.provider === 'local';
   async function send() {
     const inp = document.getElementById('aiI'); const text = inp.value.trim();
     if (!text || AI.busy) return;
-    if (isLocal()) { inp.value = ''; inp.style.height = 'auto'; AI.msgs.push({ ui: 'u', content: text }); let a; try { a = localAnswer(text); } catch (e) { a = 'حصل خطأ: ' + (e.message || e); } AI.msgs.push({ ui: 'a', content: a }); draw(); return; }
+    if (isLocal()) { inp.value = ''; inp.style.height = 'auto'; AI.msgs.push({ ui: 'u', content: text }); const h0 = location.hash; pushLocal(localReply(text)); draw(); navClose(h0); return; }
     inp.value = ''; inp.style.height = 'auto';
     AI.msgs.push({ role: 'user', content: text, ui: 'u' }); AI.busy = true; draw('بفكر');
     try {
@@ -433,8 +459,7 @@ ${reps || 'مفيش صلاحية تقارير'}`;
       }
     } catch (e) {
       AI.down = true; console.warn('AI provider failed, using built-in assistant:', e && e.message);
-      let a; try { a = localAnswer(text); } catch (x) { a = 'مفهمتش السؤال 🙏 جرّب تكتبه بشكل تاني.'; }
-      AI.msgs.push({ ui: 'a', content: a });
+      pushLocal(localReply(text));
     } finally { AI.busy = false; draw(); }
   }
 
@@ -496,13 +521,13 @@ ${reps || 'مفيش صلاحية تقارير'}`;
     };
     $e('ai_t').onclick = async () => {
       try { await save(); msg('جارٍ التجربة…'); const t0 = performance.now();
-        if (isLocal()) { const a = localAnswer('مبيعات النهارده'); msg(`شغّال ✓ — المساعد المدمج رد في ${Math.round(performance.now() - t0)} مللي ثانية: ${String(a).replace(/[*#|_]/g, ' ').replace(/\s+/g, ' ').slice(0, 70)}…`); return; }
+        if (isLocal()) { const a = localReply('مبيعات النهارده').md; msg(`شغّال ✓ — المساعد المدمج رد في ${Math.round(performance.now() - t0)} مللي ثانية: ${String(a).replace(/[*#|_]/g, ' ').replace(/\s+/g, ' ').slice(0, 70)}…`); return; }
         const r = await fetch('/api/ai/chat', { method: 'POST', credentials: 'same-origin', headers: H, body: JSON.stringify({ messages: [{ role: 'user', content: 'رد بكلمة واحدة: تمام' }] }) });
         const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'فشل');
         msg(`شغّال ✓ — الرد: "${String(j.message.content || '').slice(0, 40)}" في ${Math.round(performance.now() - t0)} مللي ثانية`); }
       catch (e) { msg(e.message, true); }
     };
   };
-  AI.tools = TOOLS; AI.systemPrompt = systemPrompt; AI.md = md;
+  AI.tools = TOOLS; AI.systemPrompt = systemPrompt; AI.md = md; AI.findProducts = findProducts; AI.findParty = findParty; AI.HELP = HELP; AI.localAnswer = localAnswer;
   setTimeout(boot, 500);
 })();
