@@ -174,3 +174,20 @@ body #aiP{border-radius:var(--r-l);box-shadow:var(--sh3);animation:mzPop .22s va
 body #aiP header{background:radial-gradient(120% 160% at 100% 0%,#14463B,var(--side) 70%)}
 body #aiP header svg:first-child{color:var(--brass-hi)}
 body .aim.u{background:var(--btn2)}
+
+/* print alert */
+.pqpill{display:inline-flex;align-items:center;gap:6px;margin-inline-start:auto;margin-inline-end:10px;padding:6px 12px;border-radius:999px;background:color-mix(in srgb,var(--danger) 12%,var(--surface));color:var(--danger);border:1px solid color-mix(in srgb,var(--danger) 35%,transparent);font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;animation:pqp 2.4s ease-in-out infinite}
+.pqpill svg{width:16px;height:16px}.pqpill[hidden]{display:none}
+.pqpill:not([hidden])+.sync{margin-inline-start:0}
+@keyframes pqp{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 30%,transparent)}50%{box-shadow:0 0 0 6px transparent}}
+.pqbox.warn{border-color:color-mix(in srgb,var(--danger) 45%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 8%,transparent)}
+.pqlist{display:grid;gap:8px;margin-top:12px}
+.pqrow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px 12px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.pqrow.todo{background:color-mix(in srgb,var(--gold-soft,#f5ead2) 45%,var(--surface));border-color:color-mix(in srgb,var(--danger) 25%,var(--line))}
+.pqn{display:flex;flex-direction:column;min-width:0}.pqn b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pqc{display:flex;gap:6px;flex-wrap:wrap}
+.pqi{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px}
+.pqchip{border:1px dashed color-mix(in srgb,var(--danger) 45%,var(--line));background:var(--surface);color:var(--ink);border-radius:8px;padding:3px 9px;font:inherit;font-size:12.5px;cursor:pointer}
+.pqchip:hover{border-style:solid;border-color:var(--danger)}
+@media (max-width:860px){.pqpill{padding:5px 10px;font-size:12px}.pqrow{grid-template-columns:minmax(0,1fr) auto}.pqa{grid-column:1/-1}.pqa .btn{width:100%;justify-content:center}}
+@media print{.pqpill{display:none!important}}

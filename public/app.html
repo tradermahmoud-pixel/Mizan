@@ -226,7 +226,7 @@ table.t tr.click{cursor:pointer}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
-<link rel="stylesheet" href="/theme.css?v=3">
+<link rel="stylesheet" href="/theme.css?v=4">
 </head>
 <body>
 <div id="app">
@@ -236,7 +236,7 @@ table.t tr.click{cursor:pointer}
     <header id="top">
       <button class="btn ic" id="menuBtn" aria-label="فتح القائمة"></button>
       <h1 id="title">ميزان</h1>
-      <span class="sync" id="sync"><i></i><span>جارٍ الاتصال…</span></span>
+      <a class="pqpill" id="pqPill" href="#/" hidden></a><span class="sync" id="sync"><i></i><span>جارٍ الاتصال…</span></span>
     </header>
     <div id="view"></div>
   </div>
@@ -594,7 +594,7 @@ function render(){
   const _rt=performance.now();try{render_()}finally{S.perf.render=Math.round(performance.now()-_rt)}}
 function render_(){
   lastR=performance.now();computePerms();ensureMember();
-  const {p,a}=route();renderShell(p);syncBadge();
+  const {p,a}=route();renderShell(p);syncBadge();try{pqPill()}catch(e){}
   if(!canRoute(p)){setTitle('غير مسموح');denied();return}
   const V_={prep:vPrep,sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
   const f=V_[p]||vDash;
@@ -652,6 +652,7 @@ function vDash(){
    ${noData?`<div class="card" style="margin-bottom:18px;border-color:var(--brand)"><h3 style="font:700 22px/1.3 var(--display)">أهلًا بك في ميزان</h3><p class="muted" style="margin:0">ابدأ بالخطوات دي بالترتيب، أو جرّب النظام ببيانات تجريبية تقدر تمسحها بعدين بضغطة واحدة.</p>
      <div class="steps"><div><a href="#/import">ارفع أصنافك من شيت Excel</a>&nbsp;أو أضفها يدويًا من <a href="#/products">الأصناف</a></div><div>سجّل أول <a href="#/purchase">فاتورة شراء</a> أو رصيد أول المدة</div><div>ابدأ <a href="#/sale">البيع</a> — بالباركود أو بالبحث</div><div>أضف <a href="#/employees">الموظفين</a> وفعّل الحضور من الموبايل</div></div>
      <button class="btn g" id="demoBtn" ${S.ro?'disabled':''}>جرّب ببيانات تجريبية</button></div>`:''}
+   ${pqPanel()}
    <div class="strip">
      <div><div class="k">مبيعات اليوم</div><div class="v">${fmt(d.sales)}</div><div class="s">${d.count} فاتورة · ${esc(DAYS[new Date().getDay()])} ${t}</div></div>
      <div><div class="k">ربح اليوم</div><div class="v ${d.profit<0?'neg':''}">${fmt(d.profit)}</div><div class="s">هامش ${d.sales?fmt(d.profit/d.sales*100):0}%</div></div>
@@ -672,7 +673,7 @@ function vDash(){
        <a class="btn" href="#/import">${ic('up')}استيراد Excel</a><a class="btn" href="#/attendance">${ic('clock')}تسجيل حضور</a>
        <a class="btn" href="#/cash">${ic('cash')}سند قبض / صرف</a><a class="btn" href="#/lines">${ic('grid')}تعديل الحركات</a></div></div>
    </div></div>`;
-  $$('[data-inv]').forEach(r=>r.onclick=()=>go('inv/'+r.dataset.inv));
+  $$('[data-inv]').forEach(r=>r.onclick=()=>go('inv/'+r.dataset.inv));bindPQ();
   const db=$('#demoBtn');if(db)db.onclick=loadDemo;
   const lp=$('#lowPO');if(lp)lp.onclick=poFromLow;
 }
@@ -680,10 +681,11 @@ function vDash(){
 function vDashLite(){
   setTitle('الرئيسية');const emp=S.me.id&&L('employees').find(e=>e.userId===S.me.id);const pend=!S.roleKey;
   const acts=[['sale','فاتورة بيع','sale'],['purchase','فاتورة شراء','buy'],['invoices','الفواتير','doc'],['products','الأصناف','box'],['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['crm','CRM الصيدليات','users'],['attendance','تسجيل الحضور','clock']].filter(([k])=>canRoute(k));
-  $('#view').innerHTML=`<div class="wrap" style="max-width:760px">
+  $('#view').innerHTML=`<div class="wrap" style="max-width:860px">${pend?'':pqPanel()}
    <div class="card" style="margin-bottom:16px"><h3 style="font:700 22px/1.3 var(--display)">أهلًا ${esc(S.me.name||'')}</h3>
    ${pend?`<p class="muted" style="margin:0">حسابك اتسجل في النظام، لكن المدير لسه ما حددش صلاحيتك. تقدر تسجّل حضورك${emp?'':' بعد ما المدير يربط حسابك ببياناتك كموظف'}، وباقي الشاشات هتظهر لك أول ما يحدد دورك.</p>`:`<p class="muted" style="margin:0">صلاحيتك: <b>${esc(S.roleName)}</b></p>`}</div>
    <div class="grid g2">${acts.map(([k,t,i])=>`<a class="btn ${k==='sale'||k==='attendance'?'p':''}" style="padding:16px" href="#/${k}">${ic(i)}${t}</a>`).join('')}</div></div>`;
+  bindPQ();
 }
 
 /* ============ INVOICE EDITOR ============ */
@@ -1050,6 +1052,48 @@ function printInv(id,opt={}){
 async function printMany(ids){if(!ids.length)return;$('#print').className='';
   $('#print').innerHTML=ids.map(id=>invPrintHTML(id,prnLabel(id))).join('<div style="page-break-after:always;break-after:page"></div>');
   await recordPrint(ids).catch(()=>{});setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50)}
+
+/* ============ تنبيه الطباعة في الرئيسية ============ */
+let PP_={days:1};
+const canPrintQ=()=>canPrep()||(can('sell')&&!settings().printOnlyPrep);
+const seesPQ=()=>canPrep()||can('sell');
+function pqGroups(days){
+  const from=addDays(today(),-(days||1)+1);const g=new Map();let todo=0,all=0;
+  for(const i of L('invoices')){if(i.type!=='sale'||(i.date||'')<from)continue;const k=i.partyId||'';const x=g.get(k)||{pid:k,all:0,done:0,todo:[],last:''};
+    x.all++;all++;const pr=prn(i.id);if(pr&&pr.n)x.done++;else{x.todo.push(i);todo++}if((i.createdAt||'')>x.last)x.last=i.createdAt||'';g.set(k,x)}
+  const rows=[...g.values()].map(x=>(x.todo.sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||'')),x)).sort((a,b)=>b.todo.length-a.todo.length||b.last.localeCompare(a.last));
+  return {rows,todo,all,from};
+}
+function pqOlder(){const t7=addDays(today(),-6),t=addDays(today(),-(PP_.days||1)+1);return L('invoices').filter(i=>i.type==='sale'&&(i.date||'')>=t7&&(i.date||'')<t&&!(prn(i.id)&&prn(i.id).n)).length}
+function pqPill(){const el=$('#pqPill');if(!el)return;if(!seesPQ()||!S.data.invoices){el.hidden=true;return}
+  const {todo}=pqGroups(1);el.hidden=!todo;el.innerHTML=`${ic('print')}<b class="num">${todo}</b> لسه ما اتطبعتش`;el.title='دوس علشان تشوفهم في الرئيسية';
+  el.onclick=e=>{e.preventDefault();PP_.days=1;if(route().p==='dash'||!route().p){render();setTimeout(()=>$('#pqBox')?.scrollIntoView({behavior:'smooth',block:'start'}),30)}else{go('');setTimeout(()=>$('#pqBox')?.scrollIntoView({behavior:'smooth',block:'start'}),120)}}}
+function pqPanel(){
+  if(!seesPQ())return '';const {rows,todo,all}=pqGroups(PP_.days);const older=pqOlder();const cp=canPrintQ();
+  const per={1:'النهارده',2:'من امبارح',7:'آخر أسبوع'}[PP_.days]||'';
+  return `<div class="card pqbox ${todo?'warn':''}" id="pqBox" style="margin-bottom:18px">
+   <div class="row"><h3 style="margin:0">${ic('print','style="width:20px;height:20px;vertical-align:-4px"')} طباعة فواتير الصيدليات</h3>
+    ${todo?`<span class="tag bad">${todo} لسه ما اتطبعتش</span>`:all?'<span class="tag ok">كله اتطبع ✓</span>':''}<span class="sp"></span>
+    <div class="seg">${[[1,'النهارده'],[2,'من امبارح'],[7,'أسبوع']].map(([d,t])=>`<button data-ppd="${d}" class="${PP_.days==d?'on':''}">${t}</button>`).join('')}</div>
+    ${cp&&todo?`<button class="btn p" id="ppAll">${ic('print')}اطبع كل اللي لسه (${todo})</button>`:''}</div>
+   ${older?`<div class="small" style="margin-top:8px;color:var(--danger)">⚠️ فيه <b>${older}</b> فاتورة من الأيام اللي فاتت لسه ما اتطبعتش — <a href="#" id="ppOld">اعرضهم</a></div>`:''}
+   ${rows.length?`<div class="pqlist">${rows.map(x=>`<div class="pqrow ${x.todo.length?'todo':''}">
+     <div class="pqn"><b>${esc(x.pid?partyName(x.pid):'عميل نقدي')}</b><span class="small muted">${x.all} ${x.all===1?'فاتورة':x.all<=10?'فواتير':'فاتورة'} ${esc(per)}</span></div>
+     <div class="pqc"><span class="tag ok">اتطبع ${x.done}</span>${x.todo.length?`<span class="tag bad">لسه ${x.todo.length}</span>`:''}</div>
+     <div class="pqa">${x.todo.length?(cp?`<button class="btn s p" data-ppg="${esc(x.pid)}">${ic('print')}اطبع اللي لسه (${x.todo.length})</button>`:''):'<span class="small" style="color:var(--brand)">✓ كله اتطبع</span>'}</div>
+     ${x.todo.length?`<div class="pqi">${x.todo.map(i=>`<button class="pqchip" data-ppi="${i.id}" title="${cp?'اطبع الفاتورة دي':'افتح الفاتورة'}">#${esc(i.no)} <span class="muted">${esc(ltm(i.createdAt).slice(11,16))}</span></button>`).join('')}</div>`:''}
+   </div>`).join('')}</div>`:`<p class="muted small" style="margin:10px 0 0">مفيش فواتير بيع ${esc(per)}.</p>`}
+   ${canPrep()?`<div class="small muted" style="margin-top:10px"><a href="#/prep">شاشة التحضير والطباعة</a> للتفاصيل وتعليم «تم التحضير».</div>`:''}</div>`;
+}
+function bindPQ(){
+  const b=$('#pqBox');if(!b)return;
+  $$('[data-ppd]').forEach(x=>x.onclick=()=>{PP_.days=+x.dataset.ppd;render()});
+  const o=$('#ppOld');if(o)o.onclick=e=>{e.preventDefault();PP_.days=7;render()};
+  const g=()=>pqGroups(PP_.days);
+  const a=$('#ppAll');if(a)a.onclick=async()=>{const ids=g().rows.flatMap(x=>x.todo.map(i=>i.id));if(!ids.length)return;if(ids.length>1&&!(await confirmBox(`طباعة ${ids.length} فاتورة مرة واحدة؟`,'طباعة')))return;printMany(ids)};
+  $$('[data-ppg]').forEach(x=>x.onclick=()=>{const r=g().rows.find(r=>r.pid===x.dataset.ppg);if(r&&r.todo.length)printMany(r.todo.map(i=>i.id))});
+  $$('[data-ppi]').forEach(x=>x.onclick=()=>canPrintQ()?printInv(x.dataset.ppi):go('inv/'+x.dataset.ppi));
+}
 
 /* ============ PREP / PRINT QUEUE ============ */
 let PQ_={f:'todo',days:1,q:'',who:'',type:'sale'};
@@ -2181,6 +2225,6 @@ init();
 <script src="/crm.js?v=2"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=9"></script>
-<script src="/brain.js?v=1"></script>
+<script src="/brain.js?v=2"></script>
 </body>
 </html>
