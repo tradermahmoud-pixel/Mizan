@@ -719,7 +719,7 @@ function vEditor(type,id){
      <div class="seg" title="طريقة البحث بالاسم"><button type="button" data-sm="start" class="${SMODE()==='start'?'on':''}">أول الكلمة</button><button type="button" data-sm="any" class="${SMODE()==='any'?'on':''}">جزء من الكلمة</button></div>
      <button type="button" class="btn" id="psWide" title="عرض كل النتايج في شاشة كبيرة">${ic('search')}توسيع البحث</button></div>
    ${inv.type==='count'&&!ED.id?`<div class="row" style="margin:-4px 0 12px"><button class="btn s" id="cntAll">إضافة كل الأصناف بأرصدتها الدفترية</button><span class="small muted">ثم عدّل عمود "الكمية الفعلية" بما عددته على الرف. الفروقات تُسوّى بمتوسط التكلفة عند الحفظ.</span></div>`:''}
-   <div class="tw"><table class="t" id="lt"><thead><tr><th>#</th><th style="min-width:180px">الصنف</th>${inv.type==='count'?'<th class="n">الرصيد الدفتري</th><th>الكمية الفعلية</th>':'<th class="n">المتاح</th><th>الكمية</th>'}<th>${isSale?'سعر الصيدلي':PURT.includes(inv.type)?'سعر الشراء':'السعر'}</th>${PURT.includes(inv.type)?'<th>سعر المستهلك</th><th class="n">التكلفة الحالية</th>':isSale?'<th class="n">سعر المستهلك</th>':''}${noDisc(inv)?'':'<th>خصم %</th>'}${showC?'<th title="اتركها فارغة للحساب التلقائي بمتوسط التكلفة">التكلفة</th>':''}<th class="n">${inv.type==='count'?'الفرق':'الإجمالي'}</th>${showC?'<th class="n">الربح</th>':''}<th></th></tr></thead>
+   <div class="tw"><table class="t" id="lt"><thead><tr><th>#</th><th style="min-width:180px">الصنف</th>${inv.type==='count'?'<th class="n">الرصيد الدفتري</th><th>الكمية الفعلية</th>':'<th class="n">المتاح</th><th>الكمية</th>'}<th>${isSale?'سعر الصيدلي':PURT.includes(inv.type)?'سعر الشراء':'السعر'}</th>${PURT.includes(inv.type)?'<th>سعر المستهلك</th><th class="n">التكلفة الحالية</th>':isSale?'<th class="n">سعر المستهلك</th><th class="n" title="خصم الصيدلية من سعر المستهلك">نسبة الخصم</th>':''}${noDisc(inv)?'':'<th>خصم %</th>'}${showC?'<th title="اتركها فارغة للحساب التلقائي بمتوسط التكلفة">التكلفة</th>':''}<th class="n">${inv.type==='count'?'الفرق':'الإجمالي'}</th>${showC?'<th class="n">الربح</th>':''}<th></th></tr></thead>
    <tbody>${inv.lines.length?inv.lines.map((l,i)=>lineRow(l,i,showC)).join(''):`<tr><td colspan="10"><div class="empty" style="padding:24px"><b>الفاتورة فاضية</b>ابحث عن صنف بالأعلى أو امسح الباركود لإضافته.</div></td></tr>`}</tbody></table></div>
    <div class="totals">
      <label class="f">ملاحظات<textarea class="in" rows="3" data-h="notes">${esc(inv.notes)}</textarea></label>
@@ -782,6 +782,8 @@ function vEditor(type,id){
   if(lockMsg){$$('#view input,#view select,#view textarea').forEach(x=>x.disabled=true);['save','delInv','conv','clr'].forEach(k=>{const b=$('#'+k);if(b)b.disabled=true});$$('[data-rm]').forEach(b=>b.disabled=true);$('#view .wrap').insertAdjacentHTML('afterbegin',`<div class="card" style="margin-bottom:12px;padding:10px 14px;border-color:var(--gold)">${lockMsg}</div>`);return}
   if(!ED.id||!inv.lines.length)setTimeout(()=>{if(!editing())ps.focus()},50);
 }
+const discPct=(l,p)=>{const c=consOf(p||G('products',l.pid));if(!(c>0))return null;const u=(+l.price||0)*(1-(+l.disc||0)/100);return Math.round((1-u/c)*1000)/10};
+const pctTxt=v=>v==null||Math.abs(v)<0.05?'—':(v<0?'+'+fmt(-v):fmt(v))+'%';
 const noDisc=inv=>isSaleT(inv.type)&&!(inv.lines||[]).some(l=>+l.disc);
 const SMODE=()=>{try{return localStorage.getItem('mizan.smode')||'start'}catch(e){return 'start'}};
 const setSMODE=v=>{try{localStorage.setItem('mizan.smode',v)}catch(e){}};
@@ -822,17 +824,17 @@ function lineRow(l,i,isSale){
    <td class="n" data-av="${i}">${fq(bookQ(l,i))}</td>
    <td><input class="cell n" data-i="${i}" data-f="qty" inputmode="decimal" value="${l.qty}"></td>
    <td><input class="cell n" data-i="${i}" data-f="price" inputmode="decimal" value="${l.price??0}" ${isSaleT(inv.type)&&!can('editPrice')?'readonly title="تغيير السعر غير مسموح لصلاحيتك"':''}></td>
-   ${PURT.includes(inv.type)?`<td><input class="cell n" data-i="${i}" data-f="consumer" inputmode="decimal" value="${l.consumer??consOf(p)}" title="تعديله هنا بيحدّث سعر المستهلك في بيانات الصنف عند الحفظ"></td><td class="n muted" title="متوسط التكلفة قبل الفاتورة دي">${fmt(auto)}</td>`:isSaleT(inv.type)?`<td class="n muted">${fmt(consOf(p))}</td>`:''}
+   ${PURT.includes(inv.type)?`<td><input class="cell n" data-i="${i}" data-f="consumer" inputmode="decimal" value="${l.consumer??consOf(p)}" title="تعديله هنا بيحدّث سعر المستهلك في بيانات الصنف عند الحفظ"></td><td class="n muted" title="متوسط التكلفة قبل الفاتورة دي">${fmt(auto)}</td>`:isSaleT(inv.type)?`<td class="n muted">${fmt(consOf(p))}</td><td class="n" data-dp="${i}"></td>`:''}
    ${noDisc(inv)?'':`<td><input class="cell n" style="min-width:56px" data-i="${i}" data-f="disc" ${ED.inv.type==='count'?'readonly':''} inputmode="decimal" value="${l.disc||0}"></td>`}
    ${isSale?`<td><input class="cell n ${man?'man':''}" data-i="${i}" data-f="cost" inputmode="decimal" value="${man?l.cost:''}" placeholder="${fmt(auto)}" title="فارغ = متوسط التكلفة تلقائيًا"></td>`:''}
    <td class="n" data-tot="${i}"></td>${isSale?`<td class="n" data-pr="${i}"></td>`:''}
    <td><button class="btn ic s" data-rm="${i}" title="حذف السطر" aria-label="حذف السطر">${ic('x')}</button></td></tr>`;
 }
-const CELL={tot:[],pr:[],av:[]};
-function cacheCells(){CELL.tot=[];CELL.pr=[];CELL.av=[];$$('#lt [data-tot]').forEach(e=>CELL.tot[+e.dataset.tot]=e);$$('#lt [data-pr]').forEach(e=>CELL.pr[+e.dataset.pr]=e);$$('#lt [data-av]').forEach(e=>CELL.av[+e.dataset.av]=e)}
+const CELL={tot:[],pr:[],av:[],dp:[]};
+function cacheCells(){CELL.tot=[];CELL.pr=[];CELL.av=[];$$('#lt [data-tot]').forEach(e=>CELL.tot[+e.dataset.tot]=e);$$('#lt [data-pr]').forEach(e=>CELL.pr[+e.dataset.pr]=e);$$('#lt [data-av]').forEach(e=>CELL.av[+e.dataset.av]=e);CELL.dp=[];$$('#lt [data-dp]').forEach(e=>CELL.dp[+e.dataset.dp]=e)}
 function updRow(i){const l=ED.inv.lines[i];if(!l)return;
   if(OUTT.includes(ED.inv.type)){const a=CELL.av[i];if(a){const tq=ED.inv.lines.filter(x=>x.pid===l.pid).reduce((s,x)=>s+(+x.qty||0),0);const sh=tq>availFor(l.pid)+0.0001;a.classList.toggle('neg',sh);a.title=sh?'الكمية المطلوبة أكبر من الرصيد المتاح':''}}
-  if(ED.inv.type==='count'){const df=(+l.qty||0)-bookQ(l,i);const t=CELL.tot[i];if(t){t.innerHTML=`<b class="${df<0?'neg':df>0?'pos':'muted'}">${df>0?'+':''}${fq(df)}</b> <span class="small muted">${fmt(df*(+l.price||0))}</span>`}return}const net=(+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100);const t=CELL.tot[i];if(t)t.textContent=fmt(net);const pr=CELL.pr[i];if(pr){const c=(l.cost!==''&&l.cost!=null)?+l.cost:avgCost(l.pid);const v=(net-(+l.qty||0)*c)*(ED.inv.type==='sret'?-1:1);pr.textContent=fmt(v);pr.className='n '+(v<0?'neg':'pos')}}
+  if(ED.inv.type==='count'){const df=(+l.qty||0)-bookQ(l,i);const t=CELL.tot[i];if(t){t.innerHTML=`<b class="${df<0?'neg':df>0?'pos':'muted'}">${df>0?'+':''}${fq(df)}</b> <span class="small muted">${fmt(df*(+l.price||0))}</span>`}return}const net=(+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100);{const d=CELL.dp[i];if(d){const v=discPct(l);d.textContent=pctTxt(v);d.className='n '+(v!=null&&v<-0.05?'neg':'')}}const t=CELL.tot[i];if(t)t.textContent=fmt(net);const pr=CELL.pr[i];if(pr){const c=(l.cost!==''&&l.cost!=null)?+l.cost:avgCost(l.pid);const v=(net-(+l.qty||0)*c)*(ED.inv.type==='sret'?-1:1);pr.textContent=fmt(v);pr.className='n '+(v<0?'neg':'pos')}}
 const OUTT=['sale','pret','transfer'];
 const allowNeg=()=>!!settings().allowNegative;
 function availFor(pid){const inv=ED.inv;const before=ED.id&&ED.orig.storeId===inv.storeId?(ED.orig.lines||[]).filter(o=>o.pid===pid).reduce((s,o)=>s+(+o.qty||0),0):0;return qtyIn(pid,inv.storeId)+before}
@@ -854,6 +856,7 @@ function edTotals(all){
   const qty=inv.lines.reduce((s,l)=>s+(+l.qty||0),0);
   if(!box.dataset.built){box.dataset.built=1;box.innerHTML=`
     <div class="l"><span class="muted">عدد الأصناف / الكميات</span><b class="num" id="tq"></b></div>
+    ${isSaleT(inv.type)?'<div class="l"><span class="muted">بسعر المستهلك / نسبة الخصم</span><b class="num" id="tdp"></b></div>':''}
     <div class="l"><span>الإجمالي قبل الخصم</span><b class="num" id="ts"></b></div>
     <div class="l"><span>خصم على الفاتورة</span><input class="in n" id="td" inputmode="decimal" value="${inv.discount||0}"></div>
     <div class="l grand"><span>صافي الفاتورة</span><span class="num" id="tt"></span></div>
@@ -870,7 +873,8 @@ function edTotals(all){
     const tsf=$('#tsafe');if(tsf)tsf.onchange=()=>{inv.safe=tsf.value};
     const tp=$('#tp');if(tp)tp.oninput=e=>{inv.paid=numIn(e.target.value);inv.payFull=false;$('#pf').checked=false;edTotals()};
   }
-  $('#tq').textContent=inv.lines.length+' / '+fq(qty);$('#ts').textContent=fmt(t.sub);$('#tt').textContent=fmt(t.total);
+  $('#tq').textContent=inv.lines.length+' / '+fq(qty);
+  if($('#tdp')){let cv=0,nv=0;inv.lines.forEach(l=>{const q=+l.qty||0;cv+=q*consOf(G('products',l.pid));nv+=q*(+l.price||0)*(1-(+l.disc||0)/100)});$('#tdp').textContent=cv>0?fmt(cv)+' / '+pctTxt(Math.round((1-nv/cv)*1000)/10):'—'}$('#ts').textContent=fmt(t.sub);$('#tt').textContent=fmt(t.total);
   if($('#tp')&&inv.payFull)$('#tp').value=inv.paid;
   if($('#tr'))$('#tr').textContent=fmt(t.total-(+inv.paid||0));
   {const pb=prevBal(inv);const show=pb!=null;['tpbw','tgtw','tnbw'].forEach(k=>{const el=$('#'+k);if(el)el.hidden=!show});
@@ -1026,11 +1030,11 @@ function invPrintHTML(id,label){
      <td style="border:0;padding:2px 0"><b>المخزن:</b> ${esc(storeName(inv.storeId))}${inv.type==='transfer'?' ← '+esc(storeName(inv.toStoreId)):''}</td>
      ${inv.empId?`<td style="border:0;padding:2px 0"><b>البائع:</b> ${esc(empName(inv.empId))}</td>`:''}</tr>
      ${p&&p.address?`<tr><td colspan="5" style="border:0;padding:2px 0"><b>العنوان:</b> ${esc(p.address)}</td></tr>`:''}</table>
-   <table><thead><tr><th style="width:30px">م</th><th>الصنف</th><th style="width:60px">الكمية</th><th style="width:80px">${showCons?'سعر الصيدلي':'السعر'}</th>${showCons?'<th style="width:80px">سعر المستهلك</th>':''}${nd?'':'<th style="width:50px">خصم%</th>'}<th style="width:95px">الإجمالي</th></tr></thead><tbody>
-   ${lines.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(pname(l.pid))}</td><td>${fq(l.qty)}</td><td>${fmt(l.price)}</td>${showCons?`<td>${fmt(consOf(G('products',l.pid)))}</td>`:''}${nd?'':`<td>${+l.disc||''}</td>`}<td>${fmt((+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100))}</td></tr>`).join('')}</tbody></table>
+   <table><thead><tr><th style="width:30px">م</th><th>الصنف</th><th style="width:60px">الكمية</th><th style="width:80px">${showCons?'سعر الصيدلي':'السعر'}</th>${showCons?'<th style="width:80px">سعر المستهلك</th><th style="width:62px">نسبة الخصم</th>':''}${nd?'':'<th style="width:50px">خصم%</th>'}<th style="width:95px">الإجمالي</th></tr></thead><tbody>
+   ${lines.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(pname(l.pid))}</td><td>${fq(l.qty)}</td><td>${fmt(l.price)}</td>${showCons?`<td>${fmt(consOf(G('products',l.pid)))}</td><td>${pctTxt(discPct(l))}</td>`:''}${nd?'':`<td>${+l.disc||''}</td>`}<td>${fmt((+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100))}</td></tr>`).join('')}</tbody></table>
    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-top:10px">
      <div style="font-size:12px">عدد الأصناف: ${lines.length} — إجمالي الكميات: ${fq(qty)}${inv.notes?`<p>ملاحظات: ${esc(inv.notes)}</p>`:''}${tr&&+tr.days&&inv.type==='sale'?`<p>تاريخ الاستحقاق: ${addDays(inv.date||today(),+tr.days)}</p>`:''}</div>
-     <table style="width:300px">${+inv.discount?`<tr><td>إجمالي الأصناف</td><td>${fmt(t.sub)}</td></tr><tr><td>خصم</td><td>${fmt(inv.discount)}</td></tr>`:''}<tr><td><b>صافي الفاتورة</b></td><td><b>${fmt(t.total)}</b></td></tr>
+     <table style="width:300px">${showCons?(()=>{const cv=lines.reduce((s_,l)=>s_+(+l.qty||0)*consOf(G('products',l.pid)),0);const nv=lines.reduce((s_,l)=>s_+(+l.qty||0)*(+l.price||0)*(1-(+l.disc||0)/100),0);return cv>0&&Math.abs(cv-nv)>0.009?`<tr><td>الإجمالي بسعر المستهلك</td><td>${fmt(cv)}</td></tr><tr><td>نسبة الخصم</td><td>${pctTxt(Math.round((1-nv/cv)*1000)/10)}</td></tr>`:''})():''}${+inv.discount?`<tr><td>إجمالي الأصناف</td><td>${fmt(t.sub)}</td></tr><tr><td>خصم</td><td>${fmt(inv.discount)}</td></tr>`:''}<tr><td><b>صافي الفاتورة</b></td><td><b>${fmt(t.total)}</b></td></tr>
      ${bal&&Math.abs(bal.prev)>0.009?`<tr><td>الرصيد السابق</td><td>${fmt(bal.prev)}</td></tr><tr><td><b>الإجمالي المستحق</b></td><td><b>${fmt(bal.prev+bal.sgn*t.total)}</b></td></tr>`:''}
      <tr><td>المدفوع</td><td>${fmt(t.paid)}</td></tr>${bal?`<tr><td><b>الرصيد بعد الفاتورة</b></td><td><b>${fmt(bal.now)}</b></td></tr>`:`<tr><td>الباقي</td><td>${fmt(t.rest)}</td></tr>`}</table></div>
    <div style="display:flex;justify-content:space-between;margin-top:36px"><div>المستلم: ..................</div><div>التوقيع: ..................</div></div>
