@@ -313,6 +313,7 @@
     { id: 'invno', m: c => c.invNo != null || (c.mem.inv && has(c, 'اطبعها', 'افتحها', 'رجعها', 'اطبعهالي', 'افتحهالي', 'نفس الفاتوره')), run: c => {
       const inv = c.invNo != null ? findInv(c.invNo, c.invType) : L('invoices').find(i => i.id === c.mem.inv); if (!inv) return R(`مفيش فاتورة رقم ${c.invNo}.`);
       c.set.inv = inv.id; if (inv.partyId) c.set.party = inv.partyId;
+      if (has(c, 'راجع', 'مراجعه', 'راجعها', 'حضر', 'تحضير') && typeof vPick === 'function') { if (!canRoute('pick')) return R(deny('مراجعة التحضير')); return R(`فتحتلك مراجعة تحضير ${TYPES[inv.type].full} رقم ${inv.no} — امسح الأصناف.`, [act('افتح المراجعة', () => go('pick/' + inv.id), { auto: true, kind: 'p', once: false })]); }
       if (has(c, 'اطبع', 'طباعه', 'اطبعها', 'برنت')) return ACT.print(inv);
       if (has(c, 'مرتجع', 'رجع', 'ارجع', 'رجعها', 'ترجيع')) return ACT.ret(inv);
       if (has(c, 'افتح', 'افتحها', 'عدل', 'تعديل', 'وديني')) return ACT.openInv(inv);

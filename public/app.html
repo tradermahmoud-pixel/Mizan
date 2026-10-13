@@ -322,7 +322,7 @@ const isSaleT=t=>['sale','sret','quote'].includes(t);
 const MAIN='main';
 
 /* ============ data store (cloud db with local fallback) ============ */
-const COLS=['products','parties','stores','invoices','cash','cheques','employees','attendance','adjust','audit','settings','members','roles','roledefs','safes','accounts','journal','leads','crm_reps','prints'];
+const COLS=['products','parties','stores','invoices','cash','cheques','employees','attendance','adjust','audit','settings','members','roles','roledefs','safes','accounts','journal','leads','crm_reps','prints','picks'];
 const S={mode:'loading',db:null,user:null,me:{id:null,name:''},data:{},names:{},ro:false};
 COLS.forEach(c=>S.data[c]=new Map());
 let V=0;const CV={};const bump=c=>{CV[c]=(CV[c]||0)+1;V++};
@@ -336,7 +336,7 @@ function dbErr(e){
   else toast('تعذّر الحفظ، حاول مرة أخرى','err');
   console.error(e);
 }
-const CHUNKED={products:64,parties:16,invoices:256,cash:32,attendance:32,audit:32,cheques:16,leads:32,prints:32};
+const CHUNKED={products:64,parties:16,invoices:256,cash:32,attendance:32,audit:32,cheques:16,leads:32,prints:32,picks:32};
 const fnv=s=>{let h=2166136261;for(const ch of String(s)){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0};
 S.loc={};
 const chunkOf=(c,id)=>(S.loc[c]&&S.loc[c].get(id))||('b'+String(fnv(id)%CHUNKED[c]).padStart(3,'0'));
@@ -422,7 +422,7 @@ function computePerms(){
 }
 const can=p=>S.isAdmin||(S.perms||[]).includes(p);
 const ROUTEP={prep:'@prep',sret:'sell',pret:'buy',crm:'@crm',accounts:'accounting',sale:'sell',purchase:'buy',lines:'editInv',products:'products',import:'products',orders:'buy',barcode:'products',parties:'parties',cash:'cash',cheques:'cash',reports:'reports',employees:'hr',payroll:'hr',audit:'@',settings:'@',users:'@'};
-function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='crm')return can('crm')||can('crmManage');if(k==='prep')return can('prep')||can('sell');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
+function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='crm')return can('crm')||can('crmManage');if(k==='prep'||k==='pick')return can('prep')||can('sell');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
 const isLocked=d=>!S.isAdmin&&!!settings().lockDate&&!!d&&d<=settings().lockDate;
 function ensureMember(){if(S.mode==='cloud'&&S.me.id&&S.memLoaded&&!S.regDone&&!G('members',S.me.id)&&!S.ro){S.regDone=true;put('members',S.me.id,{first:new Date().toISOString()}).catch(()=>{})}}
 function denied(msg){$('#view').innerHTML=`<div class="wrap"><div class="empty card"><b>${msg||'هذه الشاشة غير متاحة لصلاحيتك'}</b>صلاحيتك الحالية: ${esc(S.roleName)}. اطلب من المدير تعديلها من شاشة المستخدمين والصلاحيات.</div></div>`}
@@ -570,7 +570,7 @@ document.addEventListener('pointercancel',()=>{ptr=false;flushPend()},true);
 document.addEventListener('focusout',flushPend);
 
 const NAV=[
- ['البيع والشراء',[['dash','الرئيسية','home'],['sale','فاتورة بيع','sale'],['sret','مرتجع مبيعات','ret'],['purchase','فاتورة شراء','buy'],['pret','مرتجع مشتريات','ret'],['invoices','كل الفواتير','doc'],['prep','التحضير والطباعة','print'],['lines','شبكة الحركات','grid'],['crm','CRM الصيدليات','users']]],
+ ['البيع والشراء',[['dash','الرئيسية','home'],['sale','فاتورة بيع','sale'],['sret','مرتجع مبيعات','ret'],['purchase','فاتورة شراء','buy'],['pret','مرتجع مشتريات','ret'],['invoices','كل الفواتير','doc'],['prep','التحضير والطباعة','print'],['pick','مراجعة التحضير','bar'],['lines','شبكة الحركات','grid'],['crm','CRM الصيدليات','users']]],
  ['المخزون',[['products','الأصناف والأرصدة','box'],['import','استيراد من Excel','up'],['orders','أوامر التوريد وعروض الأسعار','doc'],['barcode','طباعة الباركود','bar']]],
  ['الحسابات',[['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['cheques','الشيكات','chq'],['reports','التقارير والأرباح','chart'],['accounts','المحاسبة والقوائم المالية','ledger']]],
  ['الموظفون',[['attendance','الحضور والانصراف','clock'],['employees','بيانات الموظفين','badge'],['payroll','الرواتب','wallet']]],
@@ -596,7 +596,7 @@ function render_(){
   lastR=performance.now();computePerms();ensureMember();
   const {p,a}=route();renderShell(p);syncBadge();try{pqPill()}catch(e){}
   if(!canRoute(p)){setTitle('غير مسموح');denied();return}
-  const V_={prep:vPrep,sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
+  const V_={prep:vPrep,pick:(typeof vPick==='function'?vPick:vDash),sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
   const f=V_[p]||vDash;
   if(S.mode==='cloud'&&!allReady()){loadingView();return}
   if(S.mode==='loading'&&!S.data.products.size){$('#title').textContent='ميزان';$('#view').innerHTML='<div class="empty"><b>جارٍ تحميل البيانات…</b></div>';return}
@@ -1022,7 +1022,7 @@ function invPrintHTML(id,label){
     const sgn=sg*({sale:1,pret:1,sret:-1,purchase:-1}[inv.type]||0);const eff=sgn*(t.total-(+inv.paid||0));if(typeof id==='object')bal={prev:now,now:now+eff,sgn};else{const pv=balBefore(inv.partyId,id);const pr=pv!=null?pv:now-eff;bal={prev:pr,now:pr+eff,sgn}}}
   return `<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:8px">
      <div><h2 style="margin:0">${esc(s.company||'')}</h2><div>${[s.address,s.phone].filter(Boolean).map(esc).join(' — ')}</div></div>
-     <div style="text-align:left">${label?`<div style="border:1.5px solid #000;padding:1px 10px;display:inline-block;font-weight:700;margin-bottom:4px">${esc(label)}</div>`:''}<h2 style="margin:0">${T.full}${inv.draft?' (مسودة)':''}</h2><div>رقم ${esc(String(inv.no))} — ${inv.date||today()}</div></div></div>
+     <div style="text-align:left">${label?`<div style="border:1.5px solid #000;padding:1px 10px;display:inline-block;font-weight:700;margin-bottom:4px">${esc(label)}</div>`:''}<h2 style="margin:0">${T.full}${inv.draft?' (مسودة)':''}</h2><div>رقم ${esc(String(inv.no))} — ${inv.date||today()}</div>${['sale','transfer'].includes(inv.type)&&inv.no&&window.MZ_RV_code?`<svg data-invbc="${esc(MZ_RV_code(inv))}" style="height:46px;margin-top:4px"></svg>`:''}</div></div>
    <table style="margin:8px 0;border:0"><tr>
      ${T.party?`<td style="border:0;padding:2px 0"><b>${T.party==='customer'?'العميل':'المورد'}:</b> ${esc(p?p.name:'نقدي')}</td>`:''}
      ${p&&p.phone?`<td style="border:0;padding:2px 0"><b>التليفون:</b> ${esc(p.phone)}</td>`:''}
@@ -1049,12 +1049,12 @@ async function recordPrint(ids){const at=new Date().toISOString(),who=(S.me&&S.m
   await putMany(ids.map(id=>{const c=prn(id)||{};return ['prints',id,{...c,n:(c.n||0)+1,first:c.first||at,last:at,lastBy:who,log:[{at,by:who},...(c.log||[])].slice(0,20)}]}))}
 function printInv(id,opt={}){
   if(typeof id==='object'){$('#print').className='';$('#print').innerHTML=invPrintHTML(id,'');setTimeout(()=>{try{window.print()}catch(e){}},50);return}
-  const go_=async()=>{$('#print').className='';$('#print').innerHTML=invPrintHTML(id,prnLabel(id));await recordPrint([id]).catch(()=>{});setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50)};
+  const go_=async()=>{$('#print').className='';$('#print').innerHTML=invPrintHTML(id,prnLabel(id));window.MZ_RV_bc&&MZ_RV_bc($('#print'));await recordPrint([id]).catch(()=>{});setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50)};
   const p=prn(id);if(p&&p.n&&!opt.force){confirmBox(`الفاتورة دي اتطبعت قبل كده ${p.n} مرة — آخر مرة ${ltm(p.last)}${p.lastBy?' بواسطة '+p.lastBy:''}. تطبع نسخة مكررة؟`,'طباعة نسخة مكررة').then(ok=>{if(ok)go_()});return}
   go_();
 }
 async function printMany(ids){if(!ids.length)return;$('#print').className='';
-  $('#print').innerHTML=ids.map(id=>invPrintHTML(id,prnLabel(id))).join('<div style="page-break-after:always;break-after:page"></div>');
+  $('#print').innerHTML=ids.map(id=>invPrintHTML(id,prnLabel(id))).join('<div style="page-break-after:always;break-after:page"></div>');window.MZ_RV_bc&&MZ_RV_bc($('#print'));
   await recordPrint(ids).catch(()=>{});setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50)}
 
 /* ============ تنبيه الطباعة في الرئيسية ============ */
@@ -1123,11 +1123,12 @@ function vPrep(){
       <input class="in" style="width:170px" id="pqQ" placeholder="رقم الفاتورة أو العميل" value="${esc(PQ_.q)}">
       <span class="sp"></span>${canPrep()?`<button class="btn p" id="pqAll" ${!cnt.todo?'disabled':''}>${ic('print')}اطبع كل اللي ما اتطبعتش (${cnt.todo})</button>`:''}</div>
       ${canPrep()?`<div class="row small" id="pqSelBar" style="margin-top:10px;${sel.size?'':'display:none'}"><b id="pqSelN">${sel.size} مختارة</b><button class="btn s" id="pqSelP">${ic('print')}طباعة المختار</button><button class="btn s" id="pqSelD">تم تحضير المختار</button><button class="btn s" id="pqSelC">إلغاء الاختيار</button></div>`:''}</div>
-    <div class="tw"><table class="t" id="pqTbl"><thead><tr>${canPrep()?'<th style="width:30px"><input type="checkbox" id="pqChkAll"></th>':''}<th>رقم</th><th>الوقت</th><th>العميل</th><th>السيلز</th><th class="n">أصناف</th><th class="n">الصافي</th><th>الطباعة</th><th>التحضير</th><th></th></tr></thead><tbody>
+    <div class="tw"><table class="t" id="pqTbl"><thead><tr>${canPrep()?'<th style="width:30px"><input type="checkbox" id="pqChkAll"></th>':''}<th>رقم</th><th>الوقت</th><th>العميل</th><th>السيلز</th><th class="n">أصناف</th><th class="n">الصافي</th><th>الطباعة</th><th>المراجعة</th><th>التحضير</th><th></th></tr></thead><tbody>
     ${xs.slice(0,400).map(i=>{const p=prn(i.id);const tt=R.inv[i.id]||invTotals(i);return `<tr data-pid="${i.id}" style="${!p||!p.n?'background:color-mix(in srgb,var(--gold-soft) 55%,transparent)':''}">${canPrep()?`<td><input type="checkbox" data-psel="${i.id}" ${sel.has(i.id)?'checked':''}></td>`:''}
       <td class="num"><b>${esc(i.no)}</b>${i.type!=='sale'?` <span class="tag ${i.type}">${TYPES[i.type].t}</span>`:''}</td><td class="num small">${i.date!==t?esc(i.date)+' ':''}${esc(ltm(i.createdAt).slice(11))}</td>
       <td>${esc(partyName(i.partyId)||'نقدي')}</td><td class="small">${esc(whoName(i.createdBy)||i.orgaUser||'')}</td><td class="n">${(i.lines||[]).length}</td><td class="n">${fmt(tt.total)}</td>
       <td>${p&&p.n?`<span class="tag ok" title="${esc((p.log||[]).map(e=>ltm(e.at)+' — '+(e.by||'')).join('\n'))}">اتطبعت ${p.n===1?'مرة':p.n+' مرات'}</span> <span class="small muted">${esc(ltm(p.last).slice(11))} ${esc(p.lastBy||'')}</span>`:'<span class="tag bad">لسه</span>'}</td>
+      <td>${(()=>{const k=G('picks',i.id);if(!k)return `<button class="btn s" data-prv="${i.id}">${ic('bar')}راجع</button>`;if(k.status==='open')return `<span class="tag purchase">جاري — ${esc(k.by||'')}</span> <button class="btn s" data-prv="${i.id}">كمّل</button>`;return k.status==='ok'?`<span class="tag ok" title="${esc(ltm(k.end))}">مطابقة ✓</span> <span class="small muted">${esc(k.by||'')}</span>`:`<span class="tag bad" title="${esc(k.reason||'')}">${k.status==='over'?'بزيادة':'بنواقص'}</span> <span class="small muted">${esc(k.by||'')}</span>`})()}</td>
       <td>${p&&p.prepAt?`<span class="tag ok">اتحضرت</span> <span class="small muted">${esc(ltm(p.prepAt).slice(11))} ${esc(p.prepBy||'')}</span>`:canPrep()&&p&&p.n?`<button class="btn s" data-pdone="${i.id}">تم التحضير</button>`:'<span class="small muted">—</span>'}</td>
       <td style="white-space:nowrap">${canPrep()?`<button class="btn s ${!p||!p.n?'p':''}" data-pprint="${i.id}">${ic('print')}${p&&p.n?'نسخة':'طباعة'}</button>`:''} <button class="btn s" data-popen="${i.id}">فتح</button></td></tr>`}).join('')||`<tr><td colspan="10"><div class="empty"><b>${PQ_.f==='todo'?'كل الفواتير اتطبعت ✓':'مفيش فواتير'}</b></div></td></tr>`}</tbody></table></div>
     <p class="small muted">الشاشة بتتحدّث لوحدها أول ما السيلز يحفظ فاتورة. كل طباعة بتتسجّل باسم اللي طبع ووقتها، والنسخ اللي بعد الأولى بيتكتب عليها «نسخة مكررة».</p></div>`;
@@ -1136,7 +1137,8 @@ function vPrep(){
   const todoIds=()=>L('invoices').filter(i=>(PQ_.type==='all'?['sale','sret','transfer'].includes(i.type):i.type===PQ_.type)&&(i.date||'')>=from&&!(prn(i.id)&&prn(i.id).n)).sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||'')).map(i=>i.id);
   const pa=$('#pqAll');if(pa)pa.onclick=async()=>{const ids=todoIds();if(!ids.length)return;if(ids.length>1&&!(await confirmBox(`طباعة ${ids.length} فاتورة مرة واحدة؟`,'طباعة')))return;printMany(ids)};
   $$('[data-pprint]').forEach(b=>b.onclick=()=>printInv(b.dataset.pprint));
-  $$('[data-popen]').forEach(b=>b.onclick=()=>go('inv/'+b.dataset.popen));
+  $$('[data-popen]').forEach(b=>b.onclick=()=>go('inv/'+b.dataset.popen));$$('[data-prv]').forEach(b=>b.onclick=()=>go('pick/'+b.dataset.prv));
+  $$('[data-prv]').forEach(b=>b.onclick=()=>go('pick/'+b.dataset.prv));
   const markDone=async ids=>{const at=new Date().toISOString(),who=(S.me&&S.me.name)||'';await putMany(ids.map(id=>{const c=prn(id)||{};return ['prints',id,{...c,prepAt:at,prepBy:who}]}));toast(ids.length>1?`اتسجل تحضير ${ids.length} فاتورة`:'اتسجل التحضير')};
   $$('[data-pdone]').forEach(b=>b.onclick=()=>markDone([b.dataset.pdone]));
   const upd=()=>{const bar=$('#pqSelBar');if(bar){bar.style.display=sel.size?'':'none';$('#pqSelN').textContent=sel.size+' مختارة'}};
@@ -2227,8 +2229,9 @@ init();
 </script>
 <script src="/accounting.js?v=4"></script>
 <script src="/crm.js?v=2"></script>
+<script src="/review.js?v=1"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=9"></script>
-<script src="/brain.js?v=2"></script>
+<script src="/brain.js?v=3"></script>
 </body>
 </html>
