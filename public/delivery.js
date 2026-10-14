@@ -69,15 +69,20 @@
   }
   function baseMap(LF, el, key) {
     const m = LF.map(el, { zoomControl: true, attributionControl: true });
-    // مصادر الخرايط: CARTO الأول، ولو فشل بننقل لـ OpenStreetMap لوحدنا. بنبعت اسم الموقع بس (مش اللينك كامل) زي ما سياستهم بتطلب.
-    const SRC = [
-      ['https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 20, attribution: '© OpenStreetMap contributors © CARTO' }],
-      ['https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }],
-    ];
-    let si = 0, errs = 0, layer = null;
-    const use = i => { if (layer) m.removeLayer(layer); errs = 0; layer = LF.tileLayer(SRC[i][0], Object.assign({ referrerPolicy: 'strict-origin-when-cross-origin' }, SRC[i][1])).addTo(m);
-      layer.on('tileerror', () => { if (++errs >= 4 && si < SRC.length - 1) { si++; use(si); } }); layer.on('tileload', () => { errs = 0; }); };
-    use(0);
+    // مصادر الخرايط المجانية من غير مفتاح. بنجرّب بلاطة واحدة من كل مصدر (fetch بيرجّع رقم الحالة الحقيقي)
+    // وبنستخدم أول واحد شغّال، وبنبعت اسم الموقع بس زي ما سياسة OpenStreetMap بتطلب.
+    const SRC = D.SRC || (D.SRC = [
+      ['https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }, 'https://tile.openstreetmap.org/3/4/3.png'],
+      ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors' }, 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/3/3/4'],
+      ['https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', { maxZoom: 19, subdomains: 'abc', attribution: '© OpenStreetMap contributors, Humanitarian OSM Team' }, 'https://a.tile.openstreetmap.fr/hot/3/4/3.png'],
+    ]);
+    let layer = null;
+    const use = i => { if (layer) m.removeLayer(layer); layer = LF.tileLayer(SRC[i][0], Object.assign({ referrerPolicy: 'strict-origin-when-cross-origin' }, SRC[i][1])).addTo(m); };
+    if (D.srcOk == null) {
+      use(0);
+      (D.srcProbe || (D.srcProbe = (async () => { for (let i = 0; i < SRC.length; i++) { try { const r = await fetch(SRC[i][2], { referrerPolicy: 'strict-origin-when-cross-origin', cache: 'no-store' }); if (r.ok) return i; } catch (e) {} } return 0; })()))
+        .then(i => { D.srcOk = i; if (i !== 0) use(i); });
+    } else use(D.srcOk);
     const v = key && D.mapView[key]; if (v) m.setView(v.c, v.z); else m.setView([30.0444, 31.2357], 11);
     if (key) m.on('moveend', () => { D.mapView[key] = { c: m.getCenter(), z: m.getZoom(), user: true }; });
     return m;
