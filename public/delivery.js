@@ -69,7 +69,15 @@
   }
   function baseMap(LF, el, key) {
     const m = LF.map(el, { zoomControl: true, attributionControl: true });
-    LF.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, subdomains: 'abc', attribution: '© OpenStreetMap' }).addTo(m);
+    // مصادر الخرايط: CARTO الأول، ولو فشل بننقل لـ OpenStreetMap لوحدنا. بنبعت اسم الموقع بس (مش اللينك كامل) زي ما سياستهم بتطلب.
+    const SRC = [
+      ['https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 20, attribution: '© OpenStreetMap contributors © CARTO' }],
+      ['https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }],
+    ];
+    let si = 0, errs = 0, layer = null;
+    const use = i => { if (layer) m.removeLayer(layer); errs = 0; layer = LF.tileLayer(SRC[i][0], Object.assign({ referrerPolicy: 'strict-origin-when-cross-origin' }, SRC[i][1])).addTo(m);
+      layer.on('tileerror', () => { if (++errs >= 4 && si < SRC.length - 1) { si++; use(si); } }); layer.on('tileload', () => { errs = 0; }); };
+    use(0);
     const v = key && D.mapView[key]; if (v) m.setView(v.c, v.z); else m.setView([30.0444, 31.2357], 11);
     if (key) m.on('moveend', () => { D.mapView[key] = { c: m.getCenter(), z: m.getZoom(), user: true }; });
     return m;
