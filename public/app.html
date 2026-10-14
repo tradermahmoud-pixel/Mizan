@@ -323,7 +323,7 @@ const isSaleT=t=>['sale','sret','quote'].includes(t);
 const MAIN='main';
 
 /* ============ data store (cloud db with local fallback) ============ */
-const COLS=['products','parties','stores','invoices','cash','cheques','employees','attendance','adjust','audit','settings','members','roles','roledefs','safes','accounts','journal','leads','crm_reps','prints','picks','runs','pkgs'];
+const COLS=['products','parties','stores','invoices','cash','cheques','employees','attendance','adjust','audit','settings','members','roles','roledefs','safes','accounts','journal','leads','crm_reps','prints','picks','runs','pkgs','rets'];
 const S={mode:'loading',db:null,user:null,me:{id:null,name:''},data:{},names:{},ro:false};
 COLS.forEach(c=>S.data[c]=new Map());
 let V=0;const CV={};const bump=c=>{CV[c]=(CV[c]||0)+1;V++};
@@ -337,7 +337,7 @@ function dbErr(e){
   else toast('تعذّر الحفظ، حاول مرة أخرى','err');
   console.error(e);
 }
-const CHUNKED={products:64,parties:16,invoices:256,cash:32,attendance:32,audit:32,cheques:16,leads:32,prints:32,picks:32,pkgs:32};
+const CHUNKED={products:64,parties:16,invoices:256,cash:32,attendance:32,audit:32,cheques:16,leads:32,prints:32,picks:32,pkgs:32,rets:16};
 const fnv=s=>{let h=2166136261;for(const ch of String(s)){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0};
 S.loc={};
 const chunkOf=(c,id)=>(S.loc[c]&&S.loc[c].get(id))||('b'+String(fnv(id)%CHUNKED[c]).padStart(3,'0'));
@@ -424,7 +424,7 @@ function computePerms(){
 }
 const can=p=>S.isAdmin||(S.perms||[]).includes(p);
 const ROUTEP={prep:'@prep',sret:'sell',pret:'buy',crm:'@crm',accounts:'accounting',sale:'sell',purchase:'buy',lines:'editInv',products:'products',import:'products',orders:'buy',barcode:'products',parties:'parties',cash:'cash',cheques:'cash',reports:'reports',employees:'hr',payroll:'hr',audit:'@',settings:'@',users:'@'};
-function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='crm')return can('crm')||can('crmManage');if(k==='prep'||k==='pick')return can('prep')||can('sell');if(k==='routes')return can('delivery')||can('deliveryManage');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
+function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='crm')return can('crm')||can('crmManage');if(k==='prep'||k==='pick')return can('prep')||can('sell');if(k==='routes')return can('delivery')||can('deliveryManage');if(k==='rets')return can('delivery')||can('deliveryManage')||can('buy')||can('products')||can('prep')||can('sell');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
 const isLocked=d=>!S.isAdmin&&!!settings().lockDate&&!!d&&d<=settings().lockDate;
 function ensureMember(){if(S.mode==='cloud'&&S.me.id&&S.memLoaded&&!S.regDone&&!G('members',S.me.id)&&!S.ro){S.regDone=true;put('members',S.me.id,{first:new Date().toISOString()}).catch(()=>{})}}
 function denied(msg){$('#view').innerHTML=`<div class="wrap"><div class="empty card"><b>${msg||'هذه الشاشة غير متاحة لصلاحيتك'}</b>صلاحيتك الحالية: ${esc(S.roleName)}. اطلب من المدير تعديلها من شاشة المستخدمين والصلاحيات.</div></div>`}
@@ -572,7 +572,7 @@ document.addEventListener('pointercancel',()=>{ptr=false;flushPend()},true);
 document.addEventListener('focusout',flushPend);
 
 const NAV=[
- ['البيع والشراء',[['dash','الرئيسية','home'],['sale','فاتورة بيع','sale'],['sret','مرتجع مبيعات','ret'],['purchase','فاتورة شراء','buy'],['pret','مرتجع مشتريات','ret'],['invoices','كل الفواتير','doc'],['prep','التحضير والطباعة','print'],['pick','مراجعة التحضير','bar'],['routes','التوصيل وخطوط السير','pin'],['lines','شبكة الحركات','grid'],['crm','CRM الصيدليات','users']]],
+ ['البيع والشراء',[['dash','الرئيسية','home'],['sale','فاتورة بيع','sale'],['sret','مرتجع مبيعات','ret'],['purchase','فاتورة شراء','buy'],['pret','مرتجع مشتريات','ret'],['invoices','كل الفواتير','doc'],['prep','التحضير والطباعة','print'],['pick','مراجعة التحضير','bar'],['routes','التوصيل وخطوط السير','pin'],['rets','استلام المرتجعات','ret'],['lines','شبكة الحركات','grid'],['crm','CRM الصيدليات','users']]],
  ['المخزون',[['products','الأصناف والأرصدة','box'],['import','استيراد من Excel','up'],['orders','أوامر التوريد وعروض الأسعار','doc'],['barcode','طباعة الباركود','bar']]],
  ['الحسابات',[['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['cheques','الشيكات','chq'],['reports','التقارير والأرباح','chart'],['accounts','المحاسبة والقوائم المالية','ledger']]],
  ['الموظفون',[['attendance','الحضور والانصراف','clock'],['employees','بيانات الموظفين','badge'],['payroll','الرواتب','wallet']]],
@@ -596,9 +596,9 @@ function render(){
   const _rt=performance.now();try{render_()}finally{S.perf.render=Math.round(performance.now()-_rt)}}
 function render_(){
   lastR=performance.now();computePerms();ensureMember();
-  const {p,a}=route();renderShell(p);syncBadge();try{pqPill()}catch(e){}try{window.MZ_DLV&&MZ_DLV.tick()}catch(e){}
+  const {p,a}=route();renderShell(p);syncBadge();try{pqPill()}catch(e){}try{window.MZ_DLV&&MZ_DLV.tick()}catch(e){}try{window.MZ_RT&&MZ_RT.tick()}catch(e){}
   if(!canRoute(p)){setTitle('غير مسموح');denied();return}
-  const V_={prep:vPrep,pick:(typeof vPick==='function'?vPick:vDash),routes:(typeof vRoutes==='function'?vRoutes:vDash),sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
+  const V_={prep:vPrep,pick:(typeof vPick==='function'?vPick:vDash),routes:(typeof vRoutes==='function'?vRoutes:vDash),rets:(typeof vRets==='function'?vRets:vDash),sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
   const f=V_[p]||vDash;
   if(S.mode==='cloud'&&!allReady()){loadingView();return}
   if(S.mode==='loading'&&!S.data.products.size){$('#title').textContent='ميزان';$('#view').innerHTML='<div class="empty"><b>جارٍ تحميل البيانات…</b></div>';return}
@@ -654,7 +654,7 @@ function vDash(){
    ${noData?`<div class="card" style="margin-bottom:18px;border-color:var(--brand)"><h3 style="font:700 22px/1.3 var(--display)">أهلًا بك في ميزان</h3><p class="muted" style="margin:0">ابدأ بالخطوات دي بالترتيب، أو جرّب النظام ببيانات تجريبية تقدر تمسحها بعدين بضغطة واحدة.</p>
      <div class="steps"><div><a href="#/import">ارفع أصنافك من شيت Excel</a>&nbsp;أو أضفها يدويًا من <a href="#/products">الأصناف</a></div><div>سجّل أول <a href="#/purchase">فاتورة شراء</a> أو رصيد أول المدة</div><div>ابدأ <a href="#/sale">البيع</a> — بالباركود أو بالبحث</div><div>أضف <a href="#/employees">الموظفين</a> وفعّل الحضور من الموبايل</div></div>
      <button class="btn g" id="demoBtn" ${S.ro?'disabled':''}>جرّب ببيانات تجريبية</button></div>`:''}
-   ${pqPanel()}${window.MZ_DLV?MZ_DLV.card():''}
+   ${pqPanel()}${window.MZ_DLV?MZ_DLV.card():''}${window.MZ_RT?MZ_RT.card():''}
    <div class="strip">
      <div><div class="k">مبيعات اليوم</div><div class="v">${fmt(d.sales)}</div><div class="s">${d.count} فاتورة · ${esc(DAYS[new Date().getDay()])} ${t}</div></div>
      <div><div class="k">ربح اليوم</div><div class="v ${d.profit<0?'neg':''}">${fmt(d.profit)}</div><div class="s">هامش ${d.sales?fmt(d.profit/d.sales*100):0}%</div></div>
@@ -682,8 +682,8 @@ function vDash(){
 
 function vDashLite(){
   setTitle('الرئيسية');const emp=S.me.id&&L('employees').find(e=>e.userId===S.me.id);const pend=!S.roleKey;
-  const acts=[['routes','التوصيل — رحلتي','pin'],['sale','فاتورة بيع','sale'],['purchase','فاتورة شراء','buy'],['invoices','الفواتير','doc'],['products','الأصناف','box'],['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['crm','CRM الصيدليات','users'],['attendance','تسجيل الحضور','clock']].filter(([k])=>canRoute(k));
-  $('#view').innerHTML=`<div class="wrap" style="max-width:860px">${pend?'':pqPanel()+(window.MZ_DLV?MZ_DLV.card():'')}
+  const acts=[['routes','التوصيل — رحلتي','pin'],['rets','المرتجعات','ret'],['sale','فاتورة بيع','sale'],['purchase','فاتورة شراء','buy'],['invoices','الفواتير','doc'],['products','الأصناف','box'],['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['crm','CRM الصيدليات','users'],['attendance','تسجيل الحضور','clock']].filter(([k])=>canRoute(k));
+  $('#view').innerHTML=`<div class="wrap" style="max-width:860px">${pend?'':pqPanel()+(window.MZ_DLV?MZ_DLV.card():'')+(window.MZ_RT?MZ_RT.card():'')}
    <div class="card" style="margin-bottom:16px"><h3 style="font:700 22px/1.3 var(--display)">أهلًا ${esc(S.me.name||'')}</h3>
    ${pend?`<p class="muted" style="margin:0">حسابك اتسجل في النظام، لكن المدير لسه ما حددش صلاحيتك. تقدر تسجّل حضورك${emp?'':' بعد ما المدير يربط حسابك ببياناتك كموظف'}، وباقي الشاشات هتظهر لك أول ما يحدد دورك.</p>`:`<p class="muted" style="margin:0">صلاحيتك: <b>${esc(S.roleName)}</b></p>`}</div>
    <div class="grid g2">${acts.map(([k,t,i])=>`<a class="btn ${k==='sale'||k==='attendance'?'p':''}" style="padding:16px" href="#/${k}">${ic(i)}${t}</a>`).join('')}</div></div>`;
@@ -2234,8 +2234,9 @@ init();
 <script src="/accounting.js?v=4"></script>
 <script src="/crm.js?v=2"></script>
 <script src="/packs.js?v=1"></script>
+<script src="/returns.js?v=1"></script>
 <script src="/review.js?v=2"></script>
-<script src="/delivery.js?v=5"></script>
+<script src="/delivery.js?v=6"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=9"></script>
 <script src="/brain.js?v=4"></script>

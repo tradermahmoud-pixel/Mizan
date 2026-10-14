@@ -309,15 +309,17 @@
     if (mine && (D.mode || 'drv') === 'drv' && r.status !== 'done') return driverView(r);
     managerView(r);
   }
+  const tagOf = x => x.kind === 'pickup' ? '↩️ مرتجع' + (x.note ? ' (' + esc(x.note) + ')' : '') : '#' + esc((invOf(x.invId) || {}).no);
   function stopRows(r, s0) {
     const R = calc();
     return visits(r).map((v, i) => { const p = G('parties', v.partyId) || {}; const next = s0 && v.stops.includes(s0); const l = v.loc; const f = v.stops[0]; const tot = v.stops.reduce((a, x) => a + ((R.inv[x.invId] || {}).total || 0), 0);
       const fail = v.stops.find(x => x.status === 'failed'); const dl = v.stops.find(x => x.status === 'delivered'); const far = v.stops.map(x => x.far).find(Boolean); const note = v.stops.map(x => x.note).find(Boolean);
       const unposted = isMgr() && can('cash') ? v.stops.filter(x => x.cash && !L('cash').some(c => c.ref === 'run:' + r.id + ':' + x.invId)) : [];
-      return `<div class="dv-stop ${v.status} ${next ? 'next' : ''}"><div class="n">${i + 1}</div><div style="min-width:0"><b>${esc(p.name || '')}</b> <span class="small muted">${v.stops.map(x => '#' + esc((invOf(x.invId) || {}).no)).join(' ')} — ${fmt(tot)}</span>
-        <div class="small ${v.status === 'failed' ? 'dv-warn' : 'muted'}">${v.status === 'delivered' ? `✓ اتسلّم ${esc(hm(new Date(dl.at)))}${v.cash ? ` — حصّل ${fmt(v.cash)}` : ''}${far ? ` — <span class="dv-warn">اتسجّل على بعد ${fkm(far)} من الصيدلية</span>` : ''}${note ? ' — ' + esc(note) : ''}` : v.status === 'failed' ? `✕ ${esc(fail.reason || 'مشكلة')} ${esc(hm(new Date(fail.at)))}${fail.note ? ' — ' + esc(fail.note) : ''}` : v.status === 'arrived' ? `وصل ${esc(hm(new Date(v.stops.find(x => x.arrivedAt).arrivedAt)))} — مستني التسليم` : (l ? '' : '<span class="dv-warn">مالهاش لوكيشن</span>')}${v.open && D._eta && D._eta[f.invId] ? ` — متوقع ${hm(D._eta[f.invId])}` : ''}${f.postponed ? ' — اتأجلت ' + f.postponed + ' مرة' : ''}${pkTxt(r, v)}</div></div>
+      return `<div class="dv-stop ${v.status} ${next ? 'next' : ''}"><div class="n">${i + 1}</div><div style="min-width:0"><b>${esc(p.name || '')}</b> <span class="small muted">${v.stops.map(x => tagOf(x)).join(' ')} — ${fmt(tot)}</span>
+        <div class="small ${v.status === 'failed' ? 'dv-warn' : 'muted'}">${v.status === 'delivered' ? `✓ اتسلّم ${esc(hm(new Date(dl.at)))}${v.cash ? ` — حصّل ${fmt(v.cash)}` : ''}${far ? ` — <span class="dv-warn">اتسجّل على بعد ${fkm(far)} من الصيدلية</span>` : ''}${note ? ' — ' + esc(note) : ''}` : v.status === 'failed' ? `✕ ${esc(fail.reason || 'مشكلة')} ${esc(hm(new Date(fail.at)))}${fail.note ? ' — ' + esc(fail.note) : ''}` : v.status === 'arrived' ? `وصل ${esc(hm(new Date(v.stops.find(x => x.arrivedAt).arrivedAt)))} — مستني التسليم` : (l ? '' : '<span class="dv-warn">مالهاش لوكيشن</span>')}${v.open && D._eta && D._eta[f.invId] ? ` — متوقع ${hm(D._eta[f.invId])}` : ''}${f.postponed ? ' — اتأجلت ' + f.postponed + ' مرة' : ''}${pkTxt(r, v)}${retTxt(r, v)}</div></div>
         <div class="row" style="gap:4px">${l ? `<a class="btn ic s" target="_blank" rel="noopener" href="${gmaps(l)}" title="ملاحة">🧭</a>` : ''}${p.phone ? `<a class="btn ic s" href="tel:${esc(p.phone)}" title="اتصال">📞</a>` : ''}${unposted.map(x => `<button class="btn s" data-dvcash="${esc(x.invId)}">سجّل التحصيل ${fmt(x.cash)}</button>`).join('')}</div></div>`; }).join('');
   }
+  function retTxt(r, v) { if (!window.MZ_RT) return ''; const xs = MZ_RT.forStop(r.id, v.partyId).filter(x => x.status !== 'requested'); if (!xs.length) return ''; return ' — ' + xs.map(x => `<a href="#/rets/${esc(x.id)}">↩️ ${esc(x.code)}: ${(x.lines || []).length} صنف</a>`).join(' '); }
   function pkTxt(r, v) {
     if (!window.MZ_PK) return ''; const sp = MZ_PK.stopPkgs(r, v.partyId); if (!sp.length) return '';
     const ld = sp.filter(p => p.st !== 'packed').length, dl = sp.filter(p => p.st === 'delivered').length; const mi = v.stops.map(x => x.pkMiss).find(Boolean);
@@ -328,7 +330,7 @@
     const s = stats(r, true); D._eta = s.eta; const nxt = (r.stops || []).find(x => ['pending', 'arrived'].includes(x.status));
     const live = r.live && okLoc(r.live) ? r.live : null; const stale = live && Date.now() - new Date(live.at) > 10 * 60000;
     $('#view').innerHTML = `<div class="wrap">
-      <div class="row" style="margin-bottom:12px"><a href="#/routes" class="btn s">→ خطوط السير</a><span class="sp"></span>${r.driverId === S.me.id && r.status !== 'done' ? `<button class="btn s" id="dvMode">وضع المندوب</button>` : ''}${isMgr() && r.status !== 'done' ? `<button class="btn s" id="dvReopt">🧠 أعد ترتيب الباقي</button><button class="btn s" id="dvClose">قفل الخط</button>` : ''}${isMgr() ? `<button class="btn s" id="dvDel">حذف</button>` : ''}</div>
+      <div class="row" style="margin-bottom:12px"><a href="#/routes" class="btn s">→ خطوط السير</a><span class="sp"></span>${r.driverId === S.me.id && r.status !== 'done' ? `<button class="btn s" id="dvMode">وضع المندوب</button>` : ''}${isMgr() && r.status !== 'done' && window.MZ_RT ? `<button class="btn s" id="dvReq">↩️ + مرتجع مطلوب</button>` : ''}${isMgr() && r.status !== 'done' ? `<button class="btn s" id="dvReopt">🧠 أعد ترتيب الباقي</button><button class="btn s" id="dvClose">قفل الخط</button>` : ''}${isMgr() ? `<button class="btn s" id="dvDel">حذف</button>` : ''}</div>
       <div class="card"><div class="row"><div style="flex:1;min-width:220px"><div class="small muted">${esc(r.date)} — المندوب: <b>${esc(r.driverName || '')}</b> — ${r.status === 'active' ? 'في الطريق' : r.status === 'done' ? 'خلص' : 'لسه مبدأش'}</div><h2 style="margin:4px 0">${esc(r.name || '')}</h2></div>
         <div class="row" style="gap:6px"><span class="tag ok">اتسلّم ${s.cnt.delivered}</span><span class="tag">لسه ${s.cnt.pending + s.cnt.arrived}</span>${s.cnt.failed ? `<span class="tag bad">مشكلة ${s.cnt.failed}</span>` : ''}${s.cash ? `<span class="tag purchase">تحصيل ${fmt(s.cash)}</span>` : ''}</div></div>
         <div class="rv-prog" style="height:12px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:8px"><i style="display:block;height:100%;width:${s.total ? Math.round(s.done / s.total * 100) : 0}%;background:var(--brand)"></i></div>
@@ -336,6 +338,7 @@
       <div class="grid g2" style="margin-top:14px;align-items:start"><div class="dv-map" id="dvMap" style="position:sticky;top:80px"></div><div class="dv-list">${stopRows(r, nxt)}</div></div></div>`;
     drawMap('dvMap', 'run:' + r.id, { start: r.start, ret: r.ret, live, liveName: r.driverName, trail: r.trail, stops: markers(r, nxt) });
     const md = $('#dvMode'); if (md) md.onclick = () => { D.mode = 'drv'; render(); };
+    const rq = $('#dvReq'); if (rq) rq.onclick = () => MZ_RT.request(r.id);
     const ro = $('#dvReopt'); if (ro) ro.onclick = async () => { await reopt(r.id, live); toast('اترتّب الباقي من آخر مكان للمندوب'); };
     const cl = $('#dvClose'); if (cl) cl.onclick = async () => { if (!(await confirmBox('قفل خط السير؟ الأوردرات اللي لسه هترجع تبان في «خط سير جديد».', 'قفل'))) return; await patchRun(r.id, x => { x.status = 'done'; x.endAt = nowIso(); x.stops = x.stops.filter(s => s.status !== 'pending'); }); render(); };
     const dl = $('#dvDel'); if (dl) dl.onclick = async () => { if (!(await confirmBox('حذف خط السير نهائيًا؟', 'حذف', true))) return; await del('runs', r.id); go('routes'); };
@@ -365,10 +368,11 @@
       const dHere = D.me && l ? km(D.me, l) : null;
       curHTML = `<div class="dv-cur"><div class="small muted">المحطة ${s.vs.findIndex(v => v.stops.includes(cur)) + 1} من ${s.total}${s.eta[cur.invId] ? ' — متوقع ' + hm(s.eta[cur.invId]) : ''}${dHere != null ? ' — على بعد ' + fkm(dHere * RFACT) : ''}</div>
         <h2>${esc(p.name || '')}</h2><div class="small">${esc(p.address || '')}</div>
-        <div class="row small" style="margin-top:8px;gap:6px"><span class="tag">${same.map(x => '#' + esc((invOf(x.invId) || {}).no)).join(' ')}</span><span class="tag purchase">الفواتير ${fmt(tot)}</span><span class="tag ${bal > 0 ? 'bad' : 'ok'}">رصيده ${fmt(bal)}</span></div>
+        <div class="row small" style="margin-top:8px;gap:6px"><span class="tag">${same.map(x => tagOf(x)).join(' ')}</span><span class="tag purchase">الفواتير ${fmt(tot)}</span><span class="tag ${bal > 0 ? 'bad' : 'ok'}">رصيده ${fmt(bal)}</span></div>
         <div class="dv-acts">${l ? `<a class="btn" target="_blank" rel="noopener" href="${gmaps(l)}">🧭 الملاحة</a>` : `<button class="btn" id="dvSetL">📍 حدد اللوكيشن</button>`}${p.phone ? `<a class="btn" href="tel:${esc(p.phone)}">📞 اتصال</a>` : '<span></span>'}
           ${cur.status === 'pending' ? `<button class="btn" id="dvArr" style="grid-column:1/-1">📍 وصلت</button>` : ''}
-          <button class="btn p" id="dvDone">✓ اتسلّم</button><button class="btn d" id="dvFail">✕ مشكلة</button></div></div>`;
+          ${same.some(x => x.kind !== 'pickup') ? '<button class="btn p" id="dvDone">✓ اتسلّم</button>' : '<button class="btn p" id="dvRet1">↩️ استلم المرتجع</button>'}<button class="btn d" id="dvFail">✕ مشكلة</button>
+          ${window.MZ_RT && same.some(x => x.kind !== 'pickup') ? `<button class="btn" id="dvRet" style="grid-column:1/-1">↩️ استلام مرتجع من الصيدلية${same.some(x => x.kind === 'pickup') ? ' (مطلوب)' : ''}</button>` : ''}</div></div>`;
     } else curHTML = `<div class="dv-cur" style="border-color:var(--brand)"><h2>🎉 خلّصت كل المحطات</h2><p>اتسلّم ${s.cnt.delivered}${s.cnt.failed ? ` — فيه ${s.cnt.failed} مشكلة` : ''}${s.cash ? ` — حصّلت ${fmt(s.cash)}` : ''}.</p><div class="dv-acts"><button class="btn p" id="dvEnd" style="grid-column:1/-1">إنهاء الرحلة</button></div></div>`;
     $('#view').innerHTML = `<div class="wrap" style="max-width:760px">
       <div class="row" style="margin-bottom:10px"><b>${esc(r.name || '')}</b><span class="sp"></span>${isMgr() ? `<button class="btn s" id="dvMode">وضع المدير</button>` : ''}</div>
@@ -386,6 +390,8 @@
     const sl = $('#dvSetL'); if (sl) sl.onclick = () => locModal(cur.partyId, () => render());
     const ar = $('#dvArr'); if (ar) ar.onclick = async () => { const g = await gps(); await patchRun(r.id, x => { x.stops.filter(y => y.partyId === cur.partyId && y.status === 'pending').forEach(y => { y.status = 'arrived'; y.arrivedAt = nowIso(); if (g) y.arrGps = g; }); if (g) x.live = { ...g, at: nowIso() }; }); };
     const dn = $('#dvDone'); if (dn) dn.onclick = () => deliverModal(r, cur);
+    const openRet = () => { const pk = (r.stops || []).find(x => x.kind === 'pickup' && x.partyId === cur.partyId && ['pending', 'arrived'].includes(x.status)); MZ_RT.collect({ partyId: cur.partyId, runId: r.id, reqId: pk ? pk.retId : '' }); };
+    const rt1 = $('#dvRet1'); if (rt1) rt1.onclick = openRet; const rt = $('#dvRet'); if (rt) rt.onclick = openRet;
     const fl = $('#dvFail'); if (fl) fl.onclick = () => failModal(r, cur);
     const en = $('#dvEnd'); if (en) en.onclick = async () => { await patchRun(r.id, x => { x.status = 'done'; x.endAt = nowIso(); }); wake(false); trackTick(); toast('الرحلة خلصت — شكرًا 🌿'); go('routes'); };
   }
@@ -411,9 +417,9 @@
     const c = document.getElementById('dvPkCam'); if (c) c.onclick = () => MZ_PK.camScan(v => { pkScan(r, v, cur); return (D.pkFlash && D.pkFlash.text) || v; }, 'امسح ملصق الشنطة');
   }
   function deliverModal(r, cur) {
-    const p = G('parties', cur.partyId) || {}; const same = r.stops.filter(x => x.partyId === cur.partyId && ['pending', 'arrived'].includes(x.status));
+    const p = G('parties', cur.partyId) || {}; const same = r.stops.filter(x => x.partyId === cur.partyId && x.kind !== 'pickup' && ['pending', 'arrived'].includes(x.status));
     const sp = window.MZ_PK ? MZ_PK.stopPkgs(r, cur.partyId) : []; const sc = (window.MZ_PK && MZ_PK.scanned) || new Set(); const miss = sp.filter(x => !sc.has(x.id));
-    modal(`<h2>تسليم ${esc(p.name || '')}</h2><p class="small muted" style="margin-top:-6px">${same.map(x => '#' + esc((invOf(x.invId) || {}).no)).join(' ')}${sp.length ? ` — ${sp.length} شنطة/كرتونة` : ''}</p>
+    modal(`<h2>تسليم ${esc(p.name || '')}</h2><p class="small muted" style="margin-top:-6px">${same.map(x => tagOf(x)).join(' ')}${sp.length ? ` — ${sp.length} شنطة/كرتونة` : ''}</p>
       ${miss.length ? `<div class="card" style="border-color:var(--danger);padding:10px 12px;margin-bottom:10px"><b class="dv-warn">⚠️ ${miss.length} من ${sp.length} لسه ماتمسحتش: ${miss.map(x => esc(MZ_PK.label(x))).join('، ')}</b><div class="small muted">ارجع وامسحهم، أو اكتب السبب لو هتسلّم من غير مسح.</div><label class="f" style="margin-top:6px">السبب<input class="in" id="dv_pm" placeholder="مثلًا: الملصق اتقطع / الماسح مش شغال"></label></div>` : sp.length ? '<p class="small" style="color:var(--brand);margin:0 0 8px">✓ كل الشنط اتمسحت</p>' : ''}
       <label class="f">حصّلت كام؟ (سيبها فاضية لو مفيش)<input class="in n" id="dv_c" inputmode="decimal" placeholder="0"></label>
       <label class="f" style="margin-top:8px">ملاحظة<input class="in" id="dv_n" placeholder="مثلًا: استلم د. أحمد"></label>
@@ -424,7 +430,7 @@
       const b = document.getElementById('dv_ok'); b.disabled = true; document.getElementById('dv_s').textContent = 'بسجّل مكانك…';
       const g = await gps(); const cash = numIn(document.getElementById('dv_c').value) || 0; const note = document.getElementById('dv_n').value.trim();
       const pl = pLoc(cur.partyId); let far = null; if (g && pl) { const d = km(g, pl); if (d > 0.4) far = Math.round(d * 100) / 100; }
-      await patchRun(r.id, x => { let first = true; x.stops.filter(y => y.partyId === cur.partyId && ['pending', 'arrived'].includes(y.status)).forEach(y => { y.status = 'delivered'; y.at = nowIso(); if (g) y.gps = g; if (far) y.far = far; if (first && cash) y.cash = cash; if (note) y.note = note; if (first && sp.length) { y.pk = { n: sp.length, ok: sp.length - miss.length }; if (miss.length) { y.pkMiss = miss.map(z => MZ_PK.label(z)); y.pkWhy = pm.value.trim(); } } first = false; }); if (g) { x.live = { ...g, at: nowIso() }; x.trail = (x.trail || []).concat([[g.lat, g.lng, Date.now()]]).slice(-400); } if (!x.stops.some(y => ['pending', 'arrived'].includes(y.status))) x.allDoneAt = nowIso(); });
+      await patchRun(r.id, x => { let first = true; x.stops.filter(y => y.partyId === cur.partyId && y.kind !== 'pickup' && ['pending', 'arrived'].includes(y.status)).forEach(y => { y.status = 'delivered'; y.at = nowIso(); if (g) y.gps = g; if (far) y.far = far; if (first && cash) y.cash = cash; if (note) y.note = note; if (first && sp.length) { y.pk = { n: sp.length, ok: sp.length - miss.length }; if (miss.length) { y.pkMiss = miss.map(z => MZ_PK.label(z)); y.pkWhy = pm.value.trim(); } } first = false; }); if (g) { x.live = { ...g, at: nowIso() }; x.trail = (x.trail || []).concat([[g.lat, g.lng, Date.now()]]).slice(-400); } if (!x.stops.some(y => ['pending', 'arrived'].includes(y.status))) x.allDoneAt = nowIso(); });
       closeModal(); if (window.MZ_PK && sp.length) { await MZ_PK.markDelivered(sp.map(z => z.id), r.id); MZ_PK.scanned = new Set(); } D.pkFlash = null;
       if (g && !pl && g.acc <= 120) { await setPartyLoc(cur.partyId, g, 'delivery'); toast(`اتسلّم ✓ — واتحفظ لوكيشن ${p.name} من مكانك للمرات الجاية`); }
       else toast(far ? `اتسلّم ✓ — ملحوظة: انت على بعد ${fkm(far)} من لوكيشن الصيدلية المتسجّل` : 'اتسلّم ✓', far ? 'err' : '');
