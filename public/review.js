@@ -100,6 +100,7 @@
     // 12* أو x12 قبل المسح = كمية
     let m = raw.match(/^(\d+(?:\.\d+)?)\s*[*xX×]$/); if (m) { RV.mult = +m[1] || 1; flash('ok', `المسحة الجاية هتتحسب ×${RV.mult}`); render(); return; }
     let mult = RV.mult; m = raw.match(/^(\d+(?:\.\d+)?)\s*[*xX×]\s*(.+)$/); if (m) { mult = +m[1] || 1; raw = m[2].trim(); }
+    { const pkr = window.MZ_PK && MZ_PK.onReviewScan(RV.inv, raw); if (pkr) { RV.flash = { ...pkr, sub: pkr.sub || '', at: Date.now() }; if (pkr.kind !== 'err') beep(pkr.kind === 'warn' ? 'warn' : 'ok'); render(); return; } }
     const iv = invFromScan(raw);
     if (iv) {
       if (RV.inv && iv.id !== RV.inv.id && !sums().ok && RV.lines.some(l => l.got)) { flash('warn', `ده باركود فاتورة تانية (#${iv.no}) — خلّص أو اقفل الأوردر ده الأول`); RV.pendingOpen = iv.id; render(); return; }
@@ -118,6 +119,7 @@
     const before = st(l); l.got = Math.round((l.got + mult) * 1000) / 1000; RV.mult = 1; RV.last = pid;
     const s2 = st(l);
     RV.log.unshift({ at: nowIso(), k: s2 === 'excess' ? 'over' : 'ok', pid, q: mult });
+    if (window.MZ_PK) MZ_PK.onItem(RV.inv, pid, mult);
     if (s2 === 'excess') flash('warn', `⚠ زيادة! ${pname(pid)}`, `المطلوب ${fq(l.req)} — اتمسح ${fq(l.got)}. شيل ${fq(l.got - l.req)} من الشنطة`);
     else if (sums().ok) { flash('done', `✅ الأوردر كامل ومطابق 100% (${RV.lines.length} صنف)`, 'دوس «إنهاء المراجعة» أو امسح باركود الفاتورة الجاية'); beep('done'); }
     else if (s2 === 'done' && before !== 'done') { RV.flash = { kind: 'ok', text: `✓ ${pname(pid)} — كمل (${fq(l.req)})`, sub: '', at: Date.now() }; beep('line'); }
@@ -128,13 +130,13 @@
     const l = RV.lines.find(x => x.pid === pid); if (!l) return;
     const old = l.got; l.got = Math.max(0, abs != null ? +abs || 0 : Math.round((l.got + d) * 1000) / 1000);
     if (l.got === old) return;
-    RV.log.unshift({ at: nowIso(), k: d < 0 || (abs != null && l.got < old) ? 'undo' : 'manual', pid, q: Math.round((l.got - old) * 1000) / 1000 });
+    RV.log.unshift({ at: nowIso(), k: d < 0 || (abs != null && l.got < old) ? 'undo' : 'manual', pid, q: Math.round((l.got - old) * 1000) / 1000 }); if (window.MZ_PK) MZ_PK.onItem(RV.inv, pid, Math.round((l.got - old) * 1000) / 1000);
     RV.last = pid; saveSoon(); render();
   }
   function undoLast() {
     const i = RV.log.findIndex(x => (x.k === 'ok' || x.k === 'over' || x.k === 'manual') && x.pid && !x.undone); if (i < 0) { flash('warn', 'مفيش مسحة أرجّعها'); render(); return; }
     const x = RV.log[i]; x.undone = true; const l = RV.lines.find(y => y.pid === x.pid); if (l) l.got = Math.max(0, Math.round((l.got - (x.q || 1)) * 1000) / 1000);
-    RV.log.unshift({ at: nowIso(), k: 'undo', pid: x.pid, q: -(x.q || 1) }); flash('ok', `اترجّعت آخر مسحة: ${pname(x.pid)}`); saveSoon(); render();
+    RV.log.unshift({ at: nowIso(), k: 'undo', pid: x.pid, q: -(x.q || 1) }); if (window.MZ_PK) MZ_PK.onItem(RV.inv, x.pid, -(x.q || 1)); flash('ok', `اترجّعت آخر مسحة: ${pname(x.pid)}`); saveSoon(); render();
   }
   async function finish() {
     if (!RV.inv) return; const s = sums();
@@ -145,7 +147,9 @@
       toast(`✓ المراجعة اتسجّلت — ${TYPES[inv.type].full} ${inv.no} مطابقة واتعلّمت «اتحضرت»`); beep('done');
       const next = queue().find(i => i.id !== inv.id); RV.inv = null; RV.lines = []; RV.log = [];
       RV.flash = { kind: 'done', text: `✓ #${inv.no} اتقفلت مطابقة`, sub: next ? `الجاية في الطابور: #${next.no} — ${partyName(next.partyId) || 'نقدي'}` : 'الطابور فاضي 👌', at: Date.now() };
-      history.replaceState(null, '', '#/pick'); render(); return;
+      history.replaceState(null, '', '#/pick'); render();
+      if (window.MZ_PK && inv.type === 'sale' && !MZ_PK.has(inv)) MZ_PK.quickModal(inv);
+      return;
     }
     modal(`<h2>الأوردر لسه مش مطابق</h2>
       <div class="tw" style="max-height:40vh;overflow:auto"><table class="t"><thead><tr><th>الصنف</th><th class="n">المطلوب</th><th class="n">اتمسح</th><th>الحالة</th></tr></thead><tbody>${bad.map(l => `<tr class="rv-${st(l)}"><td>${esc(pname(l.pid))}</td><td class="n">${fq(l.req)}</td><td class="n">${fq(l.got)}</td><td>${st(l) === 'excess' ? 'زيادة ' + fq(l.got - l.req) : 'ناقص ' + fq(l.req - l.got)}</td></tr>`).join('')}</tbody></table></div>
@@ -249,6 +253,7 @@
         ${sorted.map(l => { const p = G('products', l.pid) || {}; const k = st(l); return `<tr class="rv-${k} ${l.pid === RV.last ? 'rv-last' : ''}"><td><b>${esc(pname(l.pid))}</b><div class="small muted">${esc(p.code || '')}${p.unit ? ' · ' + esc(p.unit) : ''}</div></td><td class="small num rv-hide-m">${esc(p.barcode || '—')}</td><td class="n"><b>${fq(l.req)}</b></td>
           <td><div class="rv-q"><button class="btn ic s" data-rvm="${l.pid}" title="ناقص واحد">−</button><input class="cell n" data-rvs="${l.pid}" value="${fq(l.got)}" inputmode="decimal"><button class="btn ic s" data-rvp="${l.pid}" title="زود واحد">+</button></div></td>
           <td class="n ${l.got > l.req ? 'neg' : ''}">${l.got > l.req ? '+' + fq(l.got - l.req) : fq(l.req - l.got)}</td><td><b>${ST_T[k]}</b></td></tr>`; }).join('') || '<tr><td colspan="6"><div class="empty"><b>كل الأصناف مطابقة ✓</b></div></td></tr>'}</tbody></table></div>
+        ${window.MZ_PK ? MZ_PK.reviewPanel(inv) : ''}
         ${errs.length ? `<div class="card" style="margin-top:14px;border-color:var(--danger)"><h3 style="margin-top:0;color:var(--danger)">أخطاء اتمسكت في الأوردر ده (${errs.length})</h3><table class="t"><tbody>${errs.slice(0, 20).map(x => `<tr><td class="small num">${esc(ltm(x.at).slice(11))}</td><td>${x.k === 'notin' ? '⛔ صنف مش في الأوردر' : x.k === 'unknown' ? '❓ باركود مش معروف' : '⚠ كمية زيادة'}</td><td>${esc(x.pid ? pname(x.pid) : x.code || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
     }
     $('#view').innerHTML = `<div class="wrap">${tabs}${body}</div>`;
@@ -269,6 +274,7 @@
   }
 
   function bind() {
+    if (window.MZ_PK && RV.inv) MZ_PK.bindReview(RV.inv, render);
     const I = document.getElementById('rvI');
     if (I) {
       I.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); const v = I.value; I.value = ''; scan(v); } };

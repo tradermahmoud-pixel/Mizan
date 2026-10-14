@@ -323,7 +323,7 @@ const isSaleT=t=>['sale','sret','quote'].includes(t);
 const MAIN='main';
 
 /* ============ data store (cloud db with local fallback) ============ */
-const COLS=['products','parties','stores','invoices','cash','cheques','employees','attendance','adjust','audit','settings','members','roles','roledefs','safes','accounts','journal','leads','crm_reps','prints','picks','runs'];
+const COLS=['products','parties','stores','invoices','cash','cheques','employees','attendance','adjust','audit','settings','members','roles','roledefs','safes','accounts','journal','leads','crm_reps','prints','picks','runs','pkgs'];
 const S={mode:'loading',db:null,user:null,me:{id:null,name:''},data:{},names:{},ro:false};
 COLS.forEach(c=>S.data[c]=new Map());
 let V=0;const CV={};const bump=c=>{CV[c]=(CV[c]||0)+1;V++};
@@ -337,7 +337,7 @@ function dbErr(e){
   else toast('تعذّر الحفظ، حاول مرة أخرى','err');
   console.error(e);
 }
-const CHUNKED={products:64,parties:16,invoices:256,cash:32,attendance:32,audit:32,cheques:16,leads:32,prints:32,picks:32};
+const CHUNKED={products:64,parties:16,invoices:256,cash:32,attendance:32,audit:32,cheques:16,leads:32,prints:32,picks:32,pkgs:32};
 const fnv=s=>{let h=2166136261;for(const ch of String(s)){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0};
 S.loc={};
 const chunkOf=(c,id)=>(S.loc[c]&&S.loc[c].get(id))||('b'+String(fnv(id)%CHUNKED[c]).padStart(3,'0'));
@@ -2233,8 +2233,9 @@ init();
 </script>
 <script src="/accounting.js?v=4"></script>
 <script src="/crm.js?v=2"></script>
-<script src="/review.js?v=1"></script>
-<script src="/delivery.js?v=4"></script>
+<script src="/packs.js?v=1"></script>
+<script src="/review.js?v=2"></script>
+<script src="/delivery.js?v=5"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=9"></script>
 <script src="/brain.js?v=4"></script>
