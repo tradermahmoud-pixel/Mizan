@@ -301,6 +301,11 @@
     { id: 'calc', m: c => /^(احسب|كام|حسبة|حسبه)?\s*[\d\s+\-*/×÷x().%]+(من\s*[\d.]+)?\s*$/.test(c.t.replace(/^(احسب|حسبه|كام)\s*/, '')) && /\d\s*[+\-*/×÷x%]\s*\d|%/.test(c.t), run: c => R(calcMd(c.t)) },
     { id: 'time', m: c => has(c, 'الساعه كام', 'التاريخ', 'النهارده كام', 'انهي يوم', 'النهارده ايه') && c.w.length <= 5, run: () => R(`النهارده **${DAYS[new Date(today() + 'T12:00:00').getDay()]} ${today()}** — الساعة ${nowHM()} (بتوقيت السيرفر).`) },
     { id: 'howto', m: c => has(c, 'ازاي', 'ازاى', 'ازى', 'كيف', 'طريقه', 'اعمل ايه علشان', 'اعمل ايه عشان', 'خطوات') , run: c => { const h = (AI.HELP || []).find(([re]) => re.test(c.raw) || re.test(c.t)); if (!h) return null; const okr = canRoute(h[1].split('/')[0]); return R(`**${h[2]}:**\n` + h[3].map((s, i) => `${i + 1}. ${s}`).join('\n') + (okr ? '' : '\n\n🔒 الشاشة دي مش من صلاحياتك حاليًا.'), okr ? [act('افتح الشاشة', () => go(h[1]), { kind: 'p', once: false })] : []); } },
+    { id: 'delivery', m: c => !!window.MZ_DLV && has(c, 'المندوب', 'مندوب', 'المناديب', 'التوصيل', 'خط السير', 'خطوط السير', 'الرحله', 'اتسلم', 'وصل ايه', 'وصلت ايه', 'فين العربيه') && !has(c, 'ازاي', 'كيف'), run: c => {
+      if (!(can('delivery') || can('deliveryManage'))) return R(deny('متابعة التوصيل'));
+      const xs = MZ_DLV.summary(); if (!xs) return R('مفيش خطوط سير شغّالة النهارده.', can('deliveryManage') ? [act('اعمل خط سير', () => go('routes/new'), { kind: 'p', once: false })] : []);
+      return R(xs.map(x => x.md).join('\n\n'), xs.slice(0, 3).map(x => act('افتح الخريطة', () => go('routes/' + x.id), { once: false })));
+    } },
     { id: 'unprinted', m: c => c.invNo == null && has(c, 'مطبوع', 'مطبوعه', 'اتطبعت', 'اتطبعتش', 'ماتطبعتش', 'متطبعتش', 'اتطبعش', 'الطباعه') && !has(c, 'ازاي', 'كيف'), run: c => {
       if (typeof pqGroups !== 'function' || !seesPQ()) return R(deny('متابعة الطباعة'));
       const d = c.p[0] ? Math.max(1, daysBetween(c.p[0].from, today()) + 1) : 1; const g = pqGroups(d);

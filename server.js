@@ -368,6 +368,27 @@ app.post('/api/ai/config', auth(true), async (req, res, next) => {
     void cur; res.json({ ok: true });
   } catch (e) { next(e); }
 });
+/* ---------------- Geo: expand Google Maps share links to coordinates ---------------- */
+function geoParse(u) {
+  u = decodeURIComponent(String(u || ''));
+  const pats = [/!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/, /@(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/, /[?&](?:q|query|ll|destination|center|daddr)=(?:loc:)?(-?\d{1,2}\.\d+),\s*\+?(-?\d{1,3}\.\d+)/, /(-?\d{1,2}\.\d{3,}),\s*\+?(-?\d{1,3}\.\d{3,})/];
+  for (const re of pats) { const m = u.match(re); if (m) { const lat = +m[1], lng = +m[2]; if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng }; } }
+  return null;
+}
+app.get('/api/geo/expand', auth(false), async (req, res) => {
+  try {
+    let u = String(req.query.u || '').trim(); if (!/^https:\/\/(maps\.app\.goo\.gl|goo\.gl|maps\.google\.[a-z.]+|www\.google\.[a-z.]+|google\.[a-z.]+)\//i.test(u)) return res.status(400).json({ error: 'ده مش لينك خرائط جوجل' });
+    let hit = geoParse(u);
+    for (let i = 0; i < 5 && !hit; i++) {
+      const r = await fetch(u, { redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 13) Chrome/120 Mobile' } });
+      const loc = r.headers.get('location');
+      if (loc) { u = new URL(loc, u).toString(); hit = geoParse(u); continue; }
+      const txt = await r.text(); hit = geoParse(txt.slice(0, 400000)); break;
+    }
+    if (!hit) return res.status(422).json({ error: 'مقدرتش أطلّع الإحداثيات من اللينك — افتح اللينك واضغط مطوّلًا على المكان وانسخ الأرقام' });
+    res.json(Object.assign({ url: u }, hit));
+  } catch (e) { res.status(502).json({ error: 'مقدرتش أفتح اللينك' }); }
+});
 app.get('/api/ai/models', auth(true), async (req, res, next) => {
   try {
     const c = await aiCfg(); if (!c.key || !c.url) return res.status(400).json({ error: 'حط المفتاح الأول' });
