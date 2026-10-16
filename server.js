@@ -71,15 +71,79 @@ async function migrate() {
       token text PRIMARY KEY, user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at bigint NOT NULL, last_seen bigint NOT NULL);
   `);
+  await migrateTenants();
   const { rows } = await pool.query('SELECT count(*)::int n FROM users');
   if (rows[0].n === 0) {
     const u = (process.env.ADMIN_USER || 'admin').trim().toLowerCase();
     const p = process.env.ADMIN_PASSWORD;
     if (!p || p.length < 8) { console.error('First start needs ADMIN_PASSWORD (8+ chars) to create the owner account'); process.exit(1); }
     const id = process.env.ADMIN_ID || uidGen();
-    await pool.query('INSERT INTO users(id,username,name,pass,owner,created_at) VALUES($1,$2,$3,$4,true,$5)',
-      [id, u, process.env.ADMIN_NAME || 'المالك', hashPw(p), now()]);
+    await pool.query('INSERT INTO users(id,username,name,pass,owner,created_at,tenant) VALUES($1,$2,$3,$4,true,$5,$6)',
+      [id, u, process.env.ADMIN_NAME || 'المالك', hashPw(p), now(), MAIN]);
     console.log('Owner account created:', u);
+  }
+  await seedTenants();
+}
+
+/* ---------------- tenants (each client company sees only its own data) ---------------- */
+const MAIN = 'main';
+const TENANT_RE = /^[a-z0-9_-]{2,32}$/;
+async function pkCols(client, table) {
+  const { rows } = await client.query(`SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey)
+    WHERE i.indrelid=$1::regclass AND i.indisprimary`, [table]);
+  return rows.map(r => r.attname);
+}
+/* one-time, data-preserving upgrade: existing rows become tenant 'main'. Runs in a transaction. */
+async function migrateTenants() {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`CREATE TABLE IF NOT EXISTS tenants (
+      id text PRIMARY KEY, name text NOT NULL, disabled boolean NOT NULL DEFAULT false,
+      expires_at bigint, created_at bigint NOT NULL DEFAULT 0)`);
+    await client.query(`INSERT INTO tenants(id,name,created_at) VALUES($1,$2,$3) ON CONFLICT (id) DO NOTHING`,
+      [MAIN, process.env.MAIN_TENANT_NAME || 'الشركة الرئيسية', now()]);
+    for (const t of ['docs', 'users', 'kv']) {
+      const has = await client.query(`SELECT 1 FROM information_schema.columns WHERE table_name=$1 AND column_name='tenant'`, [t]);
+      if (!has.rows.length) {
+        await client.query(`ALTER TABLE ${t} ADD COLUMN tenant text NOT NULL DEFAULT '${MAIN}' REFERENCES tenants(id)`);
+        await client.query(`ALTER TABLE ${t} ALTER COLUMN tenant DROP DEFAULT`); // a write that forgets the tenant must fail, never land in 'main'
+        console.log('tenants: added tenant column to', t);
+      }
+    }
+    if (!(await pkCols(client, 'docs')).includes('tenant')) {
+      await client.query('ALTER TABLE docs DROP CONSTRAINT docs_pkey, ADD PRIMARY KEY (tenant, col, id)');
+      console.log('tenants: docs key is now (tenant,col,id)');
+    }
+    if (!(await pkCols(client, 'kv')).includes('tenant')) {
+      await client.query('ALTER TABLE kv DROP CONSTRAINT kv_pkey, ADD PRIMARY KEY (tenant, k)');
+    }
+    await client.query('CREATE INDEX IF NOT EXISTS docs_tenant_seq_idx ON docs (tenant, seq)');
+    await client.query('CREATE INDEX IF NOT EXISTS users_tenant_idx ON users (tenant)');
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
+}
+async function createTenant(client, { id, name, ownerUsername, ownerName, ownerPassword, expiresAt }) {
+  id = String(id || '').trim().toLowerCase();
+  const username = String(ownerUsername || '').trim().toLowerCase();
+  if (!TENANT_RE.test(id)) throw Object.assign(new Error('كود العميل: حروف إنجليزي صغيرة وأرقام فقط (2–32)'), { status: 400 });
+  if (!String(name || '').trim()) throw Object.assign(new Error('اكتب اسم العميل'), { status: 400 });
+  if (!/^[a-z0-9._-]{3,32}$/.test(username)) throw Object.assign(new Error('اسم مستخدم المالك: 3 حروف إنجليزي أو أرقام على الأقل'), { status: 400 });
+  if (String(ownerPassword || '').length < 8) throw Object.assign(new Error('كلمة مرور المالك 8 حروف على الأقل'), { status: 400 });
+  await client.query('INSERT INTO tenants(id,name,expires_at,created_at) VALUES($1,$2,$3,$4)', [id, String(name).trim(), expiresAt || null, now()]);
+  await client.query('INSERT INTO users(id,username,name,pass,owner,created_at,tenant) VALUES($1,$2,$3,$4,true,$5,$6)',
+    [uidGen(), username, String(ownerName || 'المالك').trim(), hashPw(ownerPassword), now(), id]);
+}
+/* TENANTS_INIT (optional, JSON array) creates client companies on startup if they don't exist yet; never touches existing ones. */
+async function seedTenants() {
+  let list; try { list = JSON.parse(process.env.TENANTS_INIT || '[]'); } catch (e) { console.error('TENANTS_INIT is not valid JSON'); return; }
+  for (const t of Array.isArray(list) ? list : []) {
+    const ex = await pool.query('SELECT 1 FROM tenants WHERE id=$1', [String(t.id || '').toLowerCase()]);
+    if (ex.rows.length) continue;
+    const client = await pool.connect();
+    try { await client.query('BEGIN'); await createTenant(client, t); await client.query('COMMIT'); console.log('tenant created:', t.id, '/ owner:', t.ownerUsername); }
+    catch (e) { await client.query('ROLLBACK').catch(() => {}); console.error('tenant', t.id, 'not created:', e.code === '23505' ? 'username already used' : e.message); }
+    finally { client.release(); }
   }
 }
 
@@ -88,24 +152,28 @@ async function sessionUser(req) {
   const t = cookies(req)[COOKIE];
   if (!t || t.length < 20) return null;
   const { rows } = await pool.query(
-    `SELECT u.id,u.username,u.name,u.owner,u.disabled,s.last_seen FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=$1`, [t]);
+    `SELECT u.id,u.username,u.name,u.owner,u.disabled,u.tenant,t.name tenant_name,t.disabled tdis,t.expires_at,s.last_seen
+     FROM sessions s JOIN users u ON u.id=s.user_id JOIN tenants t ON t.id=u.tenant WHERE s.token=$1`, [t]);
   const u = rows[0];
-  if (!u || u.disabled) return null;
+  if (!u || u.disabled || tenantBlocked(u)) return null;
   if (now() - Number(u.last_seen) > SESSION_DAYS * 864e5) { await pool.query('DELETE FROM sessions WHERE token=$1', [t]); return null; }
   if (now() - Number(u.last_seen) > 3600e3) pool.query('UPDATE sessions SET last_seen=$2 WHERE token=$1', [t, now()]).catch(() => {});
   u.token = t;
   return u;
 }
-async function roleOf(userId) {
-  const { rows } = await pool.query(`SELECT data FROM docs WHERE col='roles' AND id=$1 AND NOT deleted`, [userId]);
+function tenantBlocked(t) { return !!t.tdis || (t.expires_at != null && Number(t.expires_at) < now()); }
+async function roleOf(u) {
+  const { rows } = await pool.query(`SELECT data FROM docs WHERE tenant=$1 AND col='roles' AND id=$2 AND NOT deleted`, [u.tenant, u.id]);
   return rows[0] && rows[0].data ? rows[0].data.role || '' : '';
 }
-async function isAdmin(u) { return u.owner || (await roleOf(u.id)) === 'full'; }
+async function isAdmin(u) { return u.owner || (await roleOf(u)) === 'full'; }
+const isSuper = u => !!u.owner && u.tenant === MAIN;
 const auth = (needAdmin) => async (req, res, next) => {
   try {
     const u = await sessionUser(req);
     if (!u) return res.status(401).json({ error: 'login' });
     req.user = u;
+    if (needAdmin === 'super' && !isSuper(u)) return res.status(403).json({ error: 'forbidden' });
     if (needAdmin && !(await isAdmin(u))) return res.status(403).json({ error: 'forbidden' });
     next();
   } catch (e) { next(e); }
@@ -149,12 +217,13 @@ app.post('/api/login', async (req, res, next) => {
     const key = req.ip + '|' + username;
     const a = throttled(key);
     if (a.n >= 8) return res.status(429).json({ error: 'محاولات كثيرة — حاول بعد ربع ساعة' });
-    const { rows } = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
+    const { rows } = await pool.query('SELECT u.*,t.disabled tdis,t.expires_at FROM users u JOIN tenants t ON t.id=u.tenant WHERE u.username=$1', [username]);
     const u = rows[0];
     if (!u || u.disabled || !checkPw(password, u.pass)) {
       a.n++; attempts.set(key, a);
       return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
     }
+    if (tenantBlocked(u)) return res.status(403).json({ error: 'اشتراك الشركة موقوف أو منتهي — تواصل مع الدعم' });
     attempts.delete(key);
     const token = crypto.randomBytes(32).toString('base64url');
     await pool.query('INSERT INTO sessions(token,user_id,created_at,last_seen) VALUES($1,$2,$3,$3)', [token, u.id, now()]);
@@ -170,7 +239,7 @@ app.post('/api/logout', async (req, res) => {
 });
 app.get('/api/me', auth(false), async (req, res) => {
   const u = req.user;
-  res.json({ id: u.id, username: u.username, name: u.name, owner: u.owner, admin: await isAdmin(u) });
+  res.json({ id: u.id, username: u.username, name: u.name, owner: u.owner, admin: await isAdmin(u), tenant: u.tenant, tenantName: u.tenant_name, super: isSuper(u) });
 });
 app.post('/api/password', auth(false), async (req, res, next) => {
   try {
@@ -186,7 +255,7 @@ app.post('/api/password', auth(false), async (req, res, next) => {
 
 /* users: everyone logged in may see names; admins manage */
 app.get('/api/users', auth(false), async (req, res) => {
-  const { rows } = await pool.query('SELECT id,username,name,owner,disabled,created_at FROM users ORDER BY created_at');
+  const { rows } = await pool.query('SELECT id,username,name,owner,disabled,created_at FROM users WHERE tenant=$1 ORDER BY created_at', [req.user.tenant]);
   res.json(rows);
 });
 app.post('/api/users', auth(true), async (req, res, next) => {
@@ -198,7 +267,7 @@ app.post('/api/users', auth(true), async (req, res, next) => {
     if (!name) return res.status(400).json({ error: 'اكتب الاسم' });
     if (pw.length < 6) return res.status(400).json({ error: 'كلمة المرور 6 حروف على الأقل' });
     const id = uidGen();
-    await pool.query('INSERT INTO users(id,username,name,pass,created_at) VALUES($1,$2,$3,$4,$5)', [id, username, name, hashPw(pw), now()]);
+    await pool.query('INSERT INTO users(id,username,name,pass,created_at,tenant) VALUES($1,$2,$3,$4,$5,$6)', [id, username, name, hashPw(pw), now(), req.user.tenant]);
     res.json({ id });
   } catch (e) {
     if (e.code === '23505') return res.status(400).json({ error: 'اسم المستخدم مستخدم بالفعل' });
@@ -207,7 +276,7 @@ app.post('/api/users', auth(true), async (req, res, next) => {
 });
 app.patch('/api/users/:id', auth(true), async (req, res, next) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM users WHERE id=$1', [req.params.id]);
+    const { rows } = await pool.query('SELECT * FROM users WHERE id=$1 AND tenant=$2', [req.params.id, req.user.tenant]);
     const t = rows[0];
     if (!t) return res.status(404).json({ error: 'غير موجود' });
     if (t.owner && !req.user.owner) return res.status(403).json({ error: 'لا يمكن تعديل حساب المالك' });
@@ -232,9 +301,9 @@ app.get('/api/sync', auth(false), async (req, res, next) => {
   try {
     const since = Math.max(0, parseInt(req.query.since, 10) || 0);
     const { rows } = since === 0
-      ? await pool.query('SELECT col,id,data,deleted,seq FROM docs WHERE NOT deleted ORDER BY seq')
-      : await pool.query('SELECT col,id,data,deleted,seq FROM docs WHERE seq>$1 ORDER BY seq', [since]);
-    const top = await pool.query(`SELECT COALESCE(max(seq),0)::bigint s FROM docs`);
+      ? await pool.query('SELECT col,id,data,deleted,seq FROM docs WHERE tenant=$1 AND NOT deleted ORDER BY seq', [req.user.tenant])
+      : await pool.query('SELECT col,id,data,deleted,seq FROM docs WHERE tenant=$1 AND seq>$2 ORDER BY seq', [req.user.tenant, since]);
+    const top = await pool.query(`SELECT COALESCE(max(seq),0)::bigint s FROM docs WHERE tenant=$1`, [req.user.tenant]);
     const seq = Number(top.rows[0].s);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -256,27 +325,28 @@ app.post('/api/write', auth(false), async (req, res, next) => {
     if (ADMIN_ONLY.has(o.c) && !admin) return res.status(403).json({ error: 'forbidden', code: 'permission_denied' });
     if (o.c === 'members' && o.i !== req.user.id && !admin) return res.status(403).json({ error: 'forbidden' });
   }
+  const T = req.user.tenant;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const out = [];
     for (const o of ops) {
       if (o.op === 'delete') {
-        const r = await client.query(`UPDATE docs SET deleted=true,data=NULL,seq=nextval('doc_seq'),updated_at=$3,updated_by=$4 WHERE col=$1 AND id=$2 RETURNING seq`, [o.c, o.i, now(), req.user.id]);
+        const r = await client.query(`UPDATE docs SET deleted=true,data=NULL,seq=nextval('doc_seq'),updated_at=$3,updated_by=$4 WHERE tenant=$5 AND col=$1 AND id=$2 RETURNING seq`, [o.c, o.i, now(), req.user.id, T]);
         if (r.rows[0]) out.push({ c: o.c, i: o.i, s: Number(r.rows[0].seq), d: null, x: 1 });
         continue;
       }
       if (!isObj(o.d)) throw Object.assign(new Error('bad data'), { status: 400 });
       let data = o.d;
       if (o.op === 'update') {
-        const cur = await client.query('SELECT data,deleted FROM docs WHERE col=$1 AND id=$2 FOR UPDATE', [o.c, o.i]);
+        const cur = await client.query('SELECT data,deleted FROM docs WHERE tenant=$3 AND col=$1 AND id=$2 FOR UPDATE', [o.c, o.i, T]);
         const base = cur.rows[0] && !cur.rows[0].deleted ? cur.rows[0].data : {};
         data = mergeDoc(base, o.d);
       }
       const r = await client.query(
-        `INSERT INTO docs(col,id,data,deleted,seq,updated_at,updated_by) VALUES($1,$2,$3,false,nextval('doc_seq'),$4,$5)
-         ON CONFLICT (col,id) DO UPDATE SET data=EXCLUDED.data,deleted=false,seq=nextval('doc_seq'),updated_at=EXCLUDED.updated_at,updated_by=EXCLUDED.updated_by
-         RETURNING seq`, [o.c, o.i, JSON.stringify(data), now(), req.user.id]);
+        `INSERT INTO docs(tenant,col,id,data,deleted,seq,updated_at,updated_by) VALUES($6,$1,$2,$3,false,nextval('doc_seq'),$4,$5)
+         ON CONFLICT (tenant,col,id) DO UPDATE SET data=EXCLUDED.data,deleted=false,seq=nextval('doc_seq'),updated_at=EXCLUDED.updated_at,updated_by=EXCLUDED.updated_by
+         RETURNING seq`, [o.c, o.i, JSON.stringify(data), now(), req.user.id, T]);
       out.push({ c: o.c, i: o.i, s: Number(r.rows[0].seq), d: data, x: 0 });
     }
     await client.query('COMMIT');
@@ -298,17 +368,19 @@ const AI_PRESETS = {
   openrouter: { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1', model: '' },
   custom: { name: 'مخصص', url: '', model: '' },
 };
-async function aiCfg() {
+async function aiCfg(tenant) {
   let c = {};
-  try { const { rows } = await pool.query(`SELECT v FROM kv WHERE k='ai'`); if (rows[0]) c = rows[0].v || {}; } catch (e) {}
-  const provider = c.provider || process.env.AI_PROVIDER || ((c.key || process.env.AI_KEY) ? 'groq' : 'local');
+  try { const { rows } = await pool.query(`SELECT v FROM kv WHERE tenant=$1 AND k='ai'`, [tenant]); if (rows[0]) c = rows[0].v || {}; } catch (e) {}
+  /* server-wide AI_* env settings (your own paid key) apply to the main company only; clients set their own key in Settings */
+  const E = tenant === MAIN ? process.env : {};
+  const provider = c.provider || E.AI_PROVIDER || ((c.key || E.AI_KEY) ? 'groq' : 'local');
   const pre = AI_PRESETS[provider] || AI_PRESETS.custom;
   return {
     provider, enabled: c.enabled !== false,
-    url: (c.url || process.env.AI_URL || pre.url || '').replace(/\/+$/, ''),
-    model: c.model || process.env.AI_MODEL || pre.model,
-    key: c.key || process.env.AI_KEY || '',
-    workspace: c.workspace || process.env.AI_WORKSPACE || '',
+    url: (c.url || E.AI_URL || pre.url || '').replace(/\/+$/, ''),
+    model: c.model || E.AI_MODEL || pre.model,
+    key: c.key || E.AI_KEY || '',
+    workspace: c.workspace || E.AI_WORKSPACE || '',
   };
 }
 const aiUse = new Map();
@@ -346,7 +418,7 @@ function aiErr(r) {
 }
 app.get('/api/ai/config', auth(false), async (req, res, next) => {
   try {
-    const c = await aiCfg(); const adm = await isAdmin(req.user);
+    const c = await aiCfg(req.user.tenant); const adm = await isAdmin(req.user);
     const o = { enabled: c.provider === 'local' ? c.enabled : (c.enabled && !!c.key && !!c.model && !!c.url), provider: c.provider, model: c.provider === 'local' ? '' : c.model };
     if (adm) Object.assign(o, { admin: true, url: c.url, hasKey: !!c.key, keyHint: c.key ? '…' + c.key.slice(-4) : '', on: c.enabled, workspace: c.workspace || '', presets: AI_PRESETS });
     res.json(o);
@@ -354,8 +426,8 @@ app.get('/api/ai/config', auth(false), async (req, res, next) => {
 });
 app.post('/api/ai/config', auth(true), async (req, res, next) => {
   try {
-    const b = req.body || {}; const cur = await aiCfg();
-    const { rows } = await pool.query(`SELECT v FROM kv WHERE k='ai'`); const old = (rows[0] && rows[0].v) || {};
+    const b = req.body || {}; const cur = await aiCfg(req.user.tenant);
+    const { rows } = await pool.query(`SELECT v FROM kv WHERE tenant=$1 AND k='ai'`, [req.user.tenant]); const old = (rows[0] && rows[0].v) || {};
     const n = Object.assign({}, old);
     if (b.provider !== undefined) { if (!AI_PRESETS[b.provider]) return res.status(400).json({ error: 'مزوّد غير معروف' }); n.provider = b.provider; }
     if (b.url !== undefined) { const u = String(b.url || '').trim(); if (u && !/^https:\/\/[^\s]+$/.test(u)) return res.status(400).json({ error: 'الرابط لازم يبدأ بـ https://' }); n.url = u; }
@@ -364,7 +436,7 @@ app.post('/api/ai/config', auth(true), async (req, res, next) => {
     if (typeof b.key === 'string' && b.key.trim()) { const k = b.key.trim(); if (k.length < 20 || /\s/.test(k)) return res.status(400).json({ error: 'المفتاح ده مش صحيح — الصق مفتاح الـ API من موقع المزوّد' }); n.key = k.slice(0, 400); }
     if (b.key === null) delete n.key;
     if (b.enabled !== undefined) n.enabled = !!b.enabled;
-    await pool.query(`INSERT INTO kv(k,v) VALUES('ai',$1) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v`, [n]);
+    await pool.query(`INSERT INTO kv(tenant,k,v) VALUES($2,'ai',$1) ON CONFLICT (tenant,k) DO UPDATE SET v=EXCLUDED.v`, [n, req.user.tenant]);
     void cur; res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -391,7 +463,7 @@ app.get('/api/geo/expand', auth(false), async (req, res) => {
 });
 app.get('/api/ai/models', auth(true), async (req, res, next) => {
   try {
-    const c = await aiCfg(); if (!c.key || !c.url) return res.status(400).json({ error: 'حط المفتاح الأول' });
+    const c = await aiCfg(req.user.tenant); if (!c.key || !c.url) return res.status(400).json({ error: 'حط المفتاح الأول' });
     const r = await aiFetch(c, '/models');
     if (!r.ok) return res.status(502).json({ error: aiErr(r) });
     const ids = ((r.j && (r.j.data || r.j.models)) || []).map(m => String(m.id || m.name || '').replace(/^models\//, '')).filter(Boolean).sort();
@@ -400,7 +472,7 @@ app.get('/api/ai/models', auth(true), async (req, res, next) => {
 });
 app.post('/api/ai/chat', auth(false), async (req, res, next) => {
   try {
-    const c = await aiCfg();
+    const c = await aiCfg(req.user.tenant);
     if (!(c.enabled && c.key && c.model && c.url)) return res.status(400).json({ error: 'المساعد مش متفعّل — المدير يفعّله من الإعدادات' });
     const lim = aiLimit(req.user.id); if (lim) return res.status(429).json({ error: lim });
     const b = req.body || {};
@@ -428,11 +500,11 @@ app.post('/api/ai/chat', auth(false), async (req, res, next) => {
 /* backup / restore */
 app.get('/api/backup', auth(true), async (req, res, next) => {
   try {
-    const docs = await pool.query('SELECT col,id,data FROM docs WHERE NOT deleted ORDER BY col,id');
-    const users = await pool.query('SELECT id,username,name,pass,owner,disabled,created_at FROM users');
+    const docs = await pool.query('SELECT col,id,data FROM docs WHERE tenant=$1 AND NOT deleted ORDER BY col,id', [req.user.tenant]);
+    const users = await pool.query('SELECT id,username,name,pass,owner,disabled,created_at FROM users WHERE tenant=$1', [req.user.tenant]);
     const body = JSON.stringify({ app: 'mizan', version: 1, at: new Date().toISOString(), users: users.rows, docs: docs.rows.map(r => [r.col, r.id, r.data]) });
     const gz = zlib.gzipSync(body);
-    const name = `mizan-backup-${new Date().toISOString().slice(0, 10)}.json.gz`;
+    const name = `mizan-backup-${req.user.tenant}-${new Date().toISOString().slice(0, 10)}.json.gz`;
     res.setHeader('Content-Type', 'application/gzip');
     res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
     res.end(gz);
@@ -451,19 +523,26 @@ app.post('/api/restore', auth(true), express.raw({ type: '*/*', limit: '120mb' }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('DELETE FROM docs');
+    const T = req.user.tenant;
+    await client.query('DELETE FROM docs WHERE tenant=$1', [T]);
     for (let k = 0; k < b.docs.length; k += 200) {
       const chunk = b.docs.slice(k, k + 200);
-      const vals = [], params = [];
-      chunk.forEach(([c, i, d], j) => { vals.push(`($${j * 3 + 1},$${j * 3 + 2},$${j * 3 + 3},false,nextval('doc_seq'),${now()})`); params.push(c, i, JSON.stringify(d)); });
-      await client.query(`INSERT INTO docs(col,id,data,deleted,seq,updated_at) VALUES ${vals.join(',')}`, params);
+      const vals = [], params = [T];
+      chunk.forEach(([c, i, d], j) => { vals.push(`($1,$${j * 3 + 2},$${j * 3 + 3},$${j * 3 + 4},false,nextval('doc_seq'),${now()})`); params.push(c, i, JSON.stringify(d)); });
+      await client.query(`INSERT INTO docs(tenant,col,id,data,deleted,seq,updated_at) VALUES ${vals.join(',')}`, params);
     }
     if (Array.isArray(b.users) && b.users.length) {
       for (const u of b.users) {
         if (u.id === req.user.id) continue; // keep the restoring owner's own login
-        await client.query(`INSERT INTO users(id,username,name,pass,owner,disabled,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)
-          ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username,name=EXCLUDED.name,pass=EXCLUDED.pass,disabled=EXCLUDED.disabled`,
-          [u.id, u.username, u.name, u.pass, false, !!u.disabled, Number(u.created_at) || now()]).catch(() => {});
+        /* savepoint per user: a username taken by another company must not abort the whole restore */
+        await client.query('SAVEPOINT u');
+        try {
+          await client.query(`INSERT INTO users(id,username,name,pass,owner,disabled,created_at,tenant) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+            ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username,name=EXCLUDED.name,pass=EXCLUDED.pass,disabled=EXCLUDED.disabled
+            WHERE users.tenant=EXCLUDED.tenant`,
+            [u.id, u.username, u.name, u.pass, false, !!u.disabled, Number(u.created_at) || now(), T]);
+          await client.query('RELEASE SAVEPOINT u');
+        } catch (e) { await client.query('ROLLBACK TO SAVEPOINT u'); }
       }
     }
     await client.query('COMMIT');
@@ -471,8 +550,46 @@ app.post('/api/restore', auth(true), express.raw({ type: '*/*', limit: '120mb' }
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); next(e); } finally { client.release(); }
 });
 
+/* client companies — only the owner of the main company manages them */
+app.get('/api/tenants', auth('super'), async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(`SELECT t.*, (SELECT count(*)::int FROM users u WHERE u.tenant=t.id AND NOT u.disabled) users,
+      (SELECT count(*)::int FROM docs d WHERE d.tenant=t.id AND NOT d.deleted) docs,
+      (SELECT string_agg(u.username, ', ') FROM users u WHERE u.tenant=t.id AND u.owner) owners FROM tenants t ORDER BY t.created_at`);
+    res.json(rows.map(r => Object.assign(r, { expires_at: r.expires_at == null ? null : Number(r.expires_at), created_at: Number(r.created_at) })));
+  } catch (e) { next(e); }
+});
+app.post('/api/tenants', auth('super'), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const b = req.body || {};
+    await createTenant(client, Object.assign({}, b, { expiresAt: b.expiresAt ? Date.parse(b.expiresAt) || null : null }));
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    if (e.code === '23505') return res.status(400).json({ error: e.constraint === 'tenants_pkey' ? 'كود العميل مستخدم بالفعل' : 'اسم مستخدم المالك مستخدم بالفعل' });
+    next(e);
+  } finally { client.release(); }
+});
+app.patch('/api/tenants/:id', auth('super'), async (req, res, next) => {
+  try {
+    const id = String(req.params.id), b = req.body || {};
+    if (id === MAIN && b.disabled) return res.status(400).json({ error: 'لا يمكن إيقاف الشركة الرئيسية' });
+    const { rows } = await pool.query('SELECT 1 FROM tenants WHERE id=$1', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'غير موجود' });
+    if (b.name != null && String(b.name).trim()) await pool.query('UPDATE tenants SET name=$2 WHERE id=$1', [id, String(b.name).trim()]);
+    if (b.disabled != null) await pool.query('UPDATE tenants SET disabled=$2 WHERE id=$1', [id, !!b.disabled]);
+    if (b.expiresAt !== undefined) await pool.query('UPDATE tenants SET expires_at=$2 WHERE id=$1', [id, b.expiresAt ? Date.parse(b.expiresAt) || null : null]);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 /* pages */
 const PUB = path.join(__dirname, 'public');
+app.get('/tenants', (req, res) => res.sendFile(path.join(PUB, 'tenants.html')));
 app.get('/login', (req, res) => res.sendFile(path.join(PUB, 'login.html')));
 app.get(['/', '/index.html'], async (req, res, next) => {
   try {
@@ -494,7 +611,7 @@ app.use((err, req, res, next) => {
 async function seedCrm() {
   const pass = process.env.CRM_SEED_KEY; const file = path.join(__dirname, 'seed', 'crm.enc');
   if (!pass || !fs.existsSync(file)) return;
-  const { rows } = await pool.query(`SELECT count(*)::int n FROM docs WHERE col='x_leads' AND NOT deleted`);
+  const { rows } = await pool.query(`SELECT count(*)::int n FROM docs WHERE tenant='main' AND col='x_leads' AND NOT deleted`);
   if (rows[0].n > 0) { console.log('CRM seed: leads already exist, skipped'); return; }
   let p;
   try {
@@ -505,16 +622,16 @@ async function seedCrm() {
   const client = await pool.connect(); const u = now();
   try {
     await client.query('BEGIN');
-    const up = (c, i, data) => client.query(`INSERT INTO docs(col,id,data,deleted,seq,updated_at,updated_by) VALUES($1,$2,$3,false,nextval('doc_seq'),$4,'seed')
-      ON CONFLICT (col,id) DO UPDATE SET data=EXCLUDED.data,deleted=false,seq=nextval('doc_seq'),updated_at=EXCLUDED.updated_at,updated_by='seed'`, [c, i, JSON.stringify(data), u]);
+    const up = (c, i, data) => client.query(`INSERT INTO docs(tenant,col,id,data,deleted,seq,updated_at,updated_by) VALUES('main',$1,$2,$3,false,nextval('doc_seq'),$4,'seed')
+      ON CONFLICT (tenant,col,id) DO UPDATE SET data=EXCLUDED.data,deleted=false,seq=nextval('doc_seq'),updated_at=EXCLUDED.updated_at,updated_by='seed'`, [c, i, JSON.stringify(data), u]);
     let n = 0;
     for (const [cid, items] of Object.entries(p.chunks || {})) { await up('x_leads', cid, { items, u }); n += Object.keys(items).length; }
     for (const [rid, r] of Object.entries(p.reps || {})) {
-      const ex = await client.query(`SELECT 1 FROM docs WHERE col='crm_reps' AND id=$1 AND NOT deleted`, [rid]);
+      const ex = await client.query(`SELECT 1 FROM docs WHERE tenant='main' AND col='crm_reps' AND id=$1 AND NOT deleted`, [rid]);
       if (!ex.rows.length) await up('crm_reps', rid, r);
     }
     if (p.settings) {
-      const cur = await client.query(`SELECT data FROM docs WHERE col='settings' AND id='main' AND NOT deleted`);
+      const cur = await client.query(`SELECT data FROM docs WHERE tenant='main' AND col='settings' AND id='main' AND NOT deleted`);
       await up('settings', 'main', Object.assign({}, (cur.rows[0] && cur.rows[0].data) || {}, p.settings));
     }
     await client.query('COMMIT');

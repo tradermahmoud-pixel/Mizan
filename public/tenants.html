@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ميزان — العملاء المشتركين</title>
+<style>
+  :root { --bg:#f6f4ef; --card:#fff; --ink:#1f2a37; --muted:#6b7280; --line:#e5e1d8; --gold:#b08d3c; --ok:#0f7b4f; --bad:#b42318; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171c; --card:#1d2128; --ink:#e8e6e1; --muted:#9aa1ac; --line:#2c323b; } }
+  * { box-sizing:border-box }
+  body { margin:0; font-family: Tahoma, "Segoe UI", Arial, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:1050px; margin:0 auto; padding:24px 16px 60px; }
+  h1 { font-size:22px; margin:0 0 4px } .muted { color:var(--muted); font-size:13px }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-top:16px; }
+  table { width:100%; border-collapse:collapse; font-size:14px } th,td { padding:9px 8px; border-bottom:1px solid var(--line); text-align:right; vertical-align:middle }
+  th { color:var(--muted); font-weight:600; font-size:12px }
+  .tag { display:inline-block; padding:2px 8px; border-radius:99px; font-size:12px; background:rgba(15,123,79,.12); color:var(--ok) }
+  .tag.bad { background:rgba(180,35,24,.12); color:var(--bad) }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px }
+  label { font-size:12px; color:var(--muted); display:block; margin-bottom:4px }
+  input { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); font:inherit }
+  button { padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; cursor:pointer }
+  button.p { background:var(--gold); border-color:var(--gold); color:#fff } button.d { color:var(--bad) }
+  #msg { margin-top:10px; font-size:14px } #msg.err { color:var(--bad) } #msg.ok { color:var(--ok) }
+  .wrap { overflow-x:auto } a { color:var(--gold) }
+</style>
+</head>
+<body>
+<main>
+  <h1>العملاء المشتركين</h1>
+  <div class="muted">كل عميل بيشوف أصنافه وحساباته ومستخدمينه بس. الصفحة دي لمالك الشركة الرئيسية فقط. <a href="/">رجوع لميزان</a></div>
+
+  <div class="card wrap">
+    <table>
+      <thead><tr><th>العميل</th><th>الكود</th><th>دخول المالك</th><th>مستخدمين</th><th>سجلات</th><th>الاشتراك ينتهي</th><th>الحالة</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="8" class="muted">جارٍ التحميل…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 12px">إضافة عميل جديد (بدون بيانات)</h3>
+    <div class="grid">
+      <div><label>اسم العميل</label><input id="n" placeholder="صيدلية النور"></div>
+      <div><label>كود العميل (إنجليزي)</label><input id="i" dir="ltr" placeholder="alnour"></div>
+      <div><label>اسم مستخدم المالك</label><input id="u" dir="ltr" placeholder="nour"></div>
+      <div><label>كلمة مرور المالك (8+)</label><input id="p" dir="ltr" type="text"></div>
+      <div><label>ينتهي الاشتراك (اختياري)</label><input id="e" type="date"></div>
+    </div>
+    <div style="margin-top:12px"><button class="p" id="add">إضافة</button></div>
+    <div id="msg"></div>
+  </div>
+</main>
+<script>
+const H = { 'Content-Type': 'application/json', 'X-Mizan': '1' };
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const day = t => t ? new Date(t).toISOString().slice(0, 10) : '';
+function msg(t, ok) { const m = $('#msg'); m.textContent = t; m.className = ok ? 'ok' : 'err'; }
+async function call(method, url, body) {
+  const r = await fetch(url, { method, credentials: 'same-origin', headers: H, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { location.href = '/login'; return; }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || (r.status === 403 ? 'الصفحة دي لمالك الشركة الرئيسية بس' : 'خطأ'));
+  return j;
+}
+async function load() {
+  try {
+    const list = await call('GET', '/api/tenants');
+    $('#rows').innerHTML = list.map(t => {
+      const expired = t.expires_at && t.expires_at < Date.now();
+      const st = t.disabled ? '<span class="tag bad">موقوف</span>' : expired ? '<span class="tag bad">منتهي</span>' : '<span class="tag">شغال</span>';
+      return `<tr><td><b>${esc(t.name)}</b></td><td dir="ltr">${esc(t.id)}</td><td dir="ltr">${esc(t.owners)}</td><td>${t.users}</td><td>${t.docs}</td>
+        <td><input type="date" value="${day(t.expires_at)}" data-exp="${esc(t.id)}" style="max-width:150px"></td><td>${st}</td>
+        <td>${t.id === 'main' ? '' : `<button class="${t.disabled ? '' : 'd'}" data-dis="${esc(t.id)}" data-v="${t.disabled ? 0 : 1}">${t.disabled ? 'تفعيل' : 'إيقاف'}</button>`}</td></tr>`;
+    }).join('');
+    document.querySelectorAll('[data-dis]').forEach(b => b.onclick = async () => {
+      const off = b.dataset.v === '1';
+      if (off && !confirm('إيقاف العميل ده؟ كل مستخدمينه مش هيقدروا يدخلوا لحد ما تفعّله تاني. البيانات مش هتتمسح.')) return;
+      try { await call('PATCH', '/api/tenants/' + b.dataset.dis, { disabled: off }); load(); } catch (e) { alert(e.message); }
+    });
+    document.querySelectorAll('[data-exp]').forEach(inp => inp.onchange = async () => {
+      try { await call('PATCH', '/api/tenants/' + inp.dataset.exp, { expiresAt: inp.value || null }); load(); } catch (e) { alert(e.message); }
+    });
+  } catch (e) { $('#rows').innerHTML = `<tr><td colspan="8" class="muted">${esc(e.message)}</td></tr>`; }
+}
+$('#add').onclick = async () => {
+  try {
+    await call('POST', '/api/tenants', { name: $('#n').value, id: $('#i').value, ownerUsername: $('#u').value, ownerPassword: $('#p').value, ownerName: 'المالك', expiresAt: $('#e').value || null });
+    msg(`اتضاف. المالك يدخل من نفس رابط ميزان باسم المستخدم «${$('#u').value.trim().toLowerCase()}».`, true);
+    ['#n', '#i', '#u', '#p', '#e'].forEach(s => $(s).value = '');
+    load();
+  } catch (e) { msg(e.message); }
+};
+load();
+</script>
+</body>
+</html>
