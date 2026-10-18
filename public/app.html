@@ -403,7 +403,8 @@ const PIX={v:-1,a:[]};
 function pIndex(){if(PIX.v===(CV.products||0))return PIX.a;PIX.a=L('products').map(p=>({p,n:norm(p.name),c:norm(p.code),b:[String(p.barcode||''),...(p.barcodes||[])].join(' ')}));PIX.v=(CV.products||0);return PIX.a}
 function pSearch(q,lim){q=String(q||'').trim();if(!q)return [];const nq=norm(q);const out=[];for(const x of pIndex()){if(x.n.includes(nq)||x.c.includes(nq)||x.b.includes(q)){out.push(x.p);if(lim&&out.length>=lim)break}}return out}
 const BCMAP={'ض':'q','ص':'w','ث':'e','ق':'r','ف':'t','غ':'y','ع':'u','ه':'i','خ':'o','ح':'p','ج':'[','د':']','ش':'a','س':'s','ي':'d','ب':'f','ل':'g','ا':'h','ت':'j','ن':'k','م':'l','ك':';','ط':"'",'ئ':'z','ء':'x','ؤ':'c','ر':'v','ى':'n','ة':'m','و':',','ز':'.','ظ':'/','ذ':'`'};
-const fixBc=v=>String(v||'').replace(/لا/g,'b').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/./g,c=>BCMAP[c]||c).replace(/[\u0000-\u001f]/g,'').trim();
+const BCSHIFT={'َ':'Q','ً':'W','ُ':'E','ٌ':'R','إ':'Y','‘':'U','÷':'I','×':'O','؛':'P','ِ':'A','ٍ':'S','أ':'H','ـ':'J','،':'K','ْ':'X','آ':'N','’':'M','{':'V','}':'C','؟':'/'};
+const fixBc=v=>String(v||'').normalize('NFKC').replace(/لإ/g,'T').replace(/لأ/g,'G').replace(/لآ/g,'B').replace(/لا/g,'b').replace(/./g,c=>BCSHIFT[c]||c).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/./g,c=>BCMAP[c]||c).replace(/[\u0000-\u001f]/g,'').trim();
 const bcEq=(p,v)=>String(p.barcode||'')===v||String(p.code||'')===v||(p.barcodes||[]).includes(v)||String(p.barcode||'').toLowerCase()===v.toLowerCase()&&v!=='';
 const bcMatch=(p,v,exact)=>{v=String(v||'').trim();if(!v)return false;if(exact){if(bcEq(p,v))return true;const w=fixBc(v);return w!==v&&!!w&&bcEq(p,w)}return String(p.barcode||'').includes(v)||(p.barcodes||[]).some(b=>b.includes(v))};
 const storeName=id=>stores().find(s=>s.id===(id||MAIN))?.name||'—';
@@ -1042,7 +1043,8 @@ function startReturn(origId){const o=G('invoices',origId);if(!o)return;const rt=
 const invBc=inv=>(inv.type==='transfer'?'92':'91')+String(inv.no).padStart(7,'0');
 function invBcParse(raw){const v=fixBc(String(raw||'')).toUpperCase().replace(/\s/g,'');let m=v.match(/^9([12])(\d{7})$/);
   if(m&&!L('products').some(p=>bcEq(p,v)))return {no:String(+m[2]),type:m[1]==='2'?'transfer':'sale'};
-  m=v.match(/^(INV|TRF)-?(\d+)$/);if(m)return {no:m[2],type:m[1]==='TRF'?'transfer':'sale'};return null}
+  m=v.match(/^(INV|TRF)-?(\d+)$/);if(m)return {no:m[2],type:m[1]==='TRF'?'transfer':'sale'};
+  m=String(raw||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/\s/g,'').match(/^([^\d\-]{1,6})[-ـ](\d{1,8})$/);if(m)return {no:String(+m[2]),type:/T|لإ|ف/i.test(fixBc(m[1]))&&!/I/.test(fixBc(m[1]))?'transfer':'sale'};return null}
 function loadReturnByNo(no){no=String(no||'').trim();{const b=invBcParse(no);if(b)no=b.no}if(!no){toast('اكتب رقم الفاتورة','err');return}const inv=ED.inv;const st=RET_SRC[inv.type];
   let xs=L('invoices').filter(i=>i.type===st&&String(i.no)===String(no));if(inv.partyId&&xs.some(i=>i.partyId===inv.partyId))xs=xs.filter(i=>i.partyId===inv.partyId);
   if(!xs.length){toast(`مفيش ${TYPES[st].full} برقم ${no}`,'err');return}

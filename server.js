@@ -482,7 +482,7 @@ app.get(['/', '/index.html'], async (req, res, next) => {
     res.sendFile(path.join(PUB, 'app.html'));
   } catch (e) { next(e); }
 });
-app.use(express.static(PUB, { index: false, maxAge: '1h' }));
+app.use(express.static(PUB, { index: false, maxAge: '1h', setHeaders: (res, f) => { if (/\.(js|html|css)$/.test(f) && !f.includes(`${path.sep}vendor${path.sep}`)) res.setHeader('Cache-Control', 'no-cache'); } }));
 
 app.use((err, req, res, next) => {
   console.error(err);
