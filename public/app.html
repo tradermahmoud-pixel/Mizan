@@ -429,7 +429,7 @@ function computePerms(){
 }
 const can=p=>S.isAdmin||(S.perms||[]).includes(p);
 const ROUTEP={prep:'@prep',sret:'sell',pret:'buy',crm:'@crm',accounts:'accounting',sale:'sell',purchase:'buy',lines:'editInv',products:'products',import:'products',orders:'buy',barcode:'products',parties:'parties',cash:'cash',cheques:'cash',reports:'reports',employees:'hr',payroll:'hr',audit:'@',settings:'@',users:'@'};
-function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='crm')return can('crm')||can('crmManage');if(k==='prep'||k==='pick')return can('prep')||can('sell');if(k==='routes')return can('delivery')||can('deliveryManage');if(k==='rets')return can('delivery')||can('deliveryManage')||can('buy')||can('products')||can('prep')||can('sell');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
+function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='crm')return can('crm')||can('crmManage');if(k==='prep'||k==='pick')return can('prep')||can('sell');if(k==='routes')return can('delivery')||can('deliveryManage');if(k==='track')return can('products')||can('sell')||can('buy')||can('reports');if(k==='rets')return can('delivery')||can('deliveryManage')||can('buy')||can('products')||can('prep')||can('sell');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
 const isLocked=d=>!S.isAdmin&&!!settings().lockDate&&!!d&&d<=settings().lockDate;
 function ensureMember(){if(S.mode==='cloud'&&S.me.id&&S.memLoaded&&!S.regDone&&!G('members',S.me.id)&&!S.ro){S.regDone=true;put('members',S.me.id,{first:new Date().toISOString()}).catch(()=>{})}}
 function denied(msg){$('#view').innerHTML=`<div class="wrap"><div class="empty card"><b>${msg||'هذه الشاشة غير متاحة لصلاحيتك'}</b>صلاحيتك الحالية: ${esc(S.roleName)}. اطلب من المدير تعديلها من شاشة المستخدمين والصلاحيات.</div></div>`}
@@ -578,7 +578,7 @@ document.addEventListener('focusout',flushPend);
 
 const NAV=[
  ['البيع والشراء',[['dash','الرئيسية','home'],['sale','فاتورة بيع','sale'],['sret','مرتجع مبيعات','ret'],['purchase','فاتورة شراء','buy'],['pret','مرتجع مشتريات','ret'],['invoices','كل الفواتير','doc'],['prep','التحضير والطباعة','print'],['pick','مراجعة التحضير','bar'],['routes','التوصيل وخطوط السير','pin'],['rets','استلام المرتجعات','ret'],['lines','شبكة الحركات','grid'],['crm','CRM الصيدليات','users']]],
- ['المخزون',[['products','الأصناف والأرصدة','box'],['import','استيراد من Excel','up'],['orders','أوامر التوريد وعروض الأسعار','doc'],['barcode','طباعة الباركود','bar']]],
+ ['المخزون',[['products','الأصناف والأرصدة','box'],['track','متابعة حركة صنف','hist'],['import','استيراد من Excel','up'],['orders','أوامر التوريد وعروض الأسعار','doc'],['barcode','طباعة الباركود','bar']]],
  ['الحسابات',[['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['cheques','الشيكات','chq'],['reports','التقارير والأرباح','chart'],['accounts','المحاسبة والقوائم المالية','ledger']]],
  ['الموظفون',[['attendance','الحضور والانصراف','clock'],['employees','بيانات الموظفين','badge'],['payroll','الرواتب','wallet']]],
  ['النظام',[['users','المستخدمون والصلاحيات','users'],['audit','سجل التعديلات','hist'],['settings','الإعدادات','gear']]],
@@ -603,7 +603,7 @@ function render_(){
   lastR=performance.now();computePerms();ensureMember();
   const {p,a}=route();renderShell(p);syncBadge();try{pqPill()}catch(e){}try{window.MZ_DLV&&MZ_DLV.tick()}catch(e){}try{window.MZ_RT&&MZ_RT.tick()}catch(e){}
   if(!canRoute(p)){setTitle('غير مسموح');denied();return}
-  const V_={prep:vPrep,pick:(typeof vPick==='function'?vPick:vDash),routes:(typeof vRoutes==='function'?vRoutes:vDash),rets:(typeof vRets==='function'?vRets:vDash),sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
+  const V_={prep:vPrep,pick:(typeof vPick==='function'?vPick:vDash),routes:(typeof vRoutes==='function'?vRoutes:vDash),rets:(typeof vRets==='function'?vRets:vDash),track:(typeof vTrack==='function'?vTrack:vDash),sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
   const f=V_[p]||vDash;
   if(S.mode==='cloud'&&!allReady()){loadingView();return}
   if(S.mode==='loading'&&!S.data.products.size){$('#title').textContent='ميزان';$('#view').innerHTML='<div class="empty"><b>جارٍ تحميل البيانات…</b></div>';return}
@@ -625,15 +625,16 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#modal').classList.contains('on'))closeModal()});
 /* اختصارات عامة — بنستخدم e.code علشان تشتغل مع الكيبورد العربي والإنجليزي */
 function kbHelp(){modal(`<h2>⌨️ اختصارات الكيبورد</h2><div class="tw"><table class="t"><tbody>
-  ${[['فاتورة البيع/الشراء',''],['Alt + F','البحث عن صنف'],['Alt + W','توسيع البحث (شاشة كبيرة)'],['↓ / ↑ في البحث','تنقّل بين النتايج ثم Enter للإضافة'],['Ctrl + S','حفظ الفاتورة'],['Ctrl + P','طباعة الفاتورة'],
+  ${[['فاتورة البيع/الشراء',''],['Alt + F','البحث عن صنف'],['Alt + W','توسيع البحث (شاشة كبيرة)'],['Alt + I','حركة الصنف اللي واقف عليه (أو افتح متابعة صنف)'],['↓ / ↑ في البحث','تنقّل بين النتايج ثم Enter للإضافة'],['Ctrl + S','حفظ الفاتورة'],['Ctrl + P','طباعة الفاتورة'],
      ['شاشة توسيع البحث',''],['↓ / ↑','الصنف اللي بعده / قبله'],['PgDn / PgUp','صفحة لتحت / لفوق'],['Ctrl + ↓ / ↑','آخر / أول القايمة'],['Alt + ← / →','تحريك الجدول بالجانب'],['Enter','إضافة الصنف المحدد (والشاشة تفضل مفتوحة)'],['Ctrl + Enter','إضافة وقفل الشاشة'],['Alt + 1 / Alt + 2','البحث بأول الكلمة / بجزء منها'],['Alt + R','اللي ليه رصيد بس'],
-     ['عام',''],['Esc','قفل أي نافذة'],['Alt + K','الشاشة دي']].map(([k,v])=>v?`<tr><td style="white-space:nowrap" dir="ltr">${k.split(' / ').map(x=>x.split(' + ').map(y=>`<kbd>${esc(y)}</kbd>`).join('+')).join(' / ')}</td><td>${esc(v)}</td></tr>`:`<tr><td colspan="2"><b>${esc(k)}</b></td></tr>`).join('')}</tbody></table></div>
+     ['متابعة حركة صنف',''],['↓ / ↑ في البحث ثم Enter','اختيار الصنف (أو امسح الباركود)'],['↓ / ↑ في جدول الحركات ثم Enter','فتح الفاتورة'],['عام',''],['Esc','قفل أي نافذة'],['Alt + K','الشاشة دي']].map(([k,v])=>v?`<tr><td style="white-space:nowrap" dir="ltr">${k.split(' / ').map(x=>x.split(' + ').map(y=>`<kbd>${esc(y)}</kbd>`).join('+')).join(' / ')}</td><td>${esc(v)}</td></tr>`:`<tr><td colspan="2"><b>${esc(k)}</b></td></tr>`).join('')}</tbody></table></div>
   <div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn p" data-close>تمام</button></div>`)}
 document.addEventListener('keydown',e=>{if(!e.altKey||e.ctrlKey||e.metaKey)return;const m=$('#modal').classList.contains('on');
   if(e.code==='KeyK'){e.preventDefault();kbHelp();return}
   if(m)return;
   if(e.code==='KeyF'&&$('#ps')){e.preventDefault();const p=$('#ps');p.focus();p.select()}
-  else if(e.code==='KeyW'&&$('#psWide')){e.preventDefault();$('#psWide').click()}});
+  else if(e.code==='KeyW'&&$('#psWide')){e.preventDefault();$('#psWide').click()}
+  else if(e.code==='KeyI'&&window.MZ_TK){e.preventDefault();const a=document.activeElement;let pid='';if(a&&a.dataset&&a.dataset.i!=null&&ED&&ED.inv.lines[+a.dataset.i])pid=ED.inv.lines[+a.dataset.i].pid;else if(ED&&ED.inv&&ED.inv.lines.length&&$('#lt'))pid=ED.inv.lines[ED.inv.lines.length-1].pid;if(pid)MZ_TK.open(pid);else go('track')}});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='p'||e.key==='P')&&ED&&$('#prt')&&!$('#modal').classList.contains('on')){e.preventDefault();$('#prt').click()}});
 window.addEventListener('keydown',e=>{const k=(e.key||'').toLowerCase(),c=e.code||'';
   const dev=k==='f12'||c==='F12'||((e.ctrlKey||e.metaKey)&&e.shiftKey&&['KeyI','KeyJ','KeyC','KeyK'].includes(c))||((e.ctrlKey||e.metaKey)&&c==='KeyU')||(/^f([1-9]|1[01])$/.test(k)&&document.activeElement&&document.activeElement.id==='ps');
@@ -2270,10 +2271,11 @@ init();
 <script src="/crm.js?v=2"></script>
 <script src="/packs.js?v=1"></script>
 <script src="/returns.js?v=1"></script>
+<script src="/track.js?v=1"></script>
 <script src="/review.js?v=2"></script>
 <script src="/delivery.js?v=6"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=9"></script>
-<script src="/brain.js?v=4"></script>
+<script src="/brain.js?v=5"></script>
 </body>
 </html>

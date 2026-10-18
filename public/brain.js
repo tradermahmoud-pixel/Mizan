@@ -306,6 +306,12 @@
       const xs = MZ_DLV.summary(); if (!xs) return R('مفيش خطوط سير شغّالة النهارده.', can('deliveryManage') ? [act('اعمل خط سير', () => go('routes/new'), { kind: 'p', once: false })] : []);
       return R(xs.map(x => x.md).join('\n\n'), xs.slice(0, 3).map(x => act('افتح الخريطة', () => go('routes/' + x.id), { once: false })));
     } },
+    { id: 'track', m: c => !!window.MZ_TK && has(c, 'حركه', 'حركة', 'كارت', 'متابعه', 'تتبع') && !has(c, 'خزنه', 'خزينه', 'الخزنه', 'الخزينه', 'مندوب', 'المندوب', 'ازاي'), run: c => {
+      const q = rest(c, ['حركه', 'حركة', 'كارت', 'متابعه', 'تتبع', 'صنف', 'الصنف'], true); const ps = q.length >= 2 ? prodFind(q, 6) : (c.mem.prod ? L('products').filter(x => x.id === c.mem.prod) : []);
+      if (!ps.length) return R('اكتب اسم الصنف — مثلًا: «حركة سوفى طويل».', [act('افتح متابعة صنف', () => go('track'), { once: false })]);
+      if (ps.length > 1 && !nz(ps[0].name).startsWith(nz(q))) return R('أنهي صنف؟', ps.map(p => act(p.name, () => { MZ_TK.open(p.id); return 'فتحتلك حركة ' + p.name; })));
+      const p = ps[0]; c.set.prod = p.id; return R(`فتحتلك حركة **${p.name}** — الرصيد ${fq(qtyIn(p.id))}.`, [act('افتح الحركة', () => MZ_TK.open(p.id), { auto: true, kind: 'p', once: false })]);
+    } },
     { id: 'unprinted', m: c => c.invNo == null && has(c, 'مطبوع', 'مطبوعه', 'اتطبعت', 'اتطبعتش', 'ماتطبعتش', 'متطبعتش', 'اتطبعش', 'الطباعه') && !has(c, 'ازاي', 'كيف'), run: c => {
       if (typeof pqGroups !== 'function' || !seesPQ()) return R(deny('متابعة الطباعة'));
       const d = c.p[0] ? Math.max(1, daysBetween(c.p[0].from, today()) + 1) : 1; const g = pqGroups(d);
