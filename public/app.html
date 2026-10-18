@@ -230,6 +230,11 @@ table.t tr.click{cursor:pointer}
 #wsT tr.ws-added td{color:var(--brand)}
 .kbhelp{display:flex;flex-wrap:wrap;gap:4px 14px}.kbg{white-space:nowrap}
 .kbhelp kbd,kbd{display:inline-block;min-width:18px;padding:1px 6px;margin:0 1px;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;background:var(--surface);font:600 11.5px/1.5 ui-monospace,monospace;color:var(--ink);text-align:center}
+
+#lt tr.trk-hit td{background:color-mix(in srgb,var(--gold,#c49a4c) 26%,var(--surface))!important;animation:trkf 1.6s ease 2}
+#lt tr.trk-hit td:first-child{box-shadow:inset -4px 0 0 var(--gold,#c49a4c)}
+@keyframes trkf{0%,100%{filter:none}50%{filter:brightness(1.12)}}
+.trk-back{margin-bottom:10px}
 </style>
 <link rel="stylesheet" href="/theme.css?v=4">
 </head>
@@ -755,6 +760,10 @@ function vEditor(type,id){
      ${ED.id?`<button class="btn d" id="delInv" ${S.ro?'disabled':''}>حذف الفاتورة</button>`:`<button class="btn" id="clr">تفريغ</button>`}
    </div></div>`;
   cacheCells();edTotals(true);
+  {const F=window.MZ_FOCUS_LINE;if(F&&ED&&ED.id===F.inv&&Date.now()-F.at<20000){window.MZ_FOCUS_LINE=null;const ix=ED.inv.lines.map((l,k)=>l.pid===F.pid?k:-1).filter(k=>k>=0);
+    if(ix.length){setTimeout(()=>{ix.forEach((k,j)=>{const tr=$(`#lt tr[data-row="${k}"]`);if(tr){tr.classList.add('trk-hit');if(!j)tr.scrollIntoView({block:'center',behavior:'smooth'})}});const q=$(`input[data-i="${ix[0]}"][data-f="qty"]`);if(q){q.focus({preventScroll:true});q.select()}},60)}
+    else toast('الصنف مش موجود في الفاتورة دي (يمكن اتعدّلت)','err');
+    if(F.back){const b=document.createElement('a');b.className='btn s trk-back';b.href='#/track/'+F.pid;b.innerHTML='↩ رجوع لحركة '+esc(pname(F.pid));const w=$('#view .wrap');if(w)w.prepend(b)}}}
   // header
   $$('[data-h]').forEach(el=>el.oninput=el.onchange=()=>{const k=el.dataset.h;inv[k]=el.value;if(k==='storeId')refreshAvail();
     if(k==='partyId'&&isSaleT(inv.type)&&inv.type!=='sret'){if(!ED.id&&inv.lines.length){inv.lines.forEach(l=>{const pp=G('products',l.pid);if(pp&&!l.bonus)l.price=salePrice(pp,inv.partyId)});const t=tierOf(inv.partyId);toast('تم تسعير الأصناف '+(t?'بشريحة '+t.name:'بسعر المستهلك'))}render()}});
@@ -2271,7 +2280,7 @@ init();
 <script src="/crm.js?v=2"></script>
 <script src="/packs.js?v=1"></script>
 <script src="/returns.js?v=1"></script>
-<script src="/track.js?v=1"></script>
+<script src="/track.js?v=2"></script>
 <script src="/review.js?v=2"></script>
 <script src="/delivery.js?v=6"></script>
 <script src="/ui.js?v=4"></script>

@@ -141,7 +141,7 @@
     document.getElementById('tkSt').onchange = e => { TK.store = e.target.value; render(); };
     document.getElementById('tkK').onchange = e => { TK.kind = e.target.value; render(); };
     let pt; document.getElementById('tkP').oninput = e => { clearTimeout(pt); pt = setTimeout(() => { TK.party = e.target.value.trim(); render(); setTimeout(() => { const x = document.getElementById('tkP'); if (x) { x.focus(); x.setSelectionRange(x.value.length, x.value.length); } }, 0); }, 350); };
-    $$('[data-tki]').forEach(r => r.onclick = () => go('inv/' + r.dataset.tki));
+    $$('[data-tki]').forEach(r => r.onclick = () => { window.MZ_FOCUS_LINE = { inv: r.dataset.tki, pid, at: Date.now(), back: true }; go('inv/' + r.dataset.tki); });
     const ed = document.getElementById('tkEdit'); if (ed) ed.onclick = () => productModal(pid);
     document.getElementById('tkXls').onclick = () => xlsxOut(`حركة_${(p.name || 'صنف').slice(0, 40)}.xlsx`, [['التاريخ', 'الحركة', 'رقم', 'الطرف / المخزن', 'وارد', 'منصرف', 'السعر', ...(sc() ? ['التكلفة', 'الربح'] : []), 'الرصيد بعد', 'بواسطة'],
       ...C.rows.map(m => { const inv = m.inv; const tr = inv.type === 'transfer'; return [inv.date, TYPES[inv.type].t, inv.no, tr ? storeName(inv.storeId) + ' ← ' + storeName(inv.toStoreId) : partyName(inv.partyId) || '', m.net > 0 ? m.net : '', m.net < 0 ? -m.net : '', inv.type === 'count' ? '' : +(m.unit || 0).toFixed(2), ...(sc() ? [m.cost != null ? +(+m.cost).toFixed(2) : '', m.profit != null && (inv.type === 'sale' || inv.type === 'sret') ? +(+m.profit).toFixed(2) : ''] : []), m.run, whoName(inv.createdBy) || '']; })], 'الحركة');
