@@ -225,6 +225,11 @@ table.t tr.click{cursor:pointer}
   #print table{width:100%;border-collapse:collapse}#print th,#print td{border:1px solid #999;padding:5px;text-align:right}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+#wsT tr.ws-on td{background:color-mix(in srgb,var(--brand) 22%,var(--surface))!important;font-weight:600;box-shadow:inset 0 1px 0 var(--brand),inset 0 -1px 0 var(--brand)}#wsT tr.ws-on td:first-child{box-shadow:inset -4px 0 0 var(--brand),inset 0 1px 0 var(--brand),inset 0 -1px 0 var(--brand)}
+#wsT tr.ws-added td{color:var(--brand)}
+.kbhelp{display:flex;flex-wrap:wrap;gap:4px 14px}.kbg{white-space:nowrap}
+.kbhelp kbd,kbd{display:inline-block;min-width:18px;padding:1px 6px;margin:0 1px;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;background:var(--surface);font:600 11.5px/1.5 ui-monospace,monospace;color:var(--ink);text-align:center}
 </style>
 <link rel="stylesheet" href="/theme.css?v=4">
 </head>
@@ -618,6 +623,17 @@ function closeModal(){$('#modal').classList.remove('on');$('#modal').innerHTML='
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal'||e.target.closest('[data-close]'))closeModal()});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'||e.key==='S')){const b=$('#save');if(b&&!b.disabled){e.preventDefault();const a=document.activeElement;if(a&&a.blur)a.blur();setTimeout(()=>b.click(),30)}}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#modal').classList.contains('on'))closeModal()});
+/* اختصارات عامة — بنستخدم e.code علشان تشتغل مع الكيبورد العربي والإنجليزي */
+function kbHelp(){modal(`<h2>⌨️ اختصارات الكيبورد</h2><div class="tw"><table class="t"><tbody>
+  ${[['فاتورة البيع/الشراء',''],['Alt + F','البحث عن صنف'],['Alt + W','توسيع البحث (شاشة كبيرة)'],['↓ / ↑ في البحث','تنقّل بين النتايج ثم Enter للإضافة'],['Ctrl + S','حفظ الفاتورة'],['Ctrl + P','طباعة الفاتورة'],
+     ['شاشة توسيع البحث',''],['↓ / ↑','الصنف اللي بعده / قبله'],['PgDn / PgUp','صفحة لتحت / لفوق'],['Ctrl + ↓ / ↑','آخر / أول القايمة'],['Alt + ← / →','تحريك الجدول بالجانب'],['Enter','إضافة الصنف المحدد (والشاشة تفضل مفتوحة)'],['Ctrl + Enter','إضافة وقفل الشاشة'],['Alt + 1 / Alt + 2','البحث بأول الكلمة / بجزء منها'],['Alt + R','اللي ليه رصيد بس'],
+     ['عام',''],['Esc','قفل أي نافذة'],['Alt + K','الشاشة دي']].map(([k,v])=>v?`<tr><td style="white-space:nowrap" dir="ltr">${k.split(' / ').map(x=>x.split(' + ').map(y=>`<kbd>${esc(y)}</kbd>`).join('+')).join(' / ')}</td><td>${esc(v)}</td></tr>`:`<tr><td colspan="2"><b>${esc(k)}</b></td></tr>`).join('')}</tbody></table></div>
+  <div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn p" data-close>تمام</button></div>`)}
+document.addEventListener('keydown',e=>{if(!e.altKey||e.ctrlKey||e.metaKey)return;const m=$('#modal').classList.contains('on');
+  if(e.code==='KeyK'){e.preventDefault();kbHelp();return}
+  if(m)return;
+  if(e.code==='KeyF'&&$('#ps')){e.preventDefault();const p=$('#ps');p.focus();p.select()}
+  else if(e.code==='KeyW'&&$('#psWide')){e.preventDefault();$('#psWide').click()}});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='p'||e.key==='P')&&ED&&$('#prt')&&!$('#modal').classList.contains('on')){e.preventDefault();$('#prt').click()}});
 window.addEventListener('keydown',e=>{const k=(e.key||'').toLowerCase(),c=e.code||'';
   const dev=k==='f12'||c==='F12'||((e.ctrlKey||e.metaKey)&&e.shiftKey&&['KeyI','KeyJ','KeyC','KeyK'].includes(c))||((e.ctrlKey||e.metaKey)&&c==='KeyU')||(/^f([1-9]|1[01])$/.test(k)&&document.activeElement&&document.activeElement.id==='ps');
@@ -719,7 +735,7 @@ function vEditor(type,id){
      :`<div class="card" style="margin:12px 0 0;padding:10px 14px"><div class="row"><b>${ic('ret','style="width:18px;height:18px;vertical-align:-4px"')} مرتجع برقم الفاتورة:</b><input class="in n" id="retNo" style="width:150px" inputmode="numeric" placeholder="رقم ${inv.type==='sret'?'فاتورة البيع':'فاتورة الشراء'}"><button class="btn s p" id="retLoad">تحميل أصنافها</button><span class="small muted">أو ابحث بالصنف تحت — السعر هيتجاب من آخر ${inv.type==='sret'?'فاتورة بيع للعميل':'فاتورة شراء من المورد'}.</span></div></div>`):''}
    ${tierInfo(inv)}<div class="row" style="margin:16px 0 12px;gap:8px"><div class="psearch" style="flex:1 1 320px;margin:0">${ic('search')}<input class="in" id="ps" placeholder="امسح الباركود أو اكتب اسم/كود الصنف ثم Enter" autocomplete="off"><div class="sugg" id="sugg" hidden></div></div>
      <div class="seg" title="طريقة البحث بالاسم"><button type="button" data-sm="start" class="${SMODE()==='start'?'on':''}">أول الكلمة</button><button type="button" data-sm="any" class="${SMODE()==='any'?'on':''}">جزء من الكلمة</button></div>
-     <button type="button" class="btn" id="psWide" title="عرض كل النتايج في شاشة كبيرة">${ic('search')}توسيع البحث</button></div>
+     <button type="button" class="btn" id="psWide" title="عرض كل النتايج في شاشة كبيرة — Alt+W">${ic('search')}توسيع البحث</button><button type="button" class="btn ic" id="kbBtn" title="اختصارات الكيبورد — Alt+K" onclick="kbHelp()">⌨️</button></div>
    ${inv.type==='count'&&!ED.id?`<div class="row" style="margin:-4px 0 12px"><button class="btn s" id="cntAll">إضافة كل الأصناف بأرصدتها الدفترية</button><span class="small muted">ثم عدّل عمود "الكمية الفعلية" بما عددته على الرف. الفروقات تُسوّى بمتوسط التكلفة عند الحفظ.</span></div>`:''}
    <div class="tw"><table class="t" id="lt"><thead><tr><th>#</th><th style="min-width:180px">الصنف</th>${inv.type==='count'?'<th class="n">الرصيد الدفتري</th><th>الكمية الفعلية</th>':'<th class="n">المتاح</th><th>الكمية</th>'}<th>${isSale?'سعر الصيدلي':PURT.includes(inv.type)?'سعر الشراء':'السعر'}</th>${PURT.includes(inv.type)?'<th>سعر المستهلك</th><th class="n">التكلفة الحالية</th>':isSale?'<th class="n">سعر المستهلك</th><th class="n" title="خصم الصيدلية من سعر المستهلك">نسبة الخصم</th>':''}${noDisc(inv)?'':'<th>خصم %</th>'}${showC?'<th title="اتركها فارغة للحساب التلقائي بمتوسط التكلفة">التكلفة</th>':''}<th class="n">${inv.type==='count'?'الفرق':'الإجمالي'}</th>${showC?'<th class="n">الربح</th>':''}<th></th></tr></thead>
    <tbody>${inv.lines.length?inv.lines.map((l,i)=>lineRow(l,i,showC)).join(''):`<tr><td colspan="10"><div class="empty" style="padding:24px"><b>الفاتورة فاضية</b>ابحث عن صنف بالأعلى أو امسح الباركود لإضافته.</div></td></tr>`}</tbody></table></div>
@@ -803,19 +819,38 @@ function pFind(q,mode,lim){q=String(q||'').trim();if(!q)return [];const nq=norm(
   }
   return lim?out.slice(0,lim):out}
 function wideSearch(q0,inv,isSale){
-  let q=q0||'',mode=SMODE(),onlyStock=false,added=0;
-  const draw=()=>{let xs=pFind(q,mode,500);if(!q.trim())xs=L('products').slice().sort((a,b)=>a.name.localeCompare(b.name)).slice(0,500);if(onlyStock)xs=xs.filter(p=>qtyIn(p.id,inv.storeId)>0);
-    $('#wsT').innerHTML=xs.map(p=>{const av=qtyIn(p.id,inv.storeId);return `<tr class="click" data-wa="${esc(p.id)}"><td><b>${esc(p.name)}</b><div class="small muted">${esc(p.code||'')}${p.group?' · '+esc(p.group):''}</div></td><td class="n ${av<=0?'neg':''}">${fq(av)}</td><td class="n">${fmt(isSale?salePrice(p,inv.partyId):avgCost(p.id))}</td><td class="n muted">${fmt(consOf(p))}</td><td style="width:70px"><button class="btn s p" data-wa="${esc(p.id)}">إضافة</button></td></tr>`}).join('')||'<tr><td colspan="5" class="muted">مفيش نتايج</td></tr>';
-    $('#wsN').textContent=xs.length+(xs.length>=500?'+':'')+' صنف';
-    $$('#wsT [data-wa]').forEach(el=>el.onclick=e=>{e.stopPropagation();const pid=el.dataset.wa;const before=ED.inv.lines.length;addLine(pid);added++;$('#wsA').textContent=added?`اتضاف ${added}`:'';const tr=el.closest('tr');if(tr)tr.style.background='var(--brand-soft)'})};
-  modal(`<h2>توسيع البحث عن صنف</h2><div class="row" style="margin-bottom:10px"><input class="in" id="wsQ" style="flex:1;min-width:220px" placeholder="اكتب جزء من الاسم أو الكود" value="${esc(q)}">
-    <div class="seg"><button type="button" data-wm="start" class="${mode==='start'?'on':''}">أول الكلمة</button><button type="button" data-wm="any" class="${mode==='any'?'on':''}">جزء من الكلمة</button></div>
-    <label class="row small" style="gap:6px"><input type="checkbox" id="wsS">اللي ليه رصيد بس</label><span class="small muted" id="wsN"></span></div>
-    <div class="tw" style="max-height:60vh;overflow:auto"><table class="t"><thead><tr><th>الصنف</th><th class="n">المتاح</th><th class="n">${isSale?'سعر الصيدلي':'التكلفة'}</th><th class="n">سعر المستهلك</th><th></th></tr></thead><tbody id="wsT"></tbody></table></div>
-    <div class="row" style="margin-top:12px"><span class="small pos" id="wsA"></span><span class="sp"></span><button class="btn p" data-close>تمام</button></div>`,true);
+  let q=q0||'',mode=SMODE(),onlyStock=false,added=0,hi=0,xs=[];
+  const rows=()=>$$('#wsT tr[data-wa]');
+  const mark=(scroll=true)=>{const rs=rows();if(!rs.length)return;hi=Math.max(0,Math.min(hi,rs.length-1));rs.forEach((r,k)=>r.classList.toggle('ws-on',k===hi));if(scroll)rs[hi].scrollIntoView({block:'nearest'})};
+  const addAt=(k,close)=>{const rs=rows();const tr=rs[k];if(!tr)return;addLine(tr.dataset.wa);added++;$('#wsA').textContent=`اتضاف ${added} — آخرهم: ${pname(tr.dataset.wa)}`;tr.classList.add('ws-added');if(close)closeModal();else setTimeout(()=>{const qi=$('#wsQ');if(qi)qi.focus()},40)};
+  const draw=()=>{xs=pFind(q,mode,500);if(!q.trim())xs=L('products').slice().sort((a,b)=>a.name.localeCompare(b.name)).slice(0,500);if(onlyStock)xs=xs.filter(p=>qtyIn(p.id,inv.storeId)>0);
+    $('#wsT').innerHTML=xs.map(p=>{const av=qtyIn(p.id,inv.storeId);return `<tr class="click" data-wa="${esc(p.id)}"><td><b>${esc(p.name)}</b><div class="small muted">${esc(p.code||'')}${p.group?' · '+esc(p.group):''}</div></td><td class="n ${av<=0?'neg':''}">${fq(av)}</td><td class="n">${fmt(isSale?salePrice(p,inv.partyId):avgCost(p.id))}</td><td class="n muted">${fmt(consOf(p))}</td><td style="width:70px"><button class="btn s p" data-wb tabindex="-1">إضافة</button></td></tr>`}).join('')||'<tr><td colspan="5" class="muted">مفيش نتايج</td></tr>';
+    $('#wsN').textContent=xs.length+(xs.length>=500?'+':'')+' صنف';hi=0;mark(false);$('#wsW').scrollTop=0;
+    rows().forEach((tr,k)=>{tr.onclick=e=>{e.stopPropagation();hi=k;mark(false);addAt(k)};tr.onmousemove=()=>{if(hi!==k){hi=k;mark(false)}}})};
+  modal(`<h2>توسيع البحث عن صنف</h2><div class="row" style="margin-bottom:10px"><input class="in" id="wsQ" style="flex:1;min-width:220px" placeholder="اكتب جزء من الاسم أو الكود" value="${esc(q)}" autocomplete="off">
+    <div class="seg"><button type="button" data-wm="start" class="${mode==='start'?'on':''}" title="Alt+1">أول الكلمة</button><button type="button" data-wm="any" class="${mode==='any'?'on':''}" title="Alt+2">جزء من الكلمة</button></div>
+    <label class="row small" style="gap:6px" title="Alt+R"><input type="checkbox" id="wsS">اللي ليه رصيد بس</label><span class="small muted" id="wsN"></span></div>
+    <div class="tw" id="wsW" style="max-height:60vh;overflow:auto" tabindex="-1"><table class="t"><thead><tr><th>الصنف</th><th class="n">المتاح</th><th class="n">${isSale?'سعر الصيدلي':'التكلفة'}</th><th class="n">سعر المستهلك</th><th></th></tr></thead><tbody id="wsT"></tbody></table></div>
+    <div class="kbhelp small muted" style="margin-top:8px">${[['↓ ↑','تنقّل'],['PgDn PgUp','صفحة'],['Ctrl+↓ Ctrl+↑','آخر/أول القايمة'],['Alt+← Alt+→','بالجانب'],['Enter','إضافة'],['Ctrl+Enter','إضافة وقفل'],['Alt+1 Alt+2','طريقة البحث'],['Alt+R','اللي ليه رصيد'],['Esc','قفل']].map(([k,t])=>`<span class="kbg"><span dir="ltr">${k.split(' ').map(c=>c.split('+').map(x=>`<kbd>${x}</kbd>`).join('+')).join(' ')}</span> ${t}</span>`).join('')}</div>
+    <div class="row" style="margin-top:10px"><span class="small pos" id="wsA"></span><span class="sp"></span><button class="btn p" data-close>تمام</button></div>`,true);
   const qi=$('#wsQ');let tm=null;qi.oninput=()=>{clearTimeout(tm);tm=setTimeout(()=>{q=qi.value;draw()},120)};
-  qi.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();const f=$('#wsT [data-wa]');if(f)f.click()}};
-  $$('[data-wm]').forEach(b=>b.onclick=()=>{mode=b.dataset.wm;setSMODE(mode);$$('[data-wm]').forEach(x=>x.classList.toggle('on',x===b));draw()});
+  const setMode=m=>{mode=m;setSMODE(mode);$$('[data-wm]').forEach(x=>x.classList.toggle('on',x.dataset.wm===m));draw()};
+  const box=$('#modal .mbox');
+  box.addEventListener('keydown',e=>{
+    const n=rows().length,page=Math.max(1,Math.floor(($('#wsW').clientHeight||400)/48)-1),c=e.code,ctl=e.ctrlKey||e.metaKey;
+    if(e.key==='ArrowDown'&&!e.altKey){e.preventDefault();hi=ctl?n-1:hi+1;mark()}
+    else if(e.key==='ArrowUp'&&!e.altKey){e.preventDefault();hi=ctl?0:hi-1;mark()}
+    else if(e.key==='PageDown'){e.preventDefault();hi+=page;mark()}
+    else if(e.key==='PageUp'){e.preventDefault();hi-=page;mark()}
+    else if((e.key==='Home'||e.key==='End')&&ctl){e.preventDefault();hi=e.key==='Home'?0:n-1;mark()}
+    else if(e.altKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){e.preventDefault();$('#wsW').scrollBy({left:(e.key==='ArrowLeft'?-1:1)*160,behavior:'smooth'})}
+    else if(e.key==='Enter'&&!e.isComposing){if(e.target.closest&&e.target.closest('[data-close],[data-wm]'))return;e.preventDefault();if(n)addAt(hi,ctl)}
+    else if(e.altKey&&(c==='Digit1'||c==='Numpad1')){e.preventDefault();setMode('start')}
+    else if(e.altKey&&(c==='Digit2'||c==='Numpad2')){e.preventDefault();setMode('any')}
+    else if(e.altKey&&c==='KeyR'){e.preventDefault();const s=$('#wsS');s.checked=!s.checked;onlyStock=s.checked;draw()}
+    else if(e.key.length===1&&!ctl&&!e.altKey&&document.activeElement!==qi&&document.activeElement.tagName!=='INPUT'){qi.focus()}
+  });
+  $$('[data-wm]').forEach(b=>b.onclick=()=>setMode(b.dataset.wm));
   $('#wsS').onchange=e=>{onlyStock=e.target.checked;draw()};
   draw();setTimeout(()=>{qi.focus();qi.select()},40);
 }
