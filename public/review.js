@@ -42,11 +42,9 @@
     const d = fixBc(v0).replace(/^0+/, ''); if (d.length >= 6) for (const [k, id] of I.bc) if (k.replace(/^0+/, '') === d) return id;
     return null;
   }
-  const invCode = inv => (inv.type === 'transfer' ? 'TRF-' : 'INV-') + inv.no;
+  const invCode = inv => invBc(inv); // أرقام بس — علشان الماسح على الكيبورد العربي
   function invFromScan(raw) {
-    const v = fixBc(String(raw || '').trim()).toUpperCase();
-    let m = v.match(/^(INV|TRF)-?(\d+)$/); if (m) return findInv(m[2], m[1] === 'TRF' ? 'transfer' : 'sale');
-    return null;
+    const b = invBcParse(raw); return b ? findInv(b.no, b.type) : null;
   }
   function findInv(no, type) {
     const xs = L('invoices').filter(i => String(i.no) === String(no) && (type ? i.type === type : RVT.includes(i.type)));
@@ -314,7 +312,7 @@
   /* ---------- باركود على الفاتورة المطبوعة ---------- */
   window.MZ_RV_code = invCode;
   window.MZ_RV_bc = function (root) {
-    try { (root || document).querySelectorAll('svg[data-invbc]').forEach(el => { try { JsBarcode(el, el.dataset.invbc, { format: 'CODE128', height: 34, width: 1.4, displayValue: true, fontSize: 11, margin: 0, textMargin: 1 }); } catch (e) { el.remove(); } }); } catch (e) {}
+    try { (root || document).querySelectorAll('svg[data-invbc]').forEach(el => { try { JsBarcode(el, el.dataset.invbc, { format: 'CODE128', height: 34, width: 1.6, displayValue: true, fontSize: 11, margin: 0, textMargin: 1 }); } catch (e) { el.remove(); } }); } catch (e) {}
   };
   // للمساعد
   AI_hook();

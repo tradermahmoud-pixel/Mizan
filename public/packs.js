@@ -16,7 +16,8 @@
   const ofKey = k => all().filter(p => p.key === k).sort((a, b) => a.seq - b.seq);
   const invsOfKey = k => { if (k.startsWith('inv:')) { const i = L('invoices').find(x => x.id === k.slice(4)); return i ? [i] : []; } const [pid, d] = k.split('|'); return L('invoices').filter(i => i.type === 'sale' && i.partyId === pid && i.date === d).sort((a, b) => (+a.no) - (+b.no)); };
   const nameOfKey = k => { const pid = partyOfKey(k); return pid ? partyName(pid) : 'عميل نقدي'; };
-  function code() { const A = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; let c = ''; for (let i = 0; i < 6; i++) c += A[Math.floor(Math.random() * A.length)]; return G('pkgs', c) ? code() : c; }
+  // كود الطرد أرقام بس (98 + 8 أرقام) علشان الماسح يقراه صح حتى لو الكيبورد عربي
+  function code() { let c = '98'; for (let i = 0; i < 8; i++) c += Math.floor(Math.random() * 10); return G('pkgs', c) ? code() : c; }
   async function create(inv, kind) {
     const k = keyOfInv(inv); const seq = ofKey(k).reduce((m, p) => Math.max(m, p.seq || 0), 0) + 1; const id = code();
     const d = { key: k, partyId: inv.partyId || '', date: inv.date, invIds: invsOfKey(k).map(i => i.id), kind, seq, items: {}, st: 'packed', by: who(), at: nowIso() };
@@ -25,7 +26,7 @@
   async function patch(id, fn) { const c = G('pkgs', id); if (!c) return; const d = { ...c }; delete d.id; fn(d); d.upd = nowIso(); await put('pkgs', id, d); }
   const addItem = (id, pid, q) => patch(id, d => { d.items = d.items || {}; d.items[pid] = Math.round(((d.items[pid] || 0) + q) * 1000) / 1000; if (d.items[pid] <= 0) delete d.items[pid]; });
   const nItems = p => Object.values(p.items || {}).reduce((s, q) => s + q, 0);
-  function fromScan(raw) { const v = fixBc(String(raw || '').trim()).toUpperCase().replace(/\s/g, ''); const m = v.match(/^PKG-?([0-9A-Z]{5,8})$/); if (!m) return null; const p = G('pkgs', m[1]); return p ? { id: m[1], ...p } : { id: m[1], missing: true }; }
+  function fromScan(raw) { const v = fixBc(String(raw || '').trim()).toUpperCase().replace(/\s/g, ''); const m = v.match(/^PKG-?([0-9A-Z]{5,8})$/) || v.match(/^(98\d{8})$/); if (!m) return null; const p = G('pkgs', m[1]); if (!p && /^98\d{8}$/.test(v)) return null; return p ? { id: m[1], ...p } : { id: m[1], missing: true }; }
   const label = p => `${KIND[p.kind] ? KIND[p.kind][0] : 'طرد'} ${p.seq} من ${ofKey(p.key).length}`;
 
   /* ---------- صوت ---------- */
@@ -47,7 +48,7 @@
     return `<div class="pk-lbl"><div class="pk-top"><div class="pk-name">${esc(pt.name || 'عميل نقدي')}</div><div class="pk-n"><b>${p.seq}</b><span>من ${tot}</span></div></div>
       <div class="pk-kind">${KIND[p.kind] ? KIND[p.kind][1] + ' ' + KIND[p.kind][0] : 'طرد'} ${p.seq} من ${tot}${nItems(p) ? ` — ${fq(nItems(p))} قطعة` : ''}</div>
       <div class="pk-sub">${pt.address ? esc(pt.address) + '<br>' : ''}فواتير: ${invs.map(i => '#' + esc(i.no)).join(' ')} — ${esc(p.date)}${si ? `<br>🚚 ${esc(si.driver)} — محطة ${si.stop} من ${si.of}` : ''}</div>
-      <svg data-pkbc="PKG-${esc(p.id)}"></svg><div class="pk-code">PKG-${esc(p.id)}</div></div>`;
+      <svg data-pkbc="${esc(/^\d+$/.test(p.id) ? p.id : 'PKG-' + p.id)}"></svg><div class="pk-code">${esc(/^\d+$/.test(p.id) ? p.id : 'PKG-' + p.id)}</div></div>`;
   }
   function printLabels(list) {
     if (!list.length) return; const sz = SZ();

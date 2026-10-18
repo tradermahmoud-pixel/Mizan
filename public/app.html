@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Readex+Pro:wght@400;500;600;700&family=Reem+Kufi:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<script src="/vendor/JsBarcode.all.min.js"></script>
 <style>
 :root{
   --bg:#EEF2F0; --surface:#FFFFFF; --surface2:#F6F8F7; --ink:#13201C; --muted:#5B6B66; --line:#D9E1DE;
@@ -789,7 +789,7 @@ function vEditor(type,id){
   ps.oninput=()=>{const q=norm(ps.value);hi=0;if(!q){hits=[];tot=0;draw();return}const all=pFind(ps.value,SMODE(),300);tot=all.length;hits=all.slice(0,8);draw()};
   $$('[data-sm]').forEach(b=>b.onmousedown=e=>{e.preventDefault();setSMODE(b.dataset.sm);$$('[data-sm]').forEach(x=>x.classList.toggle('on',x===b));ps.oninput();ps.focus()});
   $('#psWide').onclick=()=>wideSearch(ps.value,inv,isSale);
-  ps.onkeydown=e=>{if(e.key==='ArrowDown'){hi=Math.min(hi+1,hits.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){hi=Math.max(0,hi-1);draw();e.preventDefault()}else if(e.key==='Enter'){e.preventDefault();const v=ps.value.replace(/[\u0000-\u001f]/g,'').trim();if(!v)return;if(['sret','pret'].includes(ED.inv.type)&&!ED.id&&/^(INV|TRF)-?\d+$/i.test(fixBc(v).replace(/\s/g,''))){ps.value='';loadReturnByNo(v);return}const ex=L('products').find(p=>bcMatch(p,v,true));const p=ex||hits[hi];if(p)addLine(p.id);else toast('الصنف غير موجود — أضفه من شاشة الأصناف','err')}else if(e.key==='Escape'){hits=[];draw()}};
+  ps.onkeydown=e=>{if(e.key==='ArrowDown'){hi=Math.min(hi+1,hits.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){hi=Math.max(0,hi-1);draw();e.preventDefault()}else if(e.key==='Enter'){e.preventDefault();const v=ps.value.replace(/[\u0000-\u001f]/g,'').trim();if(!v)return;if(['sret','pret'].includes(ED.inv.type)&&!ED.id&&invBcParse(v)){ps.value='';loadReturnByNo(v);return}const ex=L('products').find(p=>bcMatch(p,v,true));const p=ex||hits[hi];if(p)addLine(p.id);else toast('الصنف غير موجود — أضفه من شاشة الأصناف','err')}else if(e.key==='Escape'){hits=[];draw()}};
   sg.onmousedown=e=>{const w=e.target.closest('[data-wide]');if(w){e.preventDefault();sg.hidden=true;wideSearch(ps.value,inv,isSale);return}const b=e.target.closest('[data-k]');if(b){e.preventDefault();addLine(hits[+b.dataset.k].id)}};
   ps.onblur=()=>setTimeout(()=>{sg.hidden=true},150);
   // actions
@@ -1039,7 +1039,11 @@ function lastDeal(pid,inv){const st=RET_SRC[inv.type];const R=calc();let best=nu
 const r2c=v=>Math.round((+v||0)*100)/100;
 function startReturn(origId){const o=G('invoices',origId);if(!o)return;const rt=o.type==='sale'?'sret':'pret';
   ED={id:null,inv:{...newInv(rt),partyId:o.partyId||'',storeId:o.storeId||MAIN,fromInv:o.id,payFull:!o.partyId},grp:rt};go(rt);setTimeout(()=>pickReturnLines(o),80)}
-function loadReturnByNo(no){no=String(no||'').trim();{const m=fixBc(no).toUpperCase().replace(/\s/g,'').match(/^(?:INV|TRF)-?(\d+)$/);if(m)no=m[1]}if(!no){toast('اكتب رقم الفاتورة','err');return}const inv=ED.inv;const st=RET_SRC[inv.type];
+const invBc=inv=>(inv.type==='transfer'?'92':'91')+String(inv.no).padStart(7,'0');
+function invBcParse(raw){const v=fixBc(String(raw||'')).toUpperCase().replace(/\s/g,'');let m=v.match(/^9([12])(\d{7})$/);
+  if(m&&!L('products').some(p=>bcEq(p,v)))return {no:String(+m[2]),type:m[1]==='2'?'transfer':'sale'};
+  m=v.match(/^(INV|TRF)-?(\d+)$/);if(m)return {no:m[2],type:m[1]==='TRF'?'transfer':'sale'};return null}
+function loadReturnByNo(no){no=String(no||'').trim();{const b=invBcParse(no);if(b)no=b.no}if(!no){toast('اكتب رقم الفاتورة','err');return}const inv=ED.inv;const st=RET_SRC[inv.type];
   let xs=L('invoices').filter(i=>i.type===st&&String(i.no)===String(no));if(inv.partyId&&xs.some(i=>i.partyId===inv.partyId))xs=xs.filter(i=>i.partyId===inv.partyId);
   if(!xs.length){toast(`مفيش ${TYPES[st].full} برقم ${no}`,'err');return}
   if(xs.length>1){modal(`<h2>فيه أكتر من فاتورة بالرقم ${esc(no)}</h2><div class="tw"><table class="t"><tbody>${xs.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(i=>`<tr class="click" data-rp="${i.id}"><td>${esc(i.date)}</td><td>${esc(partyName(i.partyId)||'نقدي')}</td><td class="n">${fmt(invTotals(i).total)}</td></tr>`).join('')}</tbody></table></div><div class="row" style="margin-top:12px"><button class="btn" data-close>إلغاء</button></div>`);
