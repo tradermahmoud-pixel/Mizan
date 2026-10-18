@@ -344,6 +344,7 @@ function loadLocal(){COLS.forEach(c=>{try{const r=localStorage.getItem(LK+c);if(
 function saveLocal(c){try{localStorage.setItem(LK+c,JSON.stringify(Object.fromEntries(S.data[c])))}catch(e){}}
 function dbErr(e){
   if(e&&e.code==='invalid_argument'){S.ro=true;toast('ليس لديك صلاحية تعديل البيانات — اطلب من المالك صلاحية "مساهم"','err')}
+  else if(e&&(e.status===409||e.status===403)&&/[\u0600-\u06FF]/.test(e.message||''))toast(e.message,'err');
   else if(e&&e.code==='quota_exceeded')toast('امتلأت سعة قاعدة البيانات','err');
   else toast('تعذّر الحفظ، حاول مرة أخرى','err');
   console.error(e);
@@ -436,7 +437,7 @@ function computePerms(){
 }
 const can=p=>S.isAdmin||(S.perms||[]).includes(p);
 const ROUTEP={prep:'@prep',sret:'sell',pret:'buy',crm:'@crm',accounts:'accounting',sale:'sell',purchase:'buy',lines:'editInv',products:'products',import:'products',orders:'buy',barcode:'products',parties:'parties',cash:'cash',cheques:'cash',reports:'reports',employees:'hr',payroll:'hr',audit:'@',settings:'@',users:'@'};
-function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='crm')return can('crm')||can('crmManage');if(k==='prep'||k==='pick')return can('prep')||can('sell');if(k==='routes')return can('delivery')||can('deliveryManage');if(k==='track')return can('products')||can('sell')||can('buy')||can('reports');if(k==='rets')return can('delivery')||can('deliveryManage')||can('buy')||can('products')||can('prep')||can('sell');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
+function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='crm')return can('crm')||can('crmManage');if(k==='prep'||k==='pick')return can('prep')||can('sell');if(k==='flow')return can('prep')||can('sell')||can('deliveryManage');if(k==='routes')return can('delivery')||can('deliveryManage');if(k==='track')return can('products')||can('sell')||can('buy')||can('reports');if(k==='rets')return can('delivery')||can('deliveryManage')||can('buy')||can('products')||can('prep')||can('sell');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
 const isLocked=d=>!S.isAdmin&&!!settings().lockDate&&!!d&&d<=settings().lockDate;
 function ensureMember(){if(S.mode==='cloud'&&S.me.id&&S.memLoaded&&!S.regDone&&!G('members',S.me.id)&&!S.ro){S.regDone=true;put('members',S.me.id,{first:new Date().toISOString()}).catch(()=>{})}}
 function denied(msg){$('#view').innerHTML=`<div class="wrap"><div class="empty card"><b>${msg||'هذه الشاشة غير متاحة لصلاحيتك'}</b>صلاحيتك الحالية: ${esc(S.roleName)}. اطلب من المدير تعديلها من شاشة المستخدمين والصلاحيات.</div></div>`}
@@ -584,7 +585,7 @@ document.addEventListener('pointercancel',()=>{ptr=false;flushPend()},true);
 document.addEventListener('focusout',flushPend);
 
 const NAV=[
- ['البيع والشراء',[['dash','الرئيسية','home'],['sale','فاتورة بيع','sale'],['sret','مرتجع مبيعات','ret'],['purchase','فاتورة شراء','buy'],['pret','مرتجع مشتريات','ret'],['invoices','كل الفواتير','doc'],['prep','التحضير والطباعة','print'],['pick','مراجعة التحضير','bar'],['routes','التوصيل وخطوط السير','pin'],['rets','استلام المرتجعات','ret'],['lines','شبكة الحركات','grid'],['crm','CRM الصيدليات','users']]],
+ ['البيع والشراء',[['dash','الرئيسية','home'],['sale','فاتورة بيع','sale'],['sret','مرتجع مبيعات','ret'],['purchase','فاتورة شراء','buy'],['pret','مرتجع مشتريات','ret'],['invoices','كل الفواتير','doc'],['flow','متابعة الأوردرات','hist'],['prep','التحضير والطباعة','print'],['pick','مراجعة التحضير','bar'],['routes','التوصيل وخطوط السير','pin'],['rets','استلام المرتجعات','ret'],['lines','شبكة الحركات','grid'],['crm','CRM الصيدليات','users']]],
  ['المخزون',[['products','الأصناف والأرصدة','box'],['track','متابعة حركة صنف','hist'],['import','استيراد من Excel','up'],['orders','أوامر التوريد وعروض الأسعار','doc'],['barcode','طباعة الباركود','bar']]],
  ['الحسابات',[['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['cheques','الشيكات','chq'],['reports','التقارير والأرباح','chart'],['accounts','المحاسبة والقوائم المالية','ledger']]],
  ['الموظفون',[['attendance','الحضور والانصراف','clock'],['employees','بيانات الموظفين','badge'],['payroll','الرواتب','wallet']]],
@@ -610,7 +611,7 @@ function render_(){
   lastR=performance.now();computePerms();ensureMember();
   const {p,a}=route();renderShell(p);syncBadge();try{pqPill()}catch(e){}try{window.MZ_DLV&&MZ_DLV.tick()}catch(e){}try{window.MZ_RT&&MZ_RT.tick()}catch(e){}
   if(!canRoute(p)){setTitle('غير مسموح');denied();return}
-  const V_={prep:vPrep,pick:(typeof vPick==='function'?vPick:vDash),routes:(typeof vRoutes==='function'?vRoutes:vDash),rets:(typeof vRets==='function'?vRets:vDash),track:(typeof vTrack==='function'?vTrack:vDash),sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
+  const V_={prep:vPrep,pick:(typeof vPick==='function'?vPick:vDash),routes:(typeof vRoutes==='function'?vRoutes:vDash),rets:(typeof vRets==='function'?vRets:vDash),track:(typeof vTrack==='function'?vTrack:vDash),flow:(typeof vFlow==='function'?vFlow:vDash),sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,audit:vAudit,users:vUsers,settings:vSettings};
   const f=V_[p]||vDash;
   if(S.mode==='cloud'&&!allReady()){loadingView();return}
   if(S.mode==='loading'&&!S.data.products.size){$('#title').textContent='ميزان';$('#view').innerHTML='<div class="empty"><b>جارٍ تحميل البيانات…</b></div>';return}
@@ -678,7 +679,7 @@ function vDash(){
    ${noData?`<div class="card" style="margin-bottom:18px;border-color:var(--brand)"><h3 style="font:700 22px/1.3 var(--display)">أهلًا بك في ميزان</h3><p class="muted" style="margin:0">ابدأ بالخطوات دي بالترتيب، أو جرّب النظام ببيانات تجريبية تقدر تمسحها بعدين بضغطة واحدة.</p>
      <div class="steps"><div><a href="#/import">ارفع أصنافك من شيت Excel</a>&nbsp;أو أضفها يدويًا من <a href="#/products">الأصناف</a></div><div>سجّل أول <a href="#/purchase">فاتورة شراء</a> أو رصيد أول المدة</div><div>ابدأ <a href="#/sale">البيع</a> — بالباركود أو بالبحث</div><div>أضف <a href="#/employees">الموظفين</a> وفعّل الحضور من الموبايل</div></div>
      <button class="btn g" id="demoBtn" ${S.ro?'disabled':''}>جرّب ببيانات تجريبية</button></div>`:''}
-   ${pqPanel()}${window.MZ_DLV?MZ_DLV.card():''}${window.MZ_RT?MZ_RT.card():''}
+   ${pqPanel()}${window.MZ_FLOW?MZ_FLOW.card():''}${window.MZ_DLV?MZ_DLV.card():''}${window.MZ_RT?MZ_RT.card():''}
    <div class="strip">
      <div><div class="k">مبيعات اليوم</div><div class="v">${fmt(d.sales)}</div><div class="s">${d.count} فاتورة · ${esc(DAYS[new Date().getDay()])} ${t}</div></div>
      <div><div class="k">ربح اليوم</div><div class="v ${d.profit<0?'neg':''}">${fmt(d.profit)}</div><div class="s">هامش ${d.sales?fmt(d.profit/d.sales*100):0}%</div></div>
@@ -707,7 +708,7 @@ function vDash(){
 function vDashLite(){
   setTitle('الرئيسية');const emp=S.me.id&&L('employees').find(e=>e.userId===S.me.id);const pend=!S.roleKey;
   const acts=[['routes','التوصيل — رحلتي','pin'],['rets','المرتجعات','ret'],['sale','فاتورة بيع','sale'],['purchase','فاتورة شراء','buy'],['invoices','الفواتير','doc'],['products','الأصناف','box'],['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['crm','CRM الصيدليات','users'],['attendance','تسجيل الحضور','clock']].filter(([k])=>canRoute(k));
-  $('#view').innerHTML=`<div class="wrap" style="max-width:860px">${pend?'':pqPanel()+(window.MZ_DLV?MZ_DLV.card():'')+(window.MZ_RT?MZ_RT.card():'')}
+  $('#view').innerHTML=`<div class="wrap" style="max-width:860px">${pend?'':pqPanel()+(window.MZ_FLOW?MZ_FLOW.card():'')+(window.MZ_DLV?MZ_DLV.card():'')+(window.MZ_RT?MZ_RT.card():'')}
    <div class="card" style="margin-bottom:16px"><h3 style="font:700 22px/1.3 var(--display)">أهلًا ${esc(S.me.name||'')}</h3>
    ${pend?`<p class="muted" style="margin:0">حسابك اتسجل في النظام، لكن المدير لسه ما حددش صلاحيتك. تقدر تسجّل حضورك${emp?'':' بعد ما المدير يربط حسابك ببياناتك كموظف'}، وباقي الشاشات هتظهر لك أول ما يحدد دورك.</p>`:`<p class="muted" style="margin:0">صلاحيتك: <b>${esc(S.roleName)}</b></p>`}</div>
    <div class="grid g2">${acts.map(([k,t,i])=>`<a class="btn ${k==='sale'||k==='attendance'?'p':''}" style="padding:16px" href="#/${k}">${ic(i)}${t}</a>`).join('')}</div></div>`;
@@ -731,7 +732,7 @@ function vEditor(type,id){
   $('#view').innerHTML=`<div class="wrap">
    ${segTypes.length>1?`<div class="seg" style="margin-bottom:14px">${segTypes.map(k=>`<button data-type="${k}" class="${inv.type===k?'on':''}">${TYPES[k].full}</button>`).join('')}</div>`:''}
    ${inv.fromOrder&&!ED.id?`<div class="card" style="margin-bottom:12px;padding:12px;border-color:var(--gold)">تحويل ${esc(TYPES[G('invoices',inv.fromOrder)?.type]?.full||'')} رقم ${esc(G('invoices',inv.fromOrder)?.no||'')} — راجع الكميات والأسعار ثم احفظ.</div>`:''}
-   ${ED.id?`<div class="row" style="margin-bottom:12px"><span class="tag ${inv.type}">${T.t}</span>${T.doc?(inv.status==='converted'?` <span class="tag ok">تم التحويل</span>`:` <span class="tag purchase">مفتوح</span>`):''}<span class="small muted">أنشأها ${esc(whoName(inv.createdBy)||inv.orgaUser||'')} · ${ltm(inv.createdAt)}${inv.updatedAt?` · آخر تعديل ${ltm(inv.updatedAt)}`:''}</span></div>`:''}
+   ${ED.id?`<div class="row" style="margin-bottom:12px"><span class="tag ${inv.type}">${T.t}</span>${T.doc?(inv.status==='converted'?` <span class="tag ok">تم التحويل</span>`:` <span class="tag purchase">مفتوح</span>`):''}<span class="small muted">أنشأها ${esc(whoName(inv.createdBy)||inv.orgaUser||'')} · ${ltm(inv.createdAt)}${inv.updatedAt?` · آخر تعديل ${ltm(inv.updatedAt)}`:''}</span></div>${window.MZ_FLOW?MZ_FLOW.strip({...(ED.orig||inv),id:ED.id}):''}`:''}
    <div class="edhead">
      <label class="f">التاريخ${dateEditOK()?`<input class="in" type="date" data-h="date" value="${esc(inv.date)}">`:`<input class="in" type="date" value="${esc(ED.id?inv.date:today())}" disabled title="التاريخ بيتسجل تلقائي من السيرفر">`}</label>
      ${pk?`<label class="f">${pk==='customer'?'العميل':'المورد'}<div class="row" style="flex-wrap:nowrap;gap:6px"><select class="in" data-h="partyId">${opts(parties.map(p=>[p.id,p.name]),inv.partyId,pk==='customer'?'عميل نقدي':'— اختر المورد —')}</select><button class="btn ic" id="addParty" title="إضافة جديد">${ic('plus')}</button></div></label>`:''}
@@ -797,6 +798,7 @@ function vEditor(type,id){
   $('#save').onclick=()=>saveInv(false);
   const sn=$('#saveNew');if(sn)sn.onclick=()=>saveInv(true);
   const pr=$('#prt');if(pr)pr.onclick=()=>printInv(ED.id||{...inv,no:'—',draft:true});
+  if(ED.id&&window.MZ_FLOW)MZ_FLOW.bindStrip({...(ED.orig||inv),id:ED.id});
   const sp=$('#savePrt');if(sp)sp.onclick=async()=>{const id=await saveInv(false);if(id)printInv(id)};
   const nb=$('#newB');if(nb)nb.onclick=()=>{const t=inv.type;ED=null;go(['sret','pret'].includes(t)?t:grpOf(t))};
   const mr=$('#mkRet');if(mr)mr.onclick=()=>startReturn(ED.id);
@@ -805,10 +807,11 @@ function vEditor(type,id){
   const ru=$('#retUnlink');if(ru)ru.onclick=()=>{delete inv.fromInv;render()};
   const rpk=$('#retPick');if(rpk)rpk.onclick=()=>{const o=G('invoices',inv.fromInv);if(o)pickReturnLines(o)};
   const cv=$('#conv');if(cv)cv.onclick=()=>convertDoc(ED.id);
-  const dl=$('#delInv');if(dl)dl.onclick=async()=>{if(!can('editInv')||isLocked(ED.orig.date)){toast('غير مسموح بحذف هذه الفاتورة','err');return}if(await confirmBox(`حذف ${T.full} رقم ${inv.no} نهائيًا؟ ستتعدل الأرصدة والأرباح تلقائيًا.`,'حذف',true)){const n=inv.no;await audit('invoice',ED.id,'حذف الفاتورة',`#${n} — ${fmt(invTotals(ED.orig).total)}`,'محذوفة',T.full);await del('invoices',ED.id);ED=null;toast('تم حذف الفاتورة');go('invoices')}};
+  const dl=$('#delInv');if(dl)dl.onclick=async()=>{if(!can('editInv')||isLocked(ED.orig.date)){toast('غير مسموح بحذف هذه الفاتورة','err');return}if(window.MZ_FLOW&&!(await MZ_FLOW.beforeDelete({...ED.orig,id:ED.id})))return;if(await confirmBox(`حذف ${T.full} رقم ${inv.no} نهائيًا؟ ستتعدل الأرصدة والأرباح تلقائيًا.`,'حذف',true)){const n=inv.no;await audit('invoice',ED.id,'حذف الفاتورة',`#${n} — ${fmt(invTotals(ED.orig).total)}`,'محذوفة',T.full);const did_=ED.id;await del('invoices',ED.id);if(window.MZ_FLOW)MZ_FLOW.afterDelete(did_).catch(()=>{});ED=null;toast('تم حذف الفاتورة');go('invoices')}};
   const ca=$('#cntAll');if(ca)ca.onclick=()=>{const have=new Set(inv.lines.map(l=>l.pid));L('products').sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})).forEach(p=>{if(!have.has(p.id))inv.lines.push({pid:p.id,qty:Math.max(0,Math.round(qtyIn(p.id,inv.storeId)*1000)/1000),price:Math.round(avgCost(p.id)*100)/100,disc:0,cost:''})});render()};
   const cl=$('#clr');if(cl)cl.onclick=()=>{ED.inv=newInv(inv.type);render()};
-  const lockMsg=S.ro?'':(ED.id&&!can('editInv'))?'عرض فقط — ليس لديك صلاحية تعديل الفواتير المحفوظة':(ED.id&&isLocked(ED.orig.date))?`عرض فقط — الفترة مغلقة حتى ${settings().lockDate}`:'';
+  const flLock=ED.id&&window.MZ_FLOW?MZ_FLOW.lockMsg({...ED.orig,id:ED.id}):'';if(flLock&&S.isAdmin)$('#view .wrap').insertAdjacentHTML('afterbegin',`<div class="card" style="margin-bottom:12px;padding:10px 14px;border-color:var(--danger)">⚠ ${esc(flLock)} (انت مدير — التعديل متاح بتأكيد)</div>`);
+  const lockMsg=S.ro?'':(flLock&&!S.isAdmin)?'عرض فقط — '+flLock:(ED.id&&!can('editInv'))?'عرض فقط — ليس لديك صلاحية تعديل الفواتير المحفوظة':(ED.id&&isLocked(ED.orig.date))?`عرض فقط — الفترة مغلقة حتى ${settings().lockDate}`:'';
   if(lockMsg){$$('#view input,#view select,#view textarea').forEach(x=>x.disabled=true);['save','delInv','conv','clr'].forEach(k=>{const b=$('#'+k);if(b)b.disabled=true});$$('[data-rm]').forEach(b=>b.disabled=true);$('#view .wrap').insertAdjacentHTML('afterbegin',`<div class="card" style="margin-bottom:12px;padding:10px 14px;border-color:var(--gold)">${lockMsg}</div>`);return}
   if(!ED.id||!inv.lines.length)setTimeout(()=>{if(!editing())ps.focus()},50);
 }
@@ -995,6 +998,8 @@ async function saveInv(andNew){
     if(over.length){if(src){toast('الكمية المرتجعة أكبر من اللي في الفاتورة بعد المرتجعات السابقة: '+over.slice(0,4).join('، '),'err');return}
       if(!(await confirmBox('الكمية أكبر من اللي '+(inv.type==='sret'?'اتباع للعميل ده':'اتشرى من المورد ده')+' (بعد المرتجعات السابقة): '+over.slice(0,4).join('، ')+'. تحفظ برضه؟','حفظ رغم ذلك')))return}
   }
+  if(ED.id&&window.MZ_FLOW&&!(await MZ_FLOW.beforeSave({...ED.orig,id:ED.id},{...inv,lines})))return;
+  const orig_=ED.id?ED.orig:null;
   const now=new Date().toISOString();
   const doc={...inv,lines:lines.map(l=>({pid:l.pid,qty:+l.qty,price:+l.price||0,disc:+l.disc||0,cost:(l.cost===''||l.cost==null)?'':+l.cost,...(l.consumer!=null&&l.consumer!==''?{consumer:+l.consumer}:{}),...(l.bonus?{bonus:true}:{})})),discount:+inv.discount||0,taxRate:+inv.taxRate||0,paid:+inv.paid||0};
   if(isSaleT(doc.type)){const t=tierOf(doc.partyId);if(t&&+t.days)doc.dueDate=addDays(doc.date,+t.days);else delete doc.dueDate}
@@ -1004,6 +1009,7 @@ async function saveInv(andNew){
   if(!id){id=uid();const mx=L('invoices').filter(i=>i.type===inv.type).reduce((m,i)=>Math.max(m,+i.no||0),0);doc.no=mx+1;doc.createdAt=now;doc.createdBy=S.me.id||'';}
   else{doc.updatedAt=now;doc.updatedBy=S.me.id||'';diffAudit(ED.orig,doc,id).catch(()=>{})}
   const W=[put('invoices',id,doc)];
+  if(orig_&&window.MZ_FLOW)W.push(MZ_FLOW.afterSave(id,orig_,doc));
   if(['purchase','open'].includes(doc.type)){const ups=[];for(const l of doc.lines){const pr=G('products',l.pid);if(!pr||l.bonus)continue;const n={...pr};let ch=false;const unit=rnd2((+l.price||0)*(1-(+l.disc||0)/100));if(unit>0&&Math.abs(unit-(+pr.cost||0))>0.004){n.cost=unit;ch=true}
     if(l.consumer!=null&&l.consumer!==''&&Math.abs(+l.consumer-consOf(pr))>0.004){W.push(audit('product',l.pid,'سعر المستهلك',consOf(pr),+l.consumer,pr.name));n.consumer=+l.consumer;n.price=+l.consumer;ch=true}if(ch)ups.push(['products',l.pid,n])}
     if(ups.length){W.push(putMany(ups));toast(`تم تحديث أسعار ${ups.length} صنف`)}}
@@ -1152,9 +1158,9 @@ function invPrintHTML(id,label){
 /* ============ INVOICES LIST ============ */
 const ltm=iso=>{if(!iso)return '';const d=new Date(iso);if(isNaN(d))return String(iso).slice(0,16).replace('T',' ');const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`};
 const prn=id=>G('prints',id)||null;
-function prnLabel(id){const p=prn(id);return p&&p.n?`نسخة مكررة (${p.n+1})`:'أصل'}
+function prnLabel(id){const p=prn(id);return p&&p.n?(p.edited?`نسخة معدّلة (${p.n+1})`:`نسخة مكررة (${p.n+1})`):'أصل'}
 async function recordPrint(ids){const at=new Date().toISOString(),who=(S.me&&S.me.name)||'';
-  await putMany(ids.map(id=>{const c=prn(id)||{};return ['prints',id,{...c,n:(c.n||0)+1,first:c.first||at,last:at,lastBy:who,log:[{at,by:who},...(c.log||[])].slice(0,20)}]}))}
+  await putMany(ids.map(id=>{const c=prn(id)||{};const d={...c,n:(c.n||0)+1,first:c.first||at,last:at,lastBy:who,log:[{at,by:who,...(c.edited?{edited:c.edited}:{})},...(c.log||[])].slice(0,20)};delete d.edited;return ['prints',id,d]}))}
 function printInv(id,opt={}){
   if(typeof id==='object'){$('#print').className='';$('#print').innerHTML=invPrintHTML(id,'');setTimeout(()=>{try{window.print()}catch(e){}},50);return}
   const go_=async()=>{$('#print').className='';$('#print').innerHTML=invPrintHTML(id,prnLabel(id));window.MZ_RV_bc&&MZ_RV_bc($('#print'));await recordPrint([id]).catch(()=>{});setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50)};
@@ -1230,14 +1236,14 @@ function vPrep(){
       <select class="in" style="width:160px" id="pqW">${opts(users.map(u=>[u,whoName(u)]),PQ_.who,'كل السيلز')}</select>
       <input class="in" style="width:170px" id="pqQ" placeholder="رقم الفاتورة أو العميل" value="${esc(PQ_.q)}">
       <span class="sp"></span>${canPrep()?`<button class="btn p" id="pqAll" ${!cnt.todo?'disabled':''}>${ic('print')}اطبع كل اللي ما اتطبعتش (${cnt.todo})</button>`:''}</div>
-      ${canPrep()?`<div class="row small" id="pqSelBar" style="margin-top:10px;${sel.size?'':'display:none'}"><b id="pqSelN">${sel.size} مختارة</b><button class="btn s" id="pqSelP">${ic('print')}طباعة المختار</button><button class="btn s" id="pqSelD">تم تحضير المختار</button><button class="btn s" id="pqSelC">إلغاء الاختيار</button></div>`:''}</div>
+      ${canPrep()?`<div class="row small" id="pqSelBar" style="margin-top:10px;${sel.size?'':'display:none'}"><b id="pqSelN">${sel.size} مختارة</b><button class="btn s" id="pqSelP">${ic('print')}طباعة المختار</button>${S.isAdmin||settings().flowLoose?'<button class="btn s" id="pqSelD">تم تحضير المختار</button>':''}<button class="btn s" id="pqSelC">إلغاء الاختيار</button></div>`:''}</div>
     <div class="tw"><table class="t" id="pqTbl"><thead><tr>${canPrep()?'<th style="width:30px"><input type="checkbox" id="pqChkAll"></th>':''}<th>رقم</th><th>الوقت</th><th>العميل</th><th>السيلز</th><th class="n">أصناف</th><th class="n">الصافي</th><th>الطباعة</th><th>المراجعة</th><th>التحضير</th><th></th></tr></thead><tbody>
     ${xs.slice(0,400).map(i=>{const p=prn(i.id);const tt=R.inv[i.id]||invTotals(i);return `<tr data-pid="${i.id}" style="${!p||!p.n?'background:color-mix(in srgb,var(--gold-soft) 55%,transparent)':''}">${canPrep()?`<td><input type="checkbox" data-psel="${i.id}" ${sel.has(i.id)?'checked':''}></td>`:''}
       <td class="num"><b>${esc(i.no)}</b>${i.type!=='sale'?` <span class="tag ${i.type}">${TYPES[i.type].t}</span>`:''}</td><td class="num small">${i.date!==t?esc(i.date)+' ':''}${esc(ltm(i.createdAt).slice(11))}</td>
       <td>${esc(partyName(i.partyId)||'نقدي')}</td><td class="small">${esc(whoName(i.createdBy)||i.orgaUser||'')}</td><td class="n">${(i.lines||[]).length}</td><td class="n">${fmt(tt.total)}</td>
       <td>${p&&p.n?`<span class="tag ok" title="${esc((p.log||[]).map(e=>ltm(e.at)+' — '+(e.by||'')).join('\n'))}">اتطبعت ${p.n===1?'مرة':p.n+' مرات'}</span> <span class="small muted">${esc(ltm(p.last).slice(11))} ${esc(p.lastBy||'')}</span>`:'<span class="tag bad">لسه</span>'}</td>
-      <td>${(()=>{const k=G('picks',i.id);if(!k)return `<button class="btn s" data-prv="${i.id}">${ic('bar')}راجع</button>`;if(k.status==='open')return `<span class="tag purchase">جاري — ${esc(k.by||'')}</span> <button class="btn s" data-prv="${i.id}">كمّل</button>`;return k.status==='ok'?`<span class="tag ok" title="${esc(ltm(k.end))}">مطابقة ✓</span> <span class="small muted">${esc(k.by||'')}</span>`:`<span class="tag bad" title="${esc(k.reason||'')}">${k.status==='over'?'بزيادة':'بنواقص'}</span> <span class="small muted">${esc(k.by||'')}</span>`})()}</td>
-      <td>${p&&p.prepAt?`<span class="tag ok">اتحضرت</span> <span class="small muted">${esc(ltm(p.prepAt).slice(11))} ${esc(p.prepBy||'')}</span>`:canPrep()&&p&&p.n?`<button class="btn s" data-pdone="${i.id}">تم التحضير</button>`:'<span class="small muted">—</span>'}</td>
+      <td>${(()=>{const k=G('picks',i.id);if(!k)return `<button class="btn s" data-prv="${i.id}">${ic('bar')}راجع</button>`;if(k.status==='open')return `<span class="tag purchase">جاري — ${esc(k.by||'')}</span> <button class="btn s" data-prv="${i.id}">كمّل</button>`;if(k.status==='redo')return `<span class="tag bad">اتعدّلت — راجع تاني</span> <button class="btn s" data-prv="${i.id}">راجع</button>`;return k.status==='ok'?`<span class="tag ok" title="${esc(ltm(k.end))}">مطابقة ✓</span> <span class="small muted">${esc(k.by||'')}</span>`:`<span class="tag bad" title="${esc(k.reason||'')}">${k.status==='over'?'بزيادة':'بنواقص'}</span> <span class="small muted">${esc(k.by||'')}</span>`})()}</td>
+      <td>${p&&p.prepAt?`<span class="tag ok">اتحضرت</span> <span class="small muted">${esc(ltm(p.prepAt).slice(11))} ${esc(p.prepBy||'')}</span>`:canPrep()&&p&&p.n&&(S.isAdmin||settings().flowLoose)?`<button class="btn s" data-pdone="${i.id}" title="من غير مراجعة بالباركود">تم التحضير</button>`:'<span class="small muted">—</span>'}</td>
       <td style="white-space:nowrap">${canPrep()?`<button class="btn s ${!p||!p.n?'p':''}" data-pprint="${i.id}">${ic('print')}${p&&p.n?'نسخة':'طباعة'}</button>`:''} <button class="btn s" data-popen="${i.id}">فتح</button></td></tr>`}).join('')||`<tr><td colspan="10"><div class="empty"><b>${PQ_.f==='todo'?'كل الفواتير اتطبعت ✓':'مفيش فواتير'}</b></div></td></tr>`}</tbody></table></div>
     <p class="small muted">الشاشة بتتحدّث لوحدها أول ما السيلز يحفظ فاتورة. كل طباعة بتتسجّل باسم اللي طبع ووقتها، والنسخ اللي بعد الأولى بيتكتب عليها «نسخة مكررة».</p></div>`;
   $$('[data-pf]').forEach(b=>b.onclick=()=>{PQ_.f=b.dataset.pf;sel.clear();render()});
@@ -1247,7 +1253,7 @@ function vPrep(){
   $$('[data-pprint]').forEach(b=>b.onclick=()=>printInv(b.dataset.pprint));
   $$('[data-popen]').forEach(b=>b.onclick=()=>go('inv/'+b.dataset.popen));$$('[data-prv]').forEach(b=>b.onclick=()=>go('pick/'+b.dataset.prv));
   $$('[data-prv]').forEach(b=>b.onclick=()=>go('pick/'+b.dataset.prv));
-  const markDone=async ids=>{const at=new Date().toISOString(),who=(S.me&&S.me.name)||'';await putMany(ids.map(id=>{const c=prn(id)||{};return ['prints',id,{...c,prepAt:at,prepBy:who}]}));toast(ids.length>1?`اتسجل تحضير ${ids.length} فاتورة`:'اتسجل التحضير')};
+  const markDone=async ids=>{if(!S.isAdmin&&!settings().flowLoose){toast('التحضير بيتسجّل من «مراجعة التحضير» بالباركود','err');return}const at=new Date().toISOString(),who=(S.me&&S.me.name)||'';await putMany(ids.map(id=>{const c=prn(id)||{};return ['prints',id,{...c,prepAt:at,prepBy:who}]}));toast(ids.length>1?`اتسجل تحضير ${ids.length} فاتورة`:'اتسجل التحضير')};
   $$('[data-pdone]').forEach(b=>b.onclick=()=>markDone([b.dataset.pdone]));
   const upd=()=>{const bar=$('#pqSelBar');if(bar){bar.style.display=sel.size?'':'none';$('#pqSelN').textContent=sel.size+' مختارة'}};
   $$('[data-psel]').forEach(c=>c.onchange=()=>{if(c.checked)sel.add(c.dataset.psel);else sel.delete(c.dataset.psel);upd()});
@@ -2071,6 +2077,8 @@ function vUsers(){
    <label class="row" style="gap:8px"><input type="checkbox" id="dEdit" ${s.allowDateEdit?'checked':''}> السماح بتعديل التاريخ</label></div>
    <div class="card" style="margin-top:16px"><h3>طباعة فواتير البيع</h3><p class="small muted" style="margin-top:0">لو فعّلتها، السيلز يحفظ الفاتورة بس، والطباعة تبقى من شاشة «التحضير والطباعة» لمسئول التحضير (صلاحية «التحضير والطباعة»). كل فاتورة بيتسجّل عدد مرات طباعتها.</p>
    <label class="row" style="gap:8px"><input type="checkbox" id="pOnly" ${s.printOnlyPrep?'checked':''}> الطباعة من شاشة التحضير بس</label></div>
+   <div class="card" style="margin-top:16px"><h3>تسلسل دورة الأوردر</h3><p class="small muted" style="margin-top:0">الوضع الافتراضي (مفعّل): الفاتورة متتعلّمش «اتحضرت» غير بالمراجعة بالباركود، ومتدخلش خط سير غير لما تتحضر، والمندوب مايبدأش الرحلة قبل ما يمسح كل الشنط إلا بسبب مكتوب. الفاتورة اللي مع المندوب أو اتسلّمت متتعدلش في كل الأحوال (إلا المالك).</p>
+   <label class="row" style="gap:8px"><input type="checkbox" id="flS" ${s.flowLoose?'':'checked'}> التسلسل الإجباري</label></div>
    <div class="card" style="margin-top:16px"><h3>البيع بدون رصيد</h3><p class="small muted" style="margin-top:0">الوضع الافتراضي: البرنامج بيمنع بيع أو مرتجع شراء أو تحويل أي كمية أكبر من الرصيد المتاح في المخزن (زي «الكمية أقل من المطلوبة» في أورجا).</p>
    <label class="row" style="gap:8px"><input type="checkbox" id="negA" ${s.allowNegative?'checked':''}> السماح بالبيع بالسالب (مع رسالة تأكيد قبل الحفظ)</label></div></div>`;
   const working=clone(defs);
@@ -2095,6 +2103,7 @@ function vUsers(){
   $('#saveRoles').onclick=async()=>{await put('roledefs','main',{...(G('roledefs','main')||{}),roles:working});await audit('roles','main','الأدوار','','تم التعديل','الصلاحيات');toast('تم حفظ الأدوار')};
   $('#lockS').onclick=async()=>{const d=$('#lockD').value;if(!d){toast('اختر تاريخ الغلق','err');return}await put('settings','main',{...settings(),lockDate:d});await audit('settings','main','غلق الفترة',s.lockDate||'',d,'الإعدادات');toast('تم غلق الفترة حتى '+d)};
   {const de=$('#dEdit');if(de)de.onchange=async()=>{await put('settings','main',{...settings(),allowDateEdit:de.checked});await audit('settings','main','تعديل التاريخ',de.checked?'مقفول':'مسموح',de.checked?'مسموح':'مقفول','الإعدادات');toast(de.checked?'تعديل التاريخ بقى مسموح':'التاريخ بقى تلقائي ومقفول')}}
+  {const fs=$('#flS');if(fs)fs.onchange=async()=>{await put('settings','main',{...settings(),flowLoose:!fs.checked});toast(fs.checked?'التسلسل الإجباري اتفعّل':'التسلسل بقى اختياري')}}
   {const po=$('#pOnly');if(po)po.onchange=async()=>{await put('settings','main',{...settings(),printOnlyPrep:po.checked});toast(po.checked?'الطباعة بقت من شاشة التحضير بس':'السيلز يقدر يطبع تاني')}}
   {const ng=$('#negA');if(ng)ng.onchange=async()=>{const v=ng.checked;await put('settings','main',{...settings(),allowNegative:v});await audit('settings','main','البيع بدون رصيد',v?'ممنوع':'مسموح',v?'مسموح':'ممنوع','الإعدادات');toast(v?'تم السماح بالبيع بالسالب':'تم منع البيع بدون رصيد')}}
   const lx=$('#lockX');if(lx)lx.onclick=async()=>{const n={...settings()};delete n.lockDate;await put('settings','main',n);await audit('settings','main','غلق الفترة',s.lockDate,'مفتوح','الإعدادات');toast('تم فتح الفترات')};
@@ -2340,11 +2349,12 @@ init();
 </script>
 <script src="/accounting.js?v=4"></script>
 <script src="/crm.js?v=2"></script>
-<script src="/packs.js?v=1"></script>
+<script src="/packs.js?v=2"></script>
 <script src="/returns.js?v=1"></script>
 <script src="/track.js?v=2"></script>
-<script src="/review.js?v=2"></script>
-<script src="/delivery.js?v=6"></script>
+<script src="/review.js?v=3"></script>
+<script src="/delivery.js?v=7"></script>
+<script src="/flow.js?v=1"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=9"></script>
 <script src="/brain.js?v=5"></script>

@@ -143,7 +143,10 @@
   const runs = () => L('runs');
   const myRuns = () => runs().filter(r => r.driverId === S.me.id && r.status !== 'done' && r.status !== 'cancel');
   const invOf = id => L('invoices').find(i => i.id === id) || G('invoices', id);
-  const inRun = invId => runs().find(r => r.status !== 'cancel' && (r.stops || []).some(s => s.invId === invId));
+  const inRun = invId => runs().find(r => r.status !== 'cancel' && (r.stops || []).some(s => s.invId === invId && s.status !== 'failed'));
+  const isPrep = i => { const p = G('prints', i.id); return !!(p && p.prepAt); };
+  const strictF = () => !settings().flowLoose;
+  const loadedIn = (p, r) => p.st === 'delivered' || (p.st !== 'packed' && p.runId === r.id);
   function freshRun(id) { const r = G('runs', id); return r ? { ...r, id } : null; }
   async function saveRun(r) { const d = { ...r }; delete d.id; d.upd = nowIso(); await put('runs', r.id, d); }
   async function patchRun(id, fn) { const r = freshRun(id); if (!r) return null; fn(r); await saveRun(r); return r; }
@@ -199,7 +202,7 @@
       <div class="row" style="margin-bottom:14px"><input class="in" type="date" id="dvD" value="${esc(day)}" style="width:170px"><span class="sp"></span>${isMgr() ? `<button class="btn" id="dvDepot">${ic('home')}${depot() ? 'موقع المخزن' : 'حدد موقع المخزن'}</button><a class="btn p" href="#/routes/new">${ic('plus')}خط سير جديد</a>` : ''}</div>
       ${isMgr() && !depot() ? `<div class="card" style="margin-bottom:12px;border-color:var(--gold)">حدد موقع المخزن الأول علشان الترتيب يبدأ منه — دوس «حدد موقع المخزن».</div>` : ''}
       ${noLoc ? `<div class="card" style="margin-bottom:12px;border-color:var(--danger)"><b>${noLoc}</b> أوردر النهارده لصيدليات مالهاش لوكيشن — هتظهر لك في «خط سير جديد» تحددها من هناك، أو هتتعلّم لوحدها من أول تسليم.</div>` : ''}
-      ${xs.length ? `<div class="grid g2">${xs.map(r => { const s = stats(r, true); return `<a class="card" href="#/routes/${esc(r.id)}" style="color:inherit;text-decoration:none;display:block"><div class="row"><b style="font-size:17px">${esc(r.name || 'خط سير')}</b><span class="sp"></span>${r.status === 'active' ? '<span class="tag purchase">في الطريق</span>' : r.status === 'done' ? '<span class="tag ok">خلص</span>' : '<span class="tag">متجهز</span>'}</div>
+      ${xs.length ? `<div class="grid g2">${xs.map(r => { const s = stats(r, true); return `<a class="card" href="#/routes/${esc(r.id)}" style="color:inherit;text-decoration:none;display:block"><div class="row"><b style="font-size:17px">${esc(r.name || 'خط سير')}</b><span class="sp"></span>${r.status === 'active' ? '<span class="tag purchase">في الطريق</span>' : r.status === 'done' ? (r.settled ? '<span class="tag ok">اتسوّى ✓</span>' : '<span class="tag bad">خلص — مستني التسوية</span>') : '<span class="tag">متجهز</span>'}</div>
         <div class="small muted" style="margin:4px 0 8px">${esc(r.driverName || '')} — ${s.total} محطة — ${fkm(s.planned)}${r.live && r.status === 'active' ? ` — آخر مكان ${ago(r.live.at)}` : ''}</div>
         <div class="rv-prog" style="height:10px;border-radius:99px;background:var(--line);overflow:hidden"><i style="display:block;height:100%;width:${s.total ? Math.round(s.done / s.total * 100) : 0}%;background:var(--brand)"></i></div>
         <div class="row small" style="margin-top:8px;gap:6px"><span class="tag ok">اتسلّم ${s.cnt.delivered}</span><span class="tag">لسه ${s.cnt.pending + s.cnt.arrived}</span>${s.cnt.failed ? `<span class="tag bad">مشكلة ${s.cnt.failed}</span>` : ''}${s.cash ? `<span class="tag purchase">تحصيل ${fmt(s.cash)}</span>` : ''}${r.status === 'active' && s.minLeft ? `<span class="muted">يخلص حوالي ${hm(new Date(Date.now() + s.minLeft * 60000))}</span>` : ''}</div></a>`; }).join('')}</div>` : `<div class="empty card"><b>${isMgr() ? 'مفيش خطوط سير في اليوم ده' : 'مفيش رحلات متسجّلة ليك'}</b>${isMgr() ? '<a href="#/routes/new">اعمل خط سير جديد</a>' : ''}</div>`}</div>`;
@@ -231,9 +234,9 @@
     return out.sort((a, b) => (b.drv - a.drv) || a.name.localeCompare(b.name, 'ar'));
   }
   function planView() {
-    const P = D.plan || (D.plan = { days: 1, sel: new Set(), ret: false, driver: '', onlyPrep: false });
+    const P = D.plan || (D.plan = { days: 1, sel: new Set(), ret: false, driver: '', onlyPrep: strictF() });
     const from = addDays(today(), -(P.days - 1));
-    let xs = pendingOrders(from); if (P.onlyPrep) xs = xs.filter(i => { const p = G('prints', i.id); return p && p.prepAt; });
+    let xs = pendingOrders(from); P.sel.forEach(id => { if (!xs.some(i => i.id === id)) { const i = invOf(id); if (i && i.type === 'sale' && i.partyId && !inRun(id)) xs.push(i); } }); if (P.onlyPrep) xs = xs.filter(i => isPrep(i) || P.sel.has(i.id));
     xs.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
     const byP = new Map(); xs.forEach(i => { const k = i.partyId; byP.set(k, (byP.get(k) || []).concat([i])); });
     const dv = drivers(); const R = calc();
@@ -249,7 +252,7 @@
       <div class="card" style="margin-top:14px"><div class="row"><h3 style="margin:0">اختار الأوردرات</h3><span class="tag">${xs.length} أوردر — ${byP.size} صيدلية</span><span class="sp"></span><button class="btn s" id="dvAll">اختار الكل اللي ليهم لوكيشن</button><button class="btn s" id="dvNone">إلغاء الاختيار</button></div>
         ${missing.length ? `<p class="dv-warn small" style="margin:10px 0 0">⚠️ ${missing.length} صيدلية مختارة مالهاش لوكيشن — هتتحط في آخر الخط لحد ما تحددها أو تتعلّم من التسليم.</p>` : ''}
         <div class="tw" style="margin-top:10px"><table class="t"><thead><tr><th style="width:30px"><input type="checkbox" id="dvChk"></th><th>الصيدلية</th><th>الأوردرات</th><th class="n">الإجمالي</th><th class="n">الرصيد</th><th>اللوكيشن</th></tr></thead><tbody>
-        ${[...byP.entries()].map(([pid, ivs]) => { const l = pLoc(pid); const p = G('parties', pid) || {}; const all = ivs.every(i => P.sel.has(i.id)); return `<tr><td><input type="checkbox" data-dvp="${esc(pid)}" ${all ? 'checked' : ''}></td><td><b>${esc(p.name || '')}</b><div class="small muted">${esc(p.address || '')}</div></td><td class="small">${ivs.map(i => `#${esc(i.no)}${G('prints', i.id) && G('prints', i.id).prepAt ? ' ✓' : ''}`).join(' ')}</td><td class="n">${fmt(ivs.reduce((s, i) => s + ((R.inv[i.id] || {}).total || 0), 0))}</td><td class="n">${fmt(R.party[pid] || 0)}</td><td>${l ? `<button class="btn s" data-dvl="${esc(pid)}" title="تغيير اللوكيشن">📍 محدد — تغيير</button>` : `<button class="btn s p" data-dvl="${esc(pid)}">📍 حدد</button>`}</td></tr>`; }).join('') || '<tr><td colspan="6"><div class="empty"><b>مفيش أوردرات مستنية توصيل</b><span class="small muted">الأوردرات اللي في خط سير تاني مش بتظهر هنا</span></div></td></tr>'}</tbody></table></div></div>
+        ${[...byP.entries()].map(([pid, ivs]) => { const l = pLoc(pid); const p = G('parties', pid) || {}; const all = ivs.every(i => P.sel.has(i.id)); return `<tr><td><input type="checkbox" data-dvp="${esc(pid)}" ${all ? 'checked' : ''}></td><td><b>${esc(p.name || '')}</b><div class="small muted">${esc(p.address || '')}</div></td><td class="small">${ivs.map(i => `#${esc(i.no)}${isPrep(i) ? ' ✓' : ' <span class="dv-warn" title="لسه ماتحضرتش">⏳</span>'}`).join(' ')}</td><td class="n">${fmt(ivs.reduce((s, i) => s + ((R.inv[i.id] || {}).total || 0), 0))}</td><td class="n">${fmt(R.party[pid] || 0)}</td><td>${l ? `<button class="btn s" data-dvl="${esc(pid)}" title="تغيير اللوكيشن">📍 محدد — تغيير</button>` : `<button class="btn s p" data-dvl="${esc(pid)}">📍 حدد</button>`}</td></tr>`; }).join('') || '<tr><td colspan="6"><div class="empty"><b>مفيش أوردرات مستنية توصيل</b><span class="small muted">الأوردرات اللي في خط سير تاني مش بتظهر هنا</span></div></td></tr>'}</tbody></table></div></div>
       <div class="card" style="margin-top:14px"><div class="row"><h3 style="margin:0">الترتيب المقترح</h3><span class="sp"></span><button class="btn" id="dvOpt" ${selInv.length ? '' : 'disabled'}>🧠 رتّب أقصر طريق</button><button class="btn p" id="dvSave" ${selInv.length && P.driver ? '' : 'disabled'}>حفظ وإرسال للمندوب</button></div>
         <div id="dvPrev" style="margin-top:12px">${P.order ? prevHTML(P) : `<p class="muted small">اختار الأوردرات والمندوب، ودوس «رتّب أقصر طريق».</p>`}</div>
         <div class="dv-map" id="dvMap" style="margin-top:12px${P.order ? '' : ';display:none'}"></div></div></div>`;
@@ -258,9 +261,9 @@
     $('#dvDr').onchange = e => { P.driver = e.target.value; render(); };
     $('#dvNm').oninput = e => { P.name = e.target.value; };
     $('#dvRet').onchange = e => { P.ret = e.target.checked; if (P.order) doOpt(); else render(); };
-    $$('[data-dvp]').forEach(c => c.onchange = () => { (byP.get(c.dataset.dvp) || []).forEach(i => c.checked ? P.sel.add(i.id) : P.sel.delete(i.id)); P.order = null; render(); });
-    $('#dvChk').onchange = e => { xs.forEach(i => e.target.checked ? P.sel.add(i.id) : P.sel.delete(i.id)); P.order = null; render(); };
-    $('#dvAll').onclick = () => { xs.forEach(i => { if (pLoc(i.partyId)) P.sel.add(i.id); }); P.order = null; render(); };
+    $$('[data-dvp]').forEach(c => c.onchange = () => { (byP.get(c.dataset.dvp) || []).filter(i => !c.checked || !strictF() || isPrep(i) || S.isAdmin).forEach(i => c.checked ? P.sel.add(i.id) : P.sel.delete(i.id)); P.order = null; render(); });
+    $('#dvChk').onchange = e => { xs.filter(i => !e.target.checked || !strictF() || isPrep(i)).forEach(i => e.target.checked ? P.sel.add(i.id) : P.sel.delete(i.id)); P.order = null; render(); };
+    $('#dvAll').onclick = () => { xs.forEach(i => { if (pLoc(i.partyId) && (!strictF() || isPrep(i))) P.sel.add(i.id); }); P.order = null; render(); };
     $('#dvNone').onclick = () => { P.sel.clear(); P.order = null; render(); };
     $$('[data-dvl]').forEach(b => b.onclick = () => locModal(b.dataset.dvl, () => { P.order = null; render(); }));
     const doOpt = () => {
@@ -271,7 +274,10 @@
     };
     $('#dvOpt').onclick = doOpt;
     $$('[data-dvmv]').forEach(b => b.onclick = () => { const [i, d] = b.dataset.dvmv.split(':').map(Number); const j = i + d; if (j < 0 || j >= P.order.length) return; const t = P.order[i]; P.order[i] = P.order[j]; P.order[j] = t; render(); });
+    if (P.auto && selInv.length && !P.order) { P.auto = false; doOpt(); return; }
     $('#dvSave').onclick = async () => {
+      const unp = xs.filter(i => P.sel.has(i.id) && !isPrep(i));
+      if (unp.length) { const t = unp.map(i => '#' + i.no).join(' '); if (strictF() && !S.isAdmin) { toast(`فيه ${unp.length} فاتورة لسه ماتحضرتش (${t}) — راجعها الأول أو شيلها من الخط`, 'err'); return; } if (!(await confirmBox(`فيه ${unp.length} فاتورة لسه ماتحضرتش (${t}). تبعتها مع المندوب برضه؟`, 'إرسال برضه'))) return; }
       if (!P.order) doOpt();
       const id = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
       const stops = []; P.order.forEach(g => g.invs.forEach(invId => stops.push({ invId, partyId: g.pid, status: 'pending', ...(pLoc(g.pid) ? { loc: { lat: pLoc(g.pid).lat, lng: pLoc(g.pid).lng } } : {}) })));
@@ -322,7 +328,7 @@
   function retTxt(r, v) { if (!window.MZ_RT) return ''; const xs = MZ_RT.forStop(r.id, v.partyId).filter(x => x.status !== 'requested'); if (!xs.length) return ''; return ' — ' + xs.map(x => `<a href="#/rets/${esc(x.id)}">↩️ ${esc(x.code)}: ${(x.lines || []).length} صنف</a>`).join(' '); }
   function pkTxt(r, v) {
     if (!window.MZ_PK) return ''; const sp = MZ_PK.stopPkgs(r, v.partyId); if (!sp.length) return '';
-    const ld = sp.filter(p => p.st !== 'packed').length, dl = sp.filter(p => p.st === 'delivered').length; const mi = v.stops.map(x => x.pkMiss).find(Boolean);
+    const ld = sp.filter(p => loadedIn(p, r)).length, dl = sp.filter(p => p.st === 'delivered').length; const mi = v.stops.map(x => x.pkMiss).find(Boolean);
     return ` — 📦 ${sp.length}${v.status === 'delivered' ? ` (اتمسح ${v.stops.map(x => x.pk).find(Boolean) ? v.stops.map(x => x.pk).find(Boolean).ok : dl})` : ` (اتحمّل ${ld})`}${mi ? ` <span class="dv-warn">— اتسلّم من غير مسح: ${esc(mi.join('، '))} (${esc(v.stops.map(x => x.pkWhy).find(Boolean) || '')})</span>` : ''}`;
   }
   const markers = (r, cur) => visits(r).map((v, i) => ({ seq: i + 1, loc: v.loc, status: v.status, next: cur && v.stops.includes(cur), name: (G('parties', v.partyId) || {}).name, sub: v.status === 'delivered' ? 'اتسلّم ' + hm(new Date(v.stops.find(x => x.at).at)) : v.status === 'failed' ? (v.stops.find(x => x.reason) || {}).reason : '' }));
@@ -335,8 +341,11 @@
         <div class="row" style="gap:6px"><span class="tag ok">اتسلّم ${s.cnt.delivered}</span><span class="tag">لسه ${s.cnt.pending + s.cnt.arrived}</span>${s.cnt.failed ? `<span class="tag bad">مشكلة ${s.cnt.failed}</span>` : ''}${s.cash ? `<span class="tag purchase">تحصيل ${fmt(s.cash)}</span>` : ''}</div></div>
         <div class="rv-prog" style="height:12px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:8px"><i style="display:block;height:100%;width:${s.total ? Math.round(s.done / s.total * 100) : 0}%;background:var(--brand)"></i></div>
         <div class="row small" style="margin-top:8px;gap:12px"><span>📍 ${live ? `آخر مكان للمندوب ${ago(live.at)}${live.spd != null ? ` — ${live.spd} كم/س` : ''}` : 'لسه مفيش مكان للمندوب'}</span>${stale && r.status === 'active' ? '<span class="dv-warn">مفيش تحديث من أكتر من 10 دقايق — ممكن الموبايل قفل البرنامج</span>' : ''}${nxt ? `<span>المحطة الجاية: <b>${esc((G('parties', nxt.partyId) || {}).name || '')}</b>${s.eta[nxt.invId] ? ' — متوقع ' + hm(s.eta[nxt.invId]) : ''}</span>` : ''}${s.minLeft && r.status === 'active' ? `<span>يخلص حوالي <b>${hm(new Date(Date.now() + s.minLeft * 60000))}</b> (${fkm(s.kmLeft)} باقيين)</span>` : `<span>المسافة المخططة ${fkm(s.planned)}</span>`}</div></div>
+      ${r.startMiss ? `<div class="card" style="margin-top:12px;border-color:var(--danger)"><b class="dv-warn">⚠ المندوب بدأ من غير ما يمسح: ${esc(r.startMiss.list.join('، '))}</b><div class="small">السبب: ${esc(r.startMiss.why || '')}</div></div>` : ''}
+      ${window.MZ_FLOW ? MZ_FLOW.settleHTML(r) : ''}
       <div class="grid g2" style="margin-top:14px;align-items:start"><div class="dv-map" id="dvMap" style="position:sticky;top:80px"></div><div class="dv-list">${stopRows(r, nxt)}</div></div></div>`;
     drawMap('dvMap', 'run:' + r.id, { start: r.start, ret: r.ret, live, liveName: r.driverName, trail: r.trail, stops: markers(r, nxt) });
+    if (window.MZ_FLOW) MZ_FLOW.bindSettle(r, render);
     const md = $('#dvMode'); if (md) md.onclick = () => { D.mode = 'drv'; render(); };
     const rq = $('#dvReq'); if (rq) rq.onclick = () => MZ_RT.request(r.id);
     const ro = $('#dvReopt'); if (ro) ro.onclick = async () => { await reopt(r.id, live); toast('اترتّب الباقي من آخر مكان للمندوب'); };
@@ -385,7 +394,7 @@
     drawMap('dvMap', 'drv:' + r.id, { start: r.start, ret: r.ret, live: D.me || r.live, liveName: 'انت', stops: markers(r, cur) });
     bindPk(r, cur);
     const md = $('#dvMode'); if (md) md.onclick = () => { D.mode = 'mgr'; render(); };
-    const st = $('#dvStart'); if (st) st.onclick = async () => { if (window.MZ_PK) { const left = MZ_PK.runPkgs(r).filter(p => p.st === 'packed'); if (left.length && !(await confirmBox(`فيه ${left.length} شنطة لسه ماتمسحتش في التحميل (${left.slice(0, 4).map(p => MZ_PK.nameOfKey(p.key) + ' ' + MZ_PK.label(p)).join('، ')}${left.length > 4 ? '…' : ''}). تبدأ برضه؟`, 'أيوه ابدأ'))) return; } const g = await gps(); await patchRun(r.id, x => { x.status = 'active'; x.startAt = nowIso(); if (g) { x.live = { ...g, at: nowIso() }; x.trail = [[g.lat, g.lng, Date.now()]]; } }); wake(true); trackTick(); toast('بالتوفيق 🚚 — مكانك بيتبعت للمدير'); };
+    const st = $('#dvStart'); if (st) st.onclick = async () => { if (window.MZ_PK) { const left = MZ_PK.runPkgs(r).filter(p => !loadedIn(p, r)); if (left.length) { const lst = left.slice(0, 4).map(p => MZ_PK.nameOfKey(p.key) + ' ' + MZ_PK.label(p)).join('، ') + (left.length > 4 ? '…' : ''); if (strictF()) { const why = await askWhy(`فيه ${left.length} شنطة لسه ماتمسحتش في التحميل (${lst}). امسحها، أو اكتب السبب لو هتبدأ من غيرها (هيوصل للمدير):`); if (!why) return; D.startMiss = { list: left.map(p => MZ_PK.nameOfKey(p.key) + ' ' + MZ_PK.label(p)), why }; } else if (!(await confirmBox(`فيه ${left.length} شنطة لسه ماتمسحتش في التحميل (${lst}). تبدأ برضه؟`, 'أيوه ابدأ'))) return; } } const g = await gps(); await patchRun(r.id, x => { x.status = 'active'; x.startAt = nowIso(); if (D.startMiss) { x.startMiss = D.startMiss; D.startMiss = null; } if (g) { x.live = { ...g, at: nowIso() }; x.trail = [[g.lat, g.lng, Date.now()]]; } }); wake(true); trackTick(); toast('بالتوفيق 🚚 — مكانك بيتبعت للمدير'); };
     const ro = $('#dvReopt2'); if (ro) ro.onclick = async () => { const g = D.me || await gps(); await reopt(r.id, g); toast('اترتّب الباقي من مكانك'); };
     const sl = $('#dvSetL'); if (sl) sl.onclick = () => locModal(cur.partyId, () => render());
     const ar = $('#dvArr'); if (ar) ar.onclick = async () => { const g = await gps(); await patchRun(r.id, x => { x.stops.filter(y => y.partyId === cur.partyId && y.status === 'pending').forEach(y => { y.status = 'arrived'; y.arrivedAt = nowIso(); if (g) y.arrGps = g; }); if (g) x.live = { ...g, at: nowIso() }; }); };
@@ -395,13 +404,19 @@
     const fl = $('#dvFail'); if (fl) fl.onclick = () => failModal(r, cur);
     const en = $('#dvEnd'); if (en) en.onclick = async () => { await patchRun(r.id, x => { x.status = 'done'; x.endAt = nowIso(); }); wake(false); trackTick(); toast('الرحلة خلصت — شكرًا 🌿'); go('routes'); };
   }
+  function askWhy(msg) {
+    return new Promise(res => { modal(`<h2>${esc(msg)}</h2><input class="in" id="aw_v" autocomplete="off" placeholder="السبب"><div class="row" style="margin-top:12px"><button class="btn p" id="aw_ok">ابدأ</button><button class="btn" id="aw_x">رجوع أمسح</button></div>`);
+      const v = document.getElementById('aw_v'); setTimeout(() => v.focus(), 40); const done = x => { closeModal(); res(x); };
+      document.getElementById('aw_ok').onclick = () => { if (!v.value.trim()) { v.focus(); return; } done(v.value.trim()); }; document.getElementById('aw_x').onclick = () => done('');
+      v.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('aw_ok').click(); } }; });
+  }
   /* ---------- الشنط: تحميل وتسليم ---------- */
   function pkSection(r, cur) {
     if (!window.MZ_PK) return ''; const all = MZ_PK.runPkgs(r); if (!all.length && !D.pkFlash) return '';
     const fl = D.pkFlash && Date.now() - D.pkFlash.at < 60000 ? `<div class="rv-flash ${D.pkFlash.kind}" style="margin:10px 0 0;padding:12px 14px;border-radius:12px;font-weight:700;${D.pkFlash.kind === 'err' ? 'background:var(--danger);color:#fff' : D.pkFlash.kind === 'done' ? 'background:var(--brand);color:#fff' : 'background:color-mix(in srgb,var(--brand) 14%,var(--surface));color:var(--brand)'}">${esc(D.pkFlash.text)}${D.pkFlash.sub ? `<div class="small" style="font-weight:500">${esc(D.pkFlash.sub)}</div>` : ''}</div>` : '';
     const loading = r.status === 'planned' || !cur;
     let list;
-    if (loading) { const left = all.filter(p => p.st === 'packed'); list = `<div class="small" style="margin-top:8px"><b>${all.length - left.length} من ${all.length}</b> اتحمّلت${left.length ? ` — <span class="dv-warn">ناقص: ${left.map(p => esc(MZ_PK.nameOfKey(p.key)) + ' (' + esc(MZ_PK.label(p)) + ')').join('، ')}</span>` : ' ✓ كله في العربية'}</div>`; }
+    if (loading) { const left = all.filter(p => !loadedIn(p, r)); list = `<div class="small" style="margin-top:8px"><b>${all.length - left.length} من ${all.length}</b> اتحمّلت${left.length ? ` — <span class="dv-warn">ناقص: ${left.map(p => esc(MZ_PK.nameOfKey(p.key)) + ' (' + esc(MZ_PK.label(p)) + ')').join('، ')}</span>` : ' ✓ كله في العربية'}</div>`; }
     else { const sp = MZ_PK.stopPkgs(r, cur.partyId); const sc = MZ_PK.scanned || new Set(); list = sp.length ? `<div class="pk-list" style="margin-top:8px">${sp.map(p => `<span class="pk-t ${sc.has(p.id) ? 'ok' : 'no'}">${sc.has(p.id) ? '✓' : '○'} ${esc(MZ_PK.label(p))}</span>`).join('')}</div>` : '<div class="small muted" style="margin-top:8px">الصيدلية دي مالهاش شنط متسجّلة</div>'; }
     return `<div class="card" style="margin-top:12px;padding:12px 14px"><div class="row"><b>📦 ${loading ? 'تحميل العربية — امسح كل شنطة وانت بتحطها' : 'امسح شنط الصيدلية دي قبل ما تسلّم'}</b></div>
       <div class="row" style="margin-top:8px;gap:6px;flex-wrap:nowrap"><input class="in" id="dvPk" autocomplete="off" placeholder="امسح ملصق الشنطة" style="flex:1;font-size:17px;padding:10px 12px">${'BarcodeDetector' in window ? '<button class="btn" id="dvPkCam" type="button">📷</button>' : ''}</div>${fl}${list}</div>`;

@@ -83,7 +83,7 @@
       RV.lines.forEach(l => { const x = p.lines && p.lines[l.pid]; if (x) l.got = +x.got || 0; }); RV.log = p.log || []; RV.start = p.start || RV.start;
       flash('ok', `كمّلت المراجعة اللي بدأها ${p.by || ''} — ${sums().pct}% خلصان`);
     } else if (p && p.status !== 'open' && !opt.fresh) {
-      flash('warn', `الفاتورة دي اتراجعت قبل كده (${p.status === 'ok' ? 'مطابقة' : 'بنواقص'}) بواسطة ${p.by || ''} ${ltm(p.end)} — بتبدأ مراجعة جديدة`);
+      flash('warn', p.status === 'redo' ? `الفاتورة اتعدّلت بعد ما اتحضرت — راجعها تاني على الكميات الجديدة` : `الفاتورة دي اتراجعت قبل كده (${p.status === 'ok' ? 'مطابقة' : 'بنواقص'}) بواسطة ${p.by || ''} ${ltm(p.end)} — بتبدأ مراجعة جديدة`);
     } else flash('ok', `فتحت ${TYPES[inv.type].full} رقم ${inv.no} — ${RV.lines.length} صنف. امسح الأصناف.`);
     RV.log.unshift({ at: nowIso(), k: 'open', by: who() });
     if (route().p !== 'pick' || route().a[0] !== inv.id) history.replaceState(null, '', '#/pick/' + inv.id);
@@ -166,7 +166,7 @@
   /* ---------- الطابور ---------- */
   function queue() {
     const from = addDays(today(), -2);
-    return L('invoices').filter(i => RVT.includes(i.type) && (i.date || '') >= from && !(prn(i.id) && prn(i.id).prepAt) && !(pk(i.id) && pk(i.id).status && pk(i.id).status !== 'open'))
+    return L('invoices').filter(i => RVT.includes(i.type) && (i.date || '') >= from && !(prn(i.id) && prn(i.id).prepAt) && !(pk(i.id) && pk(i.id).status && !['open', 'redo'].includes(pk(i.id).status)))
       .sort((a, b) => ((prn(b.id) && prn(b.id).n ? 1 : 0) - (prn(a.id) && prn(a.id).n ? 1 : 0)) || (a.createdAt || '').localeCompare(b.createdAt || ''));
   }
 
@@ -268,7 +268,7 @@
     return `<div class="row" style="margin-bottom:12px"><div class="seg">${[[1, 'النهارده'], [7, 'آخر أسبوع'], [30, 'آخر شهر']].map(([d, t]) => `<button data-rh="${d}" class="${RV.hist == d ? 'on' : ''}">${t}</button>`).join('')}</div></div>
       <div class="strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px"><div><div class="k">أوردرات اتراجعت</div><div class="v">${tot}</div></div><div><div class="k">مطابقة من أول مرة</div><div class="v pos">${tot ? Math.round(ok / tot * 100) : 0}%</div><div class="s">${ok} من ${tot}</div></div><div><div class="k">أخطاء اتمسكت قبل الشنطة</div><div class="v">${errs}</div><div class="s">صنف غلط أو زيادة اتلحق</div></div></div>
       <div class="card"><h3 style="margin-top:0">أداء المراجعين</h3><div class="tw"><table class="t"><thead><tr><th>المراجع</th><th class="n">أوردرات</th><th class="n">مطابقة</th><th class="n">قطع</th><th class="n">متوسط الوقت</th><th class="n">أخطاء اتمسكت</th></tr></thead><tbody>${Object.entries(by).sort((a, b) => b[1].n - a[1].n).map(([k, o]) => `<tr><td><b>${esc(k)}</b></td><td class="n">${o.n}</td><td class="n">${o.ok}</td><td class="n">${fq(o.units)}</td><td class="n">${o.n ? Math.round(o.min / o.n * 10) / 10 : 0} د</td><td class="n">${o.errs}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">مفيش مراجعات في الفترة دي</td></tr>'}</tbody></table></div></div>
-      <div class="card" style="margin-top:14px"><h3 style="margin-top:0">المراجعات</h3><div class="tw"><table class="t"><thead><tr><th>رقم</th><th>العميل</th><th>المراجع</th><th>انتهت</th><th class="n">المدة</th><th>النتيجة</th><th class="n">أخطاء</th><th></th></tr></thead><tbody>${xs.slice(0, 200).map(p => `<tr><td class="num"><b>${esc(p.no)}</b></td><td>${esc(partyName(p.partyId) || 'نقدي')}</td><td>${esc(p.by || '')}</td><td class="small">${esc(ltm(p.end))}</td><td class="n">${durTxt(p.start, p.end)}</td><td>${p.status === 'ok' ? '<span class="tag ok">مطابقة</span>' : `<span class="tag bad" title="${esc(p.reason || '')}">${p.status === 'over' ? 'بزيادة' : 'بنواقص'}</span>`}</td><td class="n">${p.errs || 0}</td><td style="white-space:nowrap"><button class="btn s" data-rvr="${p.invId}">${ic('print')}تقرير</button> <button class="btn s" data-rvo="${p.invId}">مراجعة تاني</button></td></tr>`).join('') || '<tr><td colspan="8" class="muted">مفيش</td></tr>'}</tbody></table></div></div>`;
+      <div class="card" style="margin-top:14px"><h3 style="margin-top:0">المراجعات</h3><div class="tw"><table class="t"><thead><tr><th>رقم</th><th>العميل</th><th>المراجع</th><th>انتهت</th><th class="n">المدة</th><th>النتيجة</th><th class="n">أخطاء</th><th></th></tr></thead><tbody>${xs.slice(0, 200).map(p => `<tr><td class="num"><b>${esc(p.no)}</b></td><td>${esc(partyName(p.partyId) || 'نقدي')}</td><td>${esc(p.by || '')}</td><td class="small">${esc(ltm(p.end))}</td><td class="n">${durTxt(p.start, p.end)}</td><td>${p.status === 'ok' ? '<span class="tag ok">مطابقة</span>' : `<span class="tag bad" title="${esc(p.reason || '')}">${p.status === 'over' ? 'بزيادة' : p.status === 'redo' ? 'اتعدّلت — تتراجع تاني' : 'بنواقص'}</span>`}</td><td class="n">${p.errs || 0}</td><td style="white-space:nowrap"><button class="btn s" data-rvr="${p.invId}">${ic('print')}تقرير</button> <button class="btn s" data-rvo="${p.invId}">مراجعة تاني</button></td></tr>`).join('') || '<tr><td colspan="8" class="muted">مفيش</td></tr>'}</tbody></table></div></div>`;
   }
 
   function bind() {

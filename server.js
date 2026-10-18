@@ -101,6 +101,42 @@ async function roleOf(userId) {
   return rows[0] && rows[0].data ? rows[0].data.role || '' : '';
 }
 async function isAdmin(u) { return u.owner || (await roleOf(u.id)) === 'full'; }
+/* صلاحيات المستخدم على السيرفر (نفس منطق البرنامج) — علشان قيود الفواتير متتكسرش من برّه البرنامج */
+const DEF_PERMS = { manager: '*', accountant: ['sell', 'buy', 'editPrice', 'editInv', 'seeCost', 'parties', 'cash', 'reports', 'accounting'], cashier: ['sell', 'parties'], store: ['buy', 'products'], sales: ['crm'], prep: ['prep'], driver: ['delivery'], salesmgr: ['crm', 'crmManage', 'parties', 'reports', 'sell'] };
+async function permsOf(u, db) {
+  if (await isAdmin(u)) return '*';
+  const role = await roleOf(u.id); if (!role) return [];
+  const { rows } = await db.query(`SELECT data FROM docs WHERE col='roledefs' AND id='main' AND NOT deleted`);
+  const d = rows[0] && rows[0].data;
+  if (d && isObj(d.roles)) {
+    const def = d.roles[role]; if (def) return Array.isArray(def.perms) ? def.perms : [];
+    if (['sales', 'salesmgr', 'prep', 'driver'].includes(role) && !(d.removed || []).includes(role)) return DEF_PERMS[role];
+    return [];
+  }
+  return DEF_PERMS[role] || [];
+}
+const INV_KEYS = ['type', 'date', 'partyId', 'storeId', 'toStoreId', 'discount', 'taxRate'];
+function invSig(v) {
+  if (!isObj(v)) return null; const o = {};
+  for (const k of INV_KEYS) { const x = v[k]; o[k] = x == null || x === '' ? '' : String(x); }
+  o.lines = (Array.isArray(v.lines) ? v.lines : []).map(l => [String((l && l.pid) || ''), +(l && l.qty) || 0, +(l && l.price) || 0, +(l && l.disc) || 0]);
+  return JSON.stringify(o);
+}
+// أي تعديل أو حذف لفاتورة محفوظة: محتاج صلاحية «تعديل الفواتير»، والفاتورة اللي مع المندوب أو اتسلّمت مقفولة (إلا للمالك/المدير العام)
+async function guardInvoices(db, user, changes, ctx) {
+  for (const [id, ov, nv] of changes) {
+    if (!isObj(ov)) continue;
+    if (nv !== null && invSig(nv) === invSig(ov)) continue;
+    if (ctx.admin) continue;
+    if (ctx.perms === undefined) ctx.perms = await permsOf(user, db);
+    if (ctx.perms !== '*' && !ctx.perms.includes('editInv')) throw Object.assign(new Error('ليس لديك صلاحية تعديل أو حذف الفواتير المحفوظة'), { status: 403 });
+    if (ov.type !== 'sale') continue;
+    const { rows } = await db.query(`SELECT r.data->>'status' st, s->>'status' ss FROM docs r, jsonb_array_elements(CASE WHEN jsonb_typeof(r.data->'stops')='array' THEN r.data->'stops' ELSE '[]'::jsonb END) s
+      WHERE r.col='runs' AND NOT r.deleted AND COALESCE(r.data->>'status','')<>'cancel' AND s->>'invId'=$1`, [id]);
+    if (rows.some(x => x.ss === 'delivered')) throw Object.assign(new Error(`الفاتورة #${ov.no || ''} اتسلّمت للعميل — مينفعش تتعدل أو تتحذف. اعمل فاتورة مرتجع`), { status: 409 });
+    if (rows.some(x => x.st === 'active' && (x.ss === 'pending' || x.ss === 'arrived'))) throw Object.assign(new Error(`الفاتورة #${ov.no || ''} مع المندوب في الطريق — مينفعش تتعدل أو تتحذف دلوقتي`), { status: 409 });
+  }
+}
 const auth = (needAdmin) => async (req, res, next) => {
   try {
     const u = await sessionUser(req);
@@ -255,7 +291,9 @@ app.post('/api/write', auth(false), async (req, res, next) => {
     if (!['set', 'update', 'delete'].includes(o.op)) return res.status(400).json({ error: 'bad op' });
     if (ADMIN_ONLY.has(o.c) && !admin) return res.status(403).json({ error: 'forbidden', code: 'permission_denied' });
     if (o.c === 'members' && o.i !== req.user.id && !admin) return res.status(403).json({ error: 'forbidden' });
+    if (o.op === 'delete' && o.c.startsWith('x_') && !admin) return res.status(403).json({ error: 'forbidden' });
   }
+  const gctx = { admin };
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -268,10 +306,15 @@ app.post('/api/write', auth(false), async (req, res, next) => {
       }
       if (!isObj(o.d)) throw Object.assign(new Error('bad data'), { status: 400 });
       let data = o.d;
-      if (o.op === 'update') {
+      if (o.op === 'update' || o.c === 'x_invoices') {
         const cur = await client.query('SELECT data,deleted FROM docs WHERE col=$1 AND id=$2 FOR UPDATE', [o.c, o.i]);
         const base = cur.rows[0] && !cur.rows[0].deleted ? cur.rows[0].data : {};
-        data = mergeDoc(base, o.d);
+        if (o.c === 'x_invoices' && !admin && isObj(base.items)) {
+          const ni = isObj(o.d.items) ? o.d.items : {};
+          const ids = o.op === 'update' ? Object.keys(ni) : [...new Set([...Object.keys(base.items), ...Object.keys(ni)])];
+          await guardInvoices(client, req.user, ids.map(id => [id, base.items[id], isObj(ni[id]) ? ni[id] : null]), gctx);
+        }
+        if (o.op === 'update') data = mergeDoc(base, o.d);
       }
       const r = await client.query(
         `INSERT INTO docs(col,id,data,deleted,seq,updated_at,updated_by) VALUES($1,$2,$3,false,nextval('doc_seq'),$4,$5)

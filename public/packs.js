@@ -134,8 +134,9 @@
     const mine = runPkgs(r).some(x => x.id === p.id);
     if (!mine) { beep('err'); return { kind: 'err', text: `⛔ ${label(p)} تبع ${nameOfKey(p.key)} — مش في خط السير بتاعك!`, sub: 'رجّعها المخزن' }; }
     if (r.status === 'planned' || !curPartyId) {
-      if (p.st === 'packed') await patch(p.id, d => { d.st = 'loaded'; d.loadAt = nowIso(); d.loadBy = who(); d.runId = r.id; });
-      const ps = runPkgs(r); const n = ps.filter(x => x.st !== 'packed' || x.id === p.id).length; beep(n === ps.length ? 'done' : 'ok');
+      if (p.st === 'delivered') { beep('err'); return { kind: 'err', text: `⛔ ${label(p)} تبع ${nameOfKey(p.key)} اتسلّمت قبل كده!`, sub: 'متتحمّلش تاني' }; }
+      if (p.st === 'packed' || p.runId !== r.id) await patch(p.id, d => { d.st = 'loaded'; d.loadAt = nowIso(); d.loadBy = who(); d.runId = r.id; });
+      const ps = runPkgs(r); const n = ps.filter(x => (x.st !== 'packed' && (x.runId === r.id || x.st === 'delivered')) || x.id === p.id).length; beep(n === ps.length ? 'done' : 'ok');
       return { kind: 'ok', text: `✓ اتحمّلت ${label(p)} — ${nameOfKey(p.key)}`, sub: `${n} من ${ps.length} في العربية` };
     }
     if (p.partyId !== curPartyId) { beep('err'); return { kind: 'err', text: `⛔ دي ${label(p)} تبع ${nameOfKey(p.key)} — مش للصيدلية دي!`, sub: 'متسلّمهاش هنا' }; }
