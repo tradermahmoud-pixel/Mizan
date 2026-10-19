@@ -359,6 +359,9 @@ app.post('/api/write', auth(false), async (req, res, next) => {
   } finally { client.release(); }
 });
 
+/* ============ ربط أورجا (اتجاه واحد: أورجا ← ميزان) ============ */
+require('./orga')(app, { pool, auth, now });
+
 /* ============ ترقيم الفواتير على السيرفر ============ */
 const NUM_TYPES = new Set(['sale', 'sret', 'purchase', 'pret', 'adj', 'reval', 'count', 'transfer', 'open', 'porder', 'quote']);
 const ITEMS_SQL = `jsonb_each(CASE WHEN jsonb_typeof(d.data->'items')='object' THEN d.data->'items' ELSE '{}'::jsonb END) e(k,v)`;
