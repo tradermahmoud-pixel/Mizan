@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon.svg">
-<script src="/shim.js?v=2"></script>
+<script src="/shim.js?v=3"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Readex+Pro:wght@400;500;600;700&family=Reem+Kufi:wght@500;700&display=swap" rel="stylesheet">
@@ -393,7 +393,8 @@ const tiers=()=>settings().tiers||DEF_TIERS;
 const tierOf=pid=>{const p=G('parties',pid);return p&&p.tier?tiers().find(t=>t.id===p.tier)||null:null};
 const rnd2=n=>Math.round((+n||0)*100)/100;
 const consOf=p=>+(p&&p.consumer)||+(p&&p.price)||0;
-function salePrice(p,partyId){const t=tierOf(partyId);if(t){const c=avgCost(p.id)||+p.cost||0;if(c>0)return rnd2(c*(1+(+t.markup||0)/100))}return consOf(p)}
+const costHidden=()=>!!(window.MZ&&MZ.costHidden&&!S.isAdmin);
+function salePrice(p,partyId){const t=tierOf(partyId);if(t&&costHidden()){const v=MZ.px&&MZ.px.t&&MZ.px.t[t.id]&&MZ.px.t[t.id][p.id];return v>0?v:consOf(p)}if(t){const c=avgCost(p.id)||+p.cost||0;if(c>0)return rnd2(c*(1+(+t.markup||0)/100))}return consOf(p)}
 const PURT=['purchase','porder','open'];
 function tierInfo(inv){if(!isSaleT(inv.type)||inv.type==='sret')return '';const t=tierOf(inv.partyId);
   if(!inv.partyId)return `<div class="small muted" style="margin-top:8px">عميل نقدي — البيع بسعر المستهلك</div>`;
@@ -569,7 +570,7 @@ function calc_(){
   for(const p of L('parties')){const o=+p.openBalance||0;R.party[p.id]=(R.party[p.id]||0)+(p.kind==='vendor'?-o:o)}
   return CC=R;
 }
-const avgCost=pid=>{const s=calc().stock[pid];if(!s)return +(G('products',pid)?.cost)||0;return s.qty>0.0001?s.value/s.qty:s.last};
+const avgCost=pid=>{if(costHidden())return 0;const s=calc().stock[pid];if(!s)return +(G('products',pid)?.cost)||0;return s.qty>0.0001?s.value/s.qty:s.last};
 const qtyIn=(pid,store)=>{const s=calc().stock[pid];if(!s)return 0;return store?(s.by[store]||0):s.qty};
 
 /* ============ render loop ============ */
@@ -682,7 +683,7 @@ function vDash(){
    ${pqPanel()}${window.MZ_FLOW?MZ_FLOW.card():''}${window.MZ_DLV?MZ_DLV.card():''}${window.MZ_RT?MZ_RT.card():''}
    <div class="strip">
      <div><div class="k">مبيعات اليوم</div><div class="v">${fmt(d.sales)}</div><div class="s">${d.count} فاتورة · ${esc(DAYS[new Date().getDay()])} ${t}</div></div>
-     <div><div class="k">ربح اليوم</div><div class="v ${d.profit<0?'neg':''}">${fmt(d.profit)}</div><div class="s">هامش ${d.sales?fmt(d.profit/d.sales*100):0}%</div></div>
+     ${can('seeCost')?`<div><div class="k">ربح اليوم</div><div class="v ${d.profit<0?'neg':''}">${fmt(d.profit)}</div><div class="s">هامش ${d.sales?fmt(d.profit/d.sales*100):0}%</div></div>`:''}
      <div><div class="k">رصيد الخزينة</div><div class="v ${R.cash<0?'neg':''}">${fmt(R.cash)}</div><div class="s">${esc(settings().currency||'ج.م')}</div></div>
      <div><div class="k">الحاضرون الآن</div><div class="v">${presentNow}<span class="muted" style="font-size:18px"> / ${emps.length}</span></div><div class="s">حضر اليوم ${came}</div></div>
    </div>
@@ -940,7 +941,7 @@ function addLine(pid){
     if(cur+1>av+0.0001){toast(`الكمية أقل من المطلوبة — المتاح من «${p?.name||''}» ${fq(av)} بس`,'err');return}}
   if(ex>=0){if(inv.type!=='count')inv.lines[ex].qty=(+inv.lines[ex].qty||0)+1}
   else{const sale=isSaleT(inv.type);inv.lines.push({pid,qty:inv.type==='count'?Math.max(0,Math.round(qtyIn(pid,inv.storeId)*1000)/1000):1,price:sale?salePrice(p,inv.partyId):Math.round(avgCost(pid)*100)/100||(+p.cost||0),disc:0,cost:'',...(PURT.includes(inv.type)?{consumer:consOf(p)}:{})})}
-  if(ex<0&&['sret','pret'].includes(inv.type)){const lp=lastDeal(pid,inv);const L_=inv.lines[inv.lines.length-1];if(lp){L_.price=lp.price;L_.disc=lp.disc||0;if(inv.type==='sret'&&lp.cost!=null)L_.cost=lp.cost;toast(`السعر من ${TYPES[lp.inv.type].full} #${lp.inv.no} بتاريخ ${lp.inv.date}`)}else if(inv.partyId)toast(`الصنف ده مالوش ${inv.type==='sret'?'بيع للعميل ده':'شراء من المورد ده'} قبل كده — راجع السعر`,'err')}
+  if(ex<0&&['sret','pret'].includes(inv.type)){const lp=lastDeal(pid,inv);const L_=inv.lines[inv.lines.length-1];if(lp){L_.price=lp.price;L_.disc=lp.disc||0;if(inv.type==='sret'&&lp.cost!=null&&!costHidden())L_.cost=lp.cost;toast(`السعر من ${TYPES[lp.inv.type].full} #${lp.inv.no} بتاريخ ${lp.inv.date}`)}else if(inv.partyId)toast(`الصنف ده مالوش ${inv.type==='sret'?'بيع للعميل ده':'شراء من المورد ده'} قبل كده — راجع السعر`,'err')}
   let ni=ex>=0?ex:inv.lines.length-1;
   if(isSaleT(inv.type)||inv.type==='transfer'){const cur=inv.lines[ni];inv.lines.sort((a,b)=>pname(a.pid).localeCompare(pname(b.pid)));ni=inv.lines.indexOf(cur)}
   render();setTimeout(()=>{const i=ni;const q=$(`input[data-i="${i}"][data-f="qty"]`);if(q){q.focus();q.select();q.classList.add('flash')}},30);
@@ -1006,7 +1007,10 @@ async function saveInv(andNew){
   if(doc.type==='adj')doc.lines.forEach(l=>{l.cost=+l.price||0});
   let id=ED.id;
   if(T.doc)doc.status=doc.status||'open';
-  if(!id){id=uid();const mx=L('invoices').filter(i=>i.type===inv.type).reduce((m,i)=>Math.max(m,+i.no||0),0);doc.no=mx+1;doc.createdAt=now;doc.createdBy=S.me.id||'';}
+  if(!id){id=uid();const mx=L('invoices').filter(i=>i.type===inv.type).reduce((m,i)=>Math.max(m,+i.no||0),0);doc.no=mx+1;
+    // الرقم بيتحجز من السيرفر (عداد واحد للكل) علشان مايتكررش لو اتنين حفظوا في نفس اللحظة؛ لو النت فاصل بناخد التالي محليًا والسيرفر بيصلّحه لو اتكرر
+    if(S.mode==='cloud'&&window.MZ_STANDALONE){try{const r=await Promise.race([MZ.post('/api/next-no',{type:inv.type}),new Promise((_,j)=>setTimeout(()=>j(new Error('t')),6000))]);if(r&&+r.no>0)doc.no=+r.no}catch(e){}}
+    doc.createdAt=now;doc.createdBy=S.me.id||'';}
   else{doc.updatedAt=now;doc.updatedBy=S.me.id||'';diffAudit(ED.orig,doc,id).catch(()=>{})}
   const W=[put('invoices',id,doc)];
   if(orig_&&window.MZ_FLOW)W.push(MZ_FLOW.afterSave(id,orig_,doc));
@@ -1014,7 +1018,8 @@ async function saveInv(andNew){
     if(l.consumer!=null&&l.consumer!==''&&Math.abs(+l.consumer-consOf(pr))>0.004){W.push(audit('product',l.pid,'سعر المستهلك',consOf(pr),+l.consumer,pr.name));n.consumer=+l.consumer;n.price=+l.consumer;ch=true}if(ch)ups.push(['products',l.pid,n])}
     if(ups.length){W.push(putMany(ups));toast(`تم تحديث أسعار ${ups.length} صنف`)}}
   if(inv.fromOrder&&!ED.id){const o=G('invoices',inv.fromOrder);if(o){W.push(put('invoices',inv.fromOrder,{...o,status:'converted',convertedTo:id}));W.push(audit('invoice',inv.fromOrder,'الحالة','مفتوح',`تحويل إلى ${T.full} #${doc.no}`,TYPES[o.type].full+' #'+o.no))}}
-  Promise.allSettled(W).then(r=>{if(r.some(x=>x.status==='rejected'))toast('بعض التغييرات لم تصل للسحابة — راجع الاتصال وحاول تاني','err')});
+  Promise.allSettled(W).then(r=>{if(r.some(x=>x.status==='rejected'))toast('بعض التغييرات لم تصل للسحابة — راجع الاتصال وحاول تاني','err');
+    const sv=G('invoices',id);if(sv&&+sv.no!==+doc.no){toast(`رقم ${T.full} اتغير لـ ${sv.no} — الرقم ${doc.no} كان اتاخد من جهاز تاني`,'err');if(ED&&ED.id===id){ED.inv.no=sv.no;ED.orig.no=sv.no;render()}}});
   toast(`تم حفظ ${T.full} رقم ${doc.no}`);
   if(andNew){ED={id:null,inv:newInv(inv.type),grp:grpOf(inv.type)};render()}
   else{ED={id,inv:clone(doc),orig:clone(doc)};if(route().p!=='inv')history.replaceState(null,'','#/inv/'+id);render()}
@@ -1488,6 +1493,7 @@ const tfOk=p=>(!TF||(TF==='_none'?!p.tier:TF[0]==='o'?String(p.priceLevel)===TF.
 function vParties(){
   setTitle('العملاء والموردون');const R=calc();
   let list=L('parties').filter(p=>p.kind===PK&&(PK!=='customer'||tfOk(p))).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  if(PK==='vendor'&&costHidden()){$('#view').innerHTML=`<div class="wrap"><div class="row" style="margin-bottom:14px"><div class="seg"><button data-pk="customer">العملاء</button><button data-pk="vendor" class="on">الموردون</button></div></div><div class="empty card"><b>بيانات الموردين وأرصدتهم مش متاحة لصلاحيتك</b>دي بتكشف أسعار الشراء — اطلب من المدير لو محتاجها.</div></div>`;$$('[data-pk]').forEach(b=>b.onclick=()=>{PK=b.dataset.pk;render()});return}
   const sg=PK==='vendor'?-1:1;let tot=0;list.forEach(p=>tot+=sg*(R.party[p.id]||0));
   $('#view').innerHTML=`<div class="wrap"><div class="row" style="margin-bottom:14px"><div class="seg"><button data-pk="customer" class="${PK==='customer'?'on':''}">العملاء</button><button data-pk="vendor" class="${PK==='vendor'?'on':''}">الموردون</button></div><button class="btn p" id="npt" ${S.ro?'disabled':''}>${ic('plus')}${PK==='customer'?'عميل':'مورد'} جديد</button><span class="sp"></span><span class="small muted">إجمالي ${PK==='customer'?'المستحق لنا':'المستحق علينا'}: <b class="num" style="color:var(--ink)">${fmt(tot)}</b></span></div>
    ${PK==='customer'?`<div class="row" style="margin-bottom:12px"><select class="in" style="width:240px" id="tf">${opts([...tiers().map(t=>[t.id,'شريحة: '+t.name]),['_none','بدون شريحة'],...[...new Set(L('parties').filter(x=>x.kind==='customer'&&x.priceLevel!=null).map(x=>x.priceLevel))].sort().map(v=>['o'+v,'نوع العميل في أورجا: '+v])],TF,'كل العملاء')}</select><input class="in" style="width:200px" id="pq" placeholder="بحث بالاسم أو التليفون" value="${esc(PQ)}"><span class="sp"></span>${S.isAdmin||can('parties')?`<button class="btn" id="bulkT" ${S.ro||!list.length?'disabled':''}>تعيين شريحة لـ ${list.length} عميل</button>`:''}</div>`:''}
@@ -1537,7 +1543,7 @@ function stData(pid,from,to){
 const ST={from:'',to:'',det:false};
 const balWord=(p,v)=>Math.abs(v)<0.009?'متوازن':p.kind==='vendor'?(v<0?'مستحق له':'مستحق لنا'):(v>0?'مستحق عليه':'مستحق له');
 function statement(pid){
-  const p=G('parties',pid);if(!p)return;const x=stData(pid,ST.from,ST.to);const sg=x.sg;const cu=p.kind!=='vendor';
+  const p=G('parties',pid);if(!p)return;if(p.kind==='vendor'&&costHidden()){toast('كشف حساب المورد مش متاح لصلاحيتك','err');return}const x=stData(pid,ST.from,ST.to);const sg=x.sg;const cu=p.kind!=='vendor';
   const ag=cu?aging(pid,x.close,'customer'):null;const tr=cu?tierOf(pid):null;
   const per=`${ST.from?'من '+ST.from:'من البداية'} ${ST.to?'إلى '+ST.to:'لحد النهارده'}`;
   modal(`<div class="row" style="align-items:flex-start;margin-bottom:10px"><div style="flex:1"><h2 style="margin:0 0 4px">كشف حساب: ${esc(p.name)}</h2>
@@ -1992,7 +1998,7 @@ function stReport(pid,w){
   return {cols:[['d','التاريخ','t'],['t','البيان','t'],['dr','مدين','m',0,1],['cr','دائن','m',0,1],['bal','الرصيد','m',0,1]],rows,nosort:true,link:'inv',action:['طباعة كشف رسمي',()=>{ST.from=RF.from;ST.to=RF.to;printStatement(pid)}],
     kpi:[['رصيد أول الفترة',fmt(sg*x.open)],['مدين',fmt(x.tD)],['دائن',fmt(x.tC)],['الرصيد',fmt(Math.abs(x.close))+' — '+balWord(x.p,x.close)]],note:'للطباعة بشكل كشف رسمي بالتوقيعات: من شاشة العملاء والموردين ← كشف حساب ← طباعة الكشف.'};
 }
-function repOk(r){if(r.perm&&!can(r.perm))return false;if(r.cost&&!can('seeCost'))return false;return true}
+function repOk(r){if(r.perm&&!can(r.perm))return false;if(costHidden()&&(r.cat==='purchases'||['vend_balances','vend_statement','pnl','stock_balances'].includes(r.id)))return false;if(r.cost&&!can('seeCost'))return false;return true}
 function cellF(v,f){if(v==null||v==='')return '';switch(f){case 'm':return fmt(v);case 'q':return fq(v);case 'i':return Math.abs(v)===99999?'—':String(Math.round(v));case 'p':return fmt(v)+'%';case 'h':return v;default:return esc(v)}}
 function rangeTxt(){return RF.from||RF.to?`من ${RF.from||'البداية'} إلى ${RF.to||'اليوم'}`:'كل الفترات'}
 function vReports(){
@@ -2350,7 +2356,7 @@ init();
 <script src="/accounting.js?v=4"></script>
 <script src="/crm.js?v=2"></script>
 <script src="/packs.js?v=2"></script>
-<script src="/returns.js?v=1"></script>
+<script src="/returns.js?v=2"></script>
 <script src="/track.js?v=2"></script>
 <script src="/review.js?v=3"></script>
 <script src="/delivery.js?v=7"></script>

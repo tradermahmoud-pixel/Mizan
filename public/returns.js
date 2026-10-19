@@ -176,7 +176,7 @@
     ED = { id: null, inv: newInv('sret'), grp: 'sret' }; const inv = ED.inv;
     inv.partyId = r.partyId; inv.storeId = store; inv.retRef = r.id; inv.retPart = part; inv.payFull = false; inv.paid = 0;
     inv.notes = `مرتجع ${r.code} — استلمه ${r.by || ''}${part === 'bad' ? ' — تالف/منتهي' : ''}`;
-    inv.lines = lines.map(l => { const p = price(l.pid, r.partyId); return { pid: l.pid, qty: l.qty, price: p.price, disc: p.disc || 0, cost: p.cost != null ? p.cost : '' }; });
+    inv.lines = lines.map(l => { const p = price(l.pid, r.partyId); return { pid: l.pid, qty: l.qty, price: p.price, disc: p.disc || 0, cost: p.cost != null && !(window.MZ && MZ.costHidden) ? p.cost : '' }; });
     inv.lines.sort((a, b) => pname(a.pid).localeCompare(pname(b.pid)));
     go('sret'); setTimeout(() => toast(`راجع فاتورة المرتجع (${part === 'good' ? 'الصالح' : 'التالف'}) واحفظ بـ Ctrl+S — بعد الحفظ هتتربط بإذن ${r.code}`), 300);
   }

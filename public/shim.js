@@ -39,13 +39,14 @@
     for (const r of docs) {
       const m = col(r.c);
       if (r.x) delete m[r.i]; else m[r.i] = r.d;
+      if (r.c === '_px') window.MZ.px = r.d;
       touched.add(r.c);
     }
     return touched;
   }
   function persist(userId) {
     clearTimeout(saveT);
-    saveT = setTimeout(() => IDB.set(CK, { user: userId, seq, store }), 3000);
+    saveT = setTimeout(() => IDB.set(CK, { user: userId, ch: !!(MZ.me && MZ.me.costHidden), seq, store }), 3000);
   }
   function match(q, d) {
     return q.w.every(([f, op, v]) => { const x = d && d[f]; if (x === undefined) return false; return op === '>' ? x > v : op === '>=' ? x >= v : op === '<' ? x < v : op === '==' ? x === v : true; });
@@ -65,9 +66,10 @@
   function notify(cols) { for (const s of subs) if (!cols || cols.has(s.c)) deliver(s); }
 
   async function initialLoad() {
-    const me = await api('/api/me'); MZ.me = me;
+    const me = await api('/api/me'); MZ.me = me; MZ.costHidden = !!me.costHidden;
     const cached = await IDB.get(CK);
-    if (cached && cached.user === me.id && cached.store) { Object.assign(store, cached.store); seq = cached.seq || 0; }
+    // الكاش متخزن بنفس صلاحيات المستخدم — لو صلاحية التكلفة اتغيرت بنحمّل من الأول
+    if (cached && cached.user === me.id && cached.store && !!cached.ch === MZ.costHidden) { Object.assign(store, cached.store); seq = cached.seq || 0; MZ.px = cached.store._px && cached.store._px.main || null; }
     const t0 = performance.now();
     const r = await api('/api/sync?since=' + seq);
     if (r.full) { for (const k of Object.keys(store)) delete store[k]; }
@@ -107,6 +109,7 @@
       try {
         const r = await api('/api/write', { method: 'POST', headers: H, body: JSON.stringify({ ops: part }) });
         const t = apply(r.docs || []); notify(t); persist(MZ.me && MZ.me.id);
+        if (r.renumbered) MZ.renumbered = (MZ.renumbered || []).concat(r.renumbered);
         pw.forEach(x => x[0]());
       } catch (e) { pw.forEach(x => x[1](e)); }
     }

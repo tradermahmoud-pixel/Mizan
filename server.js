@@ -206,7 +206,8 @@ app.post('/api/logout', async (req, res) => {
 });
 app.get('/api/me', auth(false), async (req, res) => {
   const u = req.user;
-  res.json({ id: u.id, username: u.username, name: u.name, owner: u.owner, admin: await isAdmin(u) });
+  const view = await viewOf(u, pool);
+  res.json({ id: u.id, username: u.username, name: u.name, owner: u.owner, admin: view.admin, costHidden: view.costHidden });
 });
 app.post('/api/password', auth(false), async (req, res, next) => {
   try {
@@ -263,6 +264,15 @@ app.patch('/api/users/:id', auth(true), async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* رقم الفاتورة الجاي — بيتحجز على السيرفر علشان مايتكررش لو اتنين حفظوا في نفس اللحظة */
+app.post('/api/next-no', auth(false), async (req, res, next) => {
+  const type = String(req.body.type || '');
+  if (!NUM_TYPES.has(type)) return res.status(400).json({ error: 'bad type' });
+  const client = await pool.connect();
+  try { await client.query('BEGIN'); const no = await reserveNo(client, type); await client.query('COMMIT'); res.json({ no }); }
+  catch (e) { await client.query('ROLLBACK').catch(() => {}); next(e); } finally { client.release(); }
+});
+
 /* sync: everything changed after `since` */
 app.get('/api/sync', auth(false), async (req, res, next) => {
   try {
@@ -272,10 +282,12 @@ app.get('/api/sync', auth(false), async (req, res, next) => {
       : await pool.query('SELECT col,id,data,deleted,seq FROM docs WHERE seq>$1 ORDER BY seq', [since]);
     const top = await pool.query(`SELECT COALESCE(max(seq),0)::bigint s FROM docs`);
     const seq = Number(top.rows[0].s);
+    const view = await viewOf(req.user, pool);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     const parts = ['{"seq":', String(seq), ',"full":', since === 0 ? 'true' : 'false', ',"docs":['];
-    rows.forEach((r, i) => parts.push((i ? ',' : '') + JSON.stringify({ c: r.col, i: r.id, s: Number(r.seq), d: r.deleted ? null : r.data, x: r.deleted ? 1 : 0 })));
+    rows.forEach((r, i) => parts.push((i ? ',' : '') + JSON.stringify({ c: r.col, i: r.id, s: Number(r.seq), d: r.deleted ? null : viewDoc(r.col, r.data, view), x: r.deleted ? 1 : 0 })));
+    if (view.costHidden && (since === 0 || rows.some(r => PX_COLS.has(r.col)))) parts.push((rows.length ? ',' : '') + JSON.stringify({ c: '_px', i: 'main', s: seq, d: await tierPrices(pool), x: 0 }));
     parts.push(']}');
     res.end(parts.join(''));
   } catch (e) { next(e); }
@@ -293,7 +305,13 @@ app.post('/api/write', auth(false), async (req, res, next) => {
     if (o.c === 'members' && o.i !== req.user.id && !admin) return res.status(403).json({ error: 'forbidden' });
     if (o.op === 'delete' && o.c.startsWith('x_') && !admin) return res.status(403).json({ error: 'forbidden' });
   }
-  const gctx = { admin };
+  const gctx = { admin, seenNo: new Set(), renumbered: [] };
+  const view = admin ? { admin: true, costHidden: false } : await viewOf(req.user, pool);
+  for (const o of ops) {
+    // كتابة chunk كامل (set) بتمسح اللي فيه — للمالك بس (البرنامج نفسه بيكتب update دايمًا)
+    if (!admin && o.op === 'set' && o.c.startsWith('x_')) return res.status(403).json({ error: 'forbidden' });
+    if (view.costHidden && o.c === 'x_products') return res.status(403).json({ error: 'ليس لديك صلاحية تعديل الأصناف' });
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -309,10 +327,19 @@ app.post('/api/write', auth(false), async (req, res, next) => {
       if (o.op === 'update' || o.c === 'x_invoices') {
         const cur = await client.query('SELECT data,deleted FROM docs WHERE col=$1 AND id=$2 FOR UPDATE', [o.c, o.i]);
         const base = cur.rows[0] && !cur.rows[0].deleted ? cur.rows[0].data : {};
-        if (o.c === 'x_invoices' && !admin && isObj(base.items)) {
-          const ni = isObj(o.d.items) ? o.d.items : {};
-          const ids = o.op === 'update' ? Object.keys(ni) : [...new Set([...Object.keys(base.items), ...Object.keys(ni)])];
-          await guardInvoices(client, req.user, ids.map(id => [id, base.items[id], isObj(ni[id]) ? ni[id] : null]), gctx);
+        if (o.c === 'x_invoices') {
+          const bi = isObj(base.items) ? base.items : {}; const ni = isObj(o.d.items) ? o.d.items : {};
+          if (!admin && Object.keys(bi).length) {
+            const ids = o.op === 'update' ? Object.keys(ni) : [...new Set([...Object.keys(bi), ...Object.keys(ni)])];
+            await guardInvoices(client, req.user, ids.map(id => [id, bi[id], isObj(ni[id]) ? ni[id] : null]), gctx);
+          }
+          if (view.costHidden) for (const [id, nv] of Object.entries(ni)) {
+            const ov = bi[id];
+            if ((isObj(nv) && PUR_TYPES.has(nv.type)) || (isObj(ov) && PUR_TYPES.has(ov.type))) throw Object.assign(new Error('ليس لديك صلاحية فواتير الشراء والجرد'), { status: 403 });
+            // التكلفة اليدوية في سطور البيع: اللي مالوش صلاحية التكلفة ميقدرش يكتبها، والقديمة بتفضل زي ما هي
+            if (isObj(nv) && Array.isArray(nv.lines)) nv.lines = nv.lines.map((l, i) => { if (!isObj(l)) return l; const ol = isObj(ov) && Array.isArray(ov.lines) ? ov.lines[i] : null; return { ...l, cost: ol && ol.pid === l.pid && ol.cost != null ? ol.cost : '' }; });
+          }
+          await numberNewInvoices(client, ni, bi, o.i, gctx);
         }
         if (o.op === 'update') data = mergeDoc(base, o.d);
       }
@@ -320,16 +347,125 @@ app.post('/api/write', auth(false), async (req, res, next) => {
         `INSERT INTO docs(col,id,data,deleted,seq,updated_at,updated_by) VALUES($1,$2,$3,false,nextval('doc_seq'),$4,$5)
          ON CONFLICT (col,id) DO UPDATE SET data=EXCLUDED.data,deleted=false,seq=nextval('doc_seq'),updated_at=EXCLUDED.updated_at,updated_by=EXCLUDED.updated_by
          RETURNING seq`, [o.c, o.i, JSON.stringify(data), now(), req.user.id]);
-      out.push({ c: o.c, i: o.i, s: Number(r.rows[0].seq), d: data, x: 0 });
+      out.push({ c: o.c, i: o.i, s: Number(r.rows[0].seq), d: viewDoc(o.c, data, view), x: 0 });
     }
     await client.query('COMMIT');
-    res.json({ ok: true, docs: out });
+    if (view.costHidden && out.some(d => PX_COLS.has(d.c))) { try { out.push({ c: '_px', i: 'main', s: 0, d: await tierPrices(pool), x: 0 }); } catch (e) {} }
+    res.json({ ok: true, docs: out, ...(gctx.renumbered.length ? { renumbered: gctx.renumbered } : {}) });
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     if (e.status) return res.status(e.status).json({ error: e.message });
     next(e);
   } finally { client.release(); }
 });
+
+/* ============ ترقيم الفواتير على السيرفر ============ */
+const NUM_TYPES = new Set(['sale', 'sret', 'purchase', 'pret', 'adj', 'reval', 'count', 'transfer', 'open', 'porder', 'quote']);
+const ITEMS_SQL = `jsonb_each(CASE WHEN jsonb_typeof(d.data->'items')='object' THEN d.data->'items' ELSE '{}'::jsonb END) e(k,v)`;
+async function dbMaxNo(db, type) {
+  const { rows } = await db.query(`SELECT COALESCE(max((e.v->>'no')::numeric),0)::bigint n FROM docs d, ${ITEMS_SQL}
+    WHERE d.col='x_invoices' AND NOT d.deleted AND jsonb_typeof(e.v)='object' AND e.v->>'type'=$1 AND (e.v->>'no') ~ '^[0-9]{1,15}$'`, [type]);
+  return Number(rows[0].n) || 0;
+}
+// بيحجز الرقم الجاي لنوع الفاتورة (داخل transaction): قفل على عداد النوع في kv، فمستحيل اتنين ياخدوا نفس الرقم
+async function reserveNo(db, type) {
+  const k = 'no:' + type;
+  await db.query(`INSERT INTO kv(k,v) VALUES($1,'{"n":0}') ON CONFLICT (k) DO NOTHING`, [k]);
+  const { rows } = await db.query(`SELECT v FROM kv WHERE k=$1 FOR UPDATE`, [k]);
+  const cur = Number(rows[0] && rows[0].v && rows[0].v.n) || 0;
+  const n = Math.max(cur, await dbMaxNo(db, type)) + 1;
+  await db.query(`UPDATE kv SET v=$2 WHERE k=$1`, [k, JSON.stringify({ n })]);
+  return n;
+}
+async function bumpNo(db, type, no) {
+  const k = 'no:' + type;
+  await db.query(`INSERT INTO kv(k,v) VALUES($1,$2) ON CONFLICT (k) DO UPDATE SET v=jsonb_build_object('n', GREATEST(COALESCE((kv.v->>'n')::bigint,0), $3::bigint))`, [k, JSON.stringify({ n: no }), no]);
+}
+// فاتورة جديدة برقم مستخدم قبل كده (مثلًا اتحفظت والنت فاصل) → بتاخد رقم جديد تلقائيًا
+async function numberNewInvoices(db, items, base, chunkId, ctx) {
+  for (const [id, nv] of Object.entries(items)) {
+    if (!isObj(nv) || isObj(base[id]) || !NUM_TYPES.has(nv.type)) continue;
+    const no = Number(nv.no);
+    const key = nv.type + ':' + no;
+    let dup = !(no > 0) || ctx.seenNo.has(key);
+    if (!dup) {
+      const { rows } = await db.query(`SELECT 1 FROM docs d, ${ITEMS_SQL} WHERE d.col='x_invoices' AND NOT d.deleted AND jsonb_typeof(e.v)='object'
+        AND e.v->>'type'=$1 AND e.v->>'no'=$2 AND NOT (d.id=$3 AND e.k=$4) LIMIT 1`, [nv.type, String(no), chunkId, id]);
+      dup = rows.length > 0;
+    }
+    if (dup) { nv.no = await reserveNo(db, nv.type); ctx.renumbered.push({ id, type: nv.type, from: no || null, to: nv.no }); }
+    else await bumpNo(db, nv.type, no);
+    ctx.seenNo.add(nv.type + ':' + Number(nv.no));
+  }
+}
+
+/* ============ التكلفة مش بتوصل لجهاز اللي مالوش صلاحيتها ============
+   المستخدم اللي مالوش «رؤية التكلفة» ولا «الشراء» ولا «الأصناف» (كاشير، مدير مبيعات...) مش بيوصله:
+   أسعار فواتير الشراء والجرد والتسويات، تكلفة الأصناف، التكلفة اليدوية في سطور البيع، وسجل التعديلات.
+   أسعار الشرايح (التكلفة + النسبة) بتتحسب على السيرفر وبتوصله كأسعار بيع جاهزة. */
+const PUR_TYPES = new Set(['purchase', 'pret', 'open', 'porder', 'adj', 'count', 'reval']);
+const DOC_TYPES = new Set(['porder', 'quote']);
+const DEF_TIERS = [{ id: 't_cash', name: 'صيدلي نقدي', markup: 7, days: 0 }, { id: 't_vip', name: 'كبار العملاء', markup: 3, days: 0 }, { id: 't_credit', name: 'آجل 15 يوم', markup: 10, days: 15 }];
+async function viewOf(user, db) {
+  if (await isAdmin(user)) return { admin: true, costHidden: false };
+  const perms = await permsOf(user, db);
+  const has = p => perms === '*' || perms.includes(p);
+  return { admin: false, perms, costHidden: !has('seeCost') && !has('buy') && !has('products') };
+}
+function stripInv(v) {
+  if (!isObj(v)) return v;
+  if (PUR_TYPES.has(v.type)) {
+    return { ...v, discount: 0, taxRate: 0, paid: 0, lines: (Array.isArray(v.lines) ? v.lines : []).map(l => isObj(l) ? { pid: l.pid, qty: l.qty, price: 0, disc: 0, cost: '', ...(l.bonus ? { bonus: true } : {}) } : l) };
+  }
+  if (Array.isArray(v.lines) && v.lines.some(l => isObj(l) && l.cost !== '' && l.cost != null)) return { ...v, lines: v.lines.map(l => isObj(l) ? { ...l, cost: '' } : l) };
+  return v;
+}
+function viewDoc(c, data, view) {
+  if (!view.costHidden || !isObj(data)) return data;
+  if (c === 'x_audit') return { ...data, items: {} };
+  if (c === 'x_invoices' && isObj(data.items)) { const it = {}; for (const [k, v] of Object.entries(data.items)) it[k] = stripInv(v); return { ...data, items: it }; }
+  if (c === 'x_products' && isObj(data.items)) { const it = {}; for (const [k, v] of Object.entries(data.items)) { if (isObj(v)) { const { cost, ...rest } = v; it[k] = rest; } else it[k] = v; } return { ...data, items: it }; }
+  return data;
+}
+// متوسط التكلفة لكل صنف — نفس حسبة البرنامج بالظبط — ومنه أسعار الشرايح
+let PX = { key: '', px: null };
+async function tierPrices(db) {
+  const k = await db.query(`SELECT COALESCE(max(seq),0)::bigint s FROM docs WHERE col IN ('x_invoices','x_products','settings')`);
+  const key = String(k.rows[0].s);
+  if (PX.key === key && PX.px) return PX.px;
+  const { rows } = await db.query(`SELECT col,id,data FROM docs WHERE col IN ('x_invoices','x_products') AND NOT deleted`);
+  const prods = {}, invs = [];
+  for (const r of rows) { const it = r.data && isObj(r.data.items) ? r.data.items : {}; for (const [id, v] of Object.entries(it)) { if (!isObj(v)) continue; if (r.col === 'x_products') prods[id] = v; else invs.push(v); } }
+  const st = {}; const S = id => st[id] || (st[id] = { qty: 0, value: 0, by: {}, last: +(prods[id] && prods[id].cost) || 0 });
+  const cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+  invs.sort((a, b) => cmp(a.date || '', b.date || '') || cmp(a.createdAt || '', b.createdAt || ''));
+  for (const inv of invs) {
+    if (DOC_TYPES.has(inv.type)) continue; const store = inv.storeId || 'main';
+    for (const l of Array.isArray(inv.lines) ? inv.lines : []) {
+      if (!isObj(l) || !l.pid) continue;
+      const q = +l.qty || 0, s = S(l.pid), unit = (+l.price || 0) * (1 - (+l.disc || 0) / 100);
+      const avg = s.qty > 0.0001 ? s.value / s.qty : s.last; const net = q * unit; const man = l.cost !== '' && l.cost != null; let cost = avg;
+      const add = (sid, dq) => { s.by[sid] = (s.by[sid] || 0) + dq; };
+      switch (inv.type) {
+        case 'purchase': case 'open': s.qty += q; s.value += net; if (unit) s.last = unit; add(store, q); break;
+        case 'sale': s.qty -= q; s.value -= q * avg; add(store, -q); break;
+        case 'sret': cost = man ? +l.cost : avg; s.qty += q; s.value += q * cost; add(store, q); break;
+        case 'pret': s.qty -= q; s.value -= q * avg; add(store, -q); break;
+        case 'transfer': add(store, -q); add(inv.toStoreId || 'main', q); break;
+        case 'reval': cost = +l.cost || 0; if (s.qty > 0.0001) s.value = s.qty * cost; else s.value = 0; if (cost) s.last = cost; break;
+        case 'adj': cost = man ? +l.cost : ((+l.price) || avg); s.qty += q; s.value += q * cost; add(store, q); break;
+        case 'count': { const book = s.by[store] || 0; const d = q - book; s.by[store] = q; s.qty += d; s.value += d * avg; break; }
+      }
+      if (s.qty <= 0.0001) s.value = s.qty * (avg || s.last);
+    }
+  }
+  const sr = await db.query(`SELECT data FROM docs WHERE col='settings' AND id='main' AND NOT deleted`);
+  const set = sr.rows[0] && sr.rows[0].data || {}; const tiers = Array.isArray(set.tiers) && set.tiers.length ? set.tiers : DEF_TIERS;
+  const r2 = n => Math.round(n * 100) / 100; const t = {};
+  for (const tr of tiers) { if (!tr || !tr.id) continue; const m = {}; for (const pid of Object.keys(prods)) { const s = st[pid]; const c = s ? (s.qty > 0.0001 ? s.value / s.qty : s.last) : (+prods[pid].cost || 0); if (c > 0) m[pid] = r2(c * (1 + (+tr.markup || 0) / 100)); } t[tr.id] = m; }
+  PX = { key, px: { v: key, t } }; return PX.px;
+}
+const PX_COLS = new Set(['x_invoices', 'x_products', 'settings']);
 
 /* ---------------- AI assistant (OpenAI-compatible providers, key stays on the server) ---------------- */
 const AI_PRESETS = {
