@@ -280,9 +280,14 @@
   F.unsettled = () => L('runs').filter(r => r.status === 'done' && !r.settled && (r.endAt || r.createdAt || '') >= addDays(today(), -7) + 'T').filter(r => !(r.stops || []).every(s => s.kind === 'pickup'));
 
   /* ---------- شاشة متابعة الأوردرات ---------- */
+  // بداية المتابعة: الفواتير اللي قبل التاريخ ده (زي فواتير أورجا القديمة) مش بتدخل دورة الطباعة والتحضير والتوصيل
+  F.from = () => { const s = settings(); return s.flowFrom || F._autoFrom || today(); };
+  F.inFlow = inv => (inv.date || '') >= F.from();
+  F.ensureFrom = () => { const s = settings(); if (s.flowFrom || F._autoFrom) return; F._autoFrom = today(); if (S.isAdmin) put('settings', 'main', { ...s, flowFrom: today() }).catch(() => {}); };
   function rowsFor(days) {
+    F.ensureFrom();
     const from = addDays(today(), -(days - 1)); const back = addDays(today(), -14);
-    const xs = L('invoices').filter(i => i.type === 'sale' && (i.date || '') >= back);
+    const xs = L('invoices').filter(i => i.type === 'sale' && (i.date || '') >= back && F.inFlow(i));
     const out = [];
     for (const i of xs) { const o = of(i); if ((i.date || '') >= from || OPEN.has(o.st) && o.st !== 'delivered' && (o.st !== 'new' || (i.date || '') >= addDays(today(), -3))) out.push({ inv: i, o }); }
     return out;
@@ -301,7 +306,8 @@
     $('#view').innerHTML = `<div class="wrap">
       <div class="card" style="padding:12px 14px"><div class="row"><div class="rv-scan" style="flex:1 1 320px;display:flex;gap:8px"><input class="in" id="flI" autocomplete="off" placeholder="امسح أي باركود: فاتورة / شنطة / إذن مرتجع — أو اكتب رقم الفاتورة" style="font-size:17px;padding:11px 14px"></div>
         <select class="in" id="flD" style="width:140px">${opts([[1, 'النهارده'], [2, 'من امبارح'], [3, 'آخر 3 أيام'], [7, 'آخر أسبوع']], String(F.days))}</select><input class="in" id="flQ" style="width:170px" placeholder="العميل أو رقم الفاتورة" value="${esc(F.q)}"></div>
-        <p class="small muted" style="margin:8px 0 0">كل فاتورة بتتنقل للمرحلة الجاية لوحدها مع كل خطوة (طباعة، مراجعة، تحميل، تسليم). الفواتير المفتوحة من أيام قبل كده بتفضل ظاهرة لحد ما تتقفل.</p></div>
+        <p class="small muted" style="margin:8px 0 0">كل فاتورة بتتنقل للمرحلة الجاية لوحدها مع كل خطوة (طباعة، مراجعة، تحميل، تسليم). الفواتير المفتوحة من أيام قبل كده بتفضل ظاهرة لحد ما تتقفل.
+          <span class="nowrap">المتابعة بتبدأ من ${S.isAdmin ? `<input type="date" class="in" id="flFrom" value="${esc(F.from())}" style="width:150px;display:inline-block;padding:3px 8px">` : `<b class="num">${esc(F.from())}</b>`} — اللي قبل كده مش بيظهر هنا.</span></p></div>
       <div class="fl-pipe">${ORDER.map(k => `<button class="fl-pc ${F.st === k ? 'on' : ''} ${STG[k][2]}" data-fls="${k}"><b>${cnt[k]}</b><span>${STG[k][0]}</span></button>`).join('<i class="fl-ar">←</i>')}</div>
       <div class="row" style="margin:10px 0">
         <div class="seg"><button data-fls="open" class="${F.st === 'open' ? 'on' : ''}">المفتوح <span class="small muted num">${nOpen}</span></button><button data-fls="flag" class="${F.st === 'flag' ? 'on' : ''}">تنبيهات <span class="small muted num">${nFlag}</span></button><button data-fls="all" class="${F.st === 'all' ? 'on' : ''}">الكل <span class="small muted num">${all.length}</span></button></div>
@@ -347,6 +353,7 @@
     if (I) { setTimeout(() => { if (!document.getElementById('modal').classList.contains('on')) I.focus(); }, 30); I.onkeydown = e => { if (e.key !== 'Enter') return; e.preventDefault(); const v = I.value.trim(); I.value = ''; if (v) F.scan(v); }; }
     $$('[data-fls]').forEach(b => b.onclick = () => { F.st = F.st === b.dataset.fls && ORDER.includes(F.st) ? 'open' : b.dataset.fls; render(); });
     $('#flD').onchange = e => { F.days = +e.target.value; render(); };
+    const ff = $('#flFrom'); if (ff) ff.onchange = async e => { const v = e.target.value; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return; await put('settings', 'main', { ...settings(), flowFrom: v }); toast('المتابعة بقت تبدأ من ' + v); render(); };
     $('#flQ').onchange = e => { F.q = e.target.value.trim(); render(); };
     $$('[data-flb]').forEach(b => b.onclick = () => bulk[+b.dataset.flb].fn());
     $$('[data-fln]').forEach(b => b.onclick = e => { e.stopPropagation(); const inv = L('invoices').find(i => i.id === b.dataset.fln); const nx = inv && nextAct(inv); if (nx) nx.fn(); });

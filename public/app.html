@@ -1223,7 +1223,7 @@ let PQ_={f:'todo',days:1,q:'',who:'',type:'sale'};
 const canPrep=()=>S.isAdmin||can('prep');
 function vPrep(){
   setTitle('التحضير والطباعة');const t=today();const from=addDays(t,-(+PQ_.days||1)+1);
-  let xs=L('invoices').filter(i=>(PQ_.type==='all'?['sale','sret','transfer'].includes(i.type):i.type===PQ_.type)&&(i.date||'')>=from);
+  let xs=L('invoices').filter(i=>(PQ_.type==='all'?['sale','sret','transfer'].includes(i.type):i.type===PQ_.type)&&(i.date||'')>=from&&(!window.MZ_FLOW||!MZ_FLOW.inFlow||MZ_FLOW.inFlow(i)));
   const st=i=>{const p=prn(i.id);return p&&p.n?'printed':'todo'};const prepd=i=>{const p=prn(i.id);return !!(p&&p.prepAt)};
   const cnt={todo:xs.filter(i=>st(i)==='todo').length,printed:xs.filter(i=>st(i)==='printed'&&!prepd(i)).length,done:xs.filter(prepd).length,all:xs.length};
   const users=[...new Set(xs.map(i=>i.createdBy).filter(Boolean))];
@@ -2362,7 +2362,7 @@ init();
 <script src="/track.js?v=2"></script>
 <script src="/review.js?v=3"></script>
 <script src="/delivery.js?v=7"></script>
-<script src="/flow.js?v=1"></script>
+<script src="/flow.js?v=2"></script>
 <script src="/orgalink.js?v=2"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=9"></script>
