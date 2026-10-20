@@ -246,6 +246,7 @@ table.t tr.click{cursor:pointer}
   <div id="main">
     <header id="top">
       <button class="btn ic" id="menuBtn" aria-label="فتح القائمة"></button>
+      <button class="btn ic" id="backBtn" aria-label="رجوع" title="رجوع (Alt + ←  أو  Backspace)" hidden style="font-size:20px;line-height:1">→</button>
       <h1 id="title">ميزان</h1>
       <a class="pqpill" id="pqPill" href="#/" hidden></a><span class="sync" id="sync"><i></i><span>جارٍ الاتصال…</span></span>
     </header>
@@ -633,10 +634,18 @@ $('#modal').addEventListener('click',e=>{if(e.target.id==='modal'||e.target.clos
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'||e.key==='S')){const b=$('#save');if(b&&!b.disabled){e.preventDefault();const a=document.activeElement;if(a&&a.blur)a.blur();setTimeout(()=>b.click(),30)}}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#modal').classList.contains('on'))closeModal()});
 /* اختصارات عامة — بنستخدم e.code علشان تشتغل مع الكيبورد العربي والإنجليزي */
+/* رجوع: زرار فوق + Alt+← + Backspace (برّه خانات الكتابة) — مهم في نسخة البرنامج المتسطّبة اللي مالهاش زرار رجوع */
+let NAVN=0;window.addEventListener('hashchange',()=>{NAVN++;backUi()});
+function goBack(){if($('#modal').classList.contains('on')){closeModal();return}if(NAVN>0&&history.length>1){NAVN-=2;history.back()}else if(location.hash&&location.hash!=='#/'){location.hash='#/'}}
+function backUi(){const b=$('#backBtn');if(b)b.hidden=!location.hash||location.hash==='#/'||location.hash==='#'}
+document.addEventListener('DOMContentLoaded',()=>{const b=$('#backBtn');if(b)b.onclick=goBack;backUi()});
+document.addEventListener('keydown',e=>{const t=e.target,ed=t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+  if(e.altKey&&!e.ctrlKey&&!e.metaKey&&e.key==='ArrowLeft'&&!$('#modal').classList.contains('on')){e.preventDefault();goBack();return}
+  if(e.key==='Backspace'&&!ed&&!e.altKey&&!e.ctrlKey&&!e.metaKey){e.preventDefault();goBack()}});
 function kbHelp(){modal(`<h2>⌨️ اختصارات الكيبورد</h2><div class="tw"><table class="t"><tbody>
   ${[['فاتورة البيع/الشراء',''],['Alt + F','البحث عن صنف'],['Alt + W','توسيع البحث (شاشة كبيرة)'],['Alt + I','حركة الصنف اللي واقف عليه (أو افتح متابعة صنف)'],['↓ / ↑ في البحث','تنقّل بين النتايج ثم Enter للإضافة'],['Ctrl + S','حفظ الفاتورة'],['Ctrl + P','طباعة الفاتورة'],
      ['شاشة توسيع البحث',''],['↓ / ↑','الصنف اللي بعده / قبله'],['PgDn / PgUp','صفحة لتحت / لفوق'],['Ctrl + ↓ / ↑','آخر / أول القايمة'],['Alt + ← / →','تحريك الجدول بالجانب'],['Enter','إضافة الصنف المحدد (والشاشة تفضل مفتوحة)'],['Ctrl + Enter','إضافة وقفل الشاشة'],['Alt + 1 / Alt + 2','البحث بأول الكلمة / بجزء منها'],['Alt + R','اللي ليه رصيد بس'],
-     ['متابعة حركة صنف',''],['↓ / ↑ في البحث ثم Enter','اختيار الصنف (أو امسح الباركود)'],['↓ / ↑ في جدول الحركات ثم Enter','فتح الفاتورة'],['عام',''],['Esc','قفل أي نافذة'],['Alt + K','الشاشة دي']].map(([k,v])=>v?`<tr><td style="white-space:nowrap" dir="ltr">${k.split(' / ').map(x=>x.split(' + ').map(y=>`<kbd>${esc(y)}</kbd>`).join('+')).join(' / ')}</td><td>${esc(v)}</td></tr>`:`<tr><td colspan="2"><b>${esc(k)}</b></td></tr>`).join('')}</tbody></table></div>
+     ['متابعة حركة صنف',''],['↓ / ↑ في البحث ثم Enter','اختيار الصنف (أو امسح الباركود)'],['↓ / ↑ في جدول الحركات ثم Enter','فتح الفاتورة'],['عام',''],['Alt + ←','رجوع للشاشة اللي قبلها'],['Backspace','رجوع (لو مش بتكتب في خانة)'],['Esc','قفل أي نافذة'],['Alt + K','الشاشة دي']].map(([k,v])=>v?`<tr><td style="white-space:nowrap" dir="ltr">${k.split(' / ').map(x=>x.split(' + ').map(y=>`<kbd>${esc(y)}</kbd>`).join('+')).join(' / ')}</td><td>${esc(v)}</td></tr>`:`<tr><td colspan="2"><b>${esc(k)}</b></td></tr>`).join('')}</tbody></table></div>
   <div class="row" style="margin-top:12px"><span class="sp"></span><button class="btn p" data-close>تمام</button></div>`)}
 document.addEventListener('keydown',e=>{if(!e.altKey||e.ctrlKey||e.metaKey)return;const m=$('#modal').classList.contains('on');
   if(e.code==='KeyK'){e.preventDefault();kbHelp();return}
