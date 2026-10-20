@@ -21,6 +21,8 @@ const ADMIN_ONLY = new Set(['roles', 'roledefs', 'settings']);
 const notify = require('./notify');
 const SESSION_DAYS = 30;
 const COOKIE = 'mz_s';
+// رقم النسخة: الأجهزة المفتوحة بتعرف إن فيه تحديث وبتعمل reload
+const BUILD = String(process.env.RENDER_GIT_COMMIT || Date.now()).slice(0, 12);
 
 /* ---------------- helpers ---------------- */
 const now = () => Date.now();
@@ -165,6 +167,7 @@ app.disable('x-powered-by');
 app.use(compression({ threshold: 1024 }));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Mizan-Build', BUILD);
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   next();

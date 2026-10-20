@@ -123,7 +123,12 @@
         <label class="row small" style="gap:8px;margin-bottom:8px"><input type="checkbox" id="naOn" ${c.off ? '' : 'checked'}> التنبيه شغال</label>
         <div class="grid g2"><div><b class="small">الخزائن المتراقبة</b>${c.safes.map(s => `<label class="row small" style="gap:8px;padding:3px 0"><input type="checkbox" data-nas="${esc(s.id)}" ${c.watch.includes(s.id) ? 'checked' : ''}> ${esc(s.name)}</label>`).join('')}</div>
         <div><b class="small">يستلم التنبيه</b>${c.users.map(u => `<label class="row small" style="gap:8px;padding:3px 0"><input type="checkbox" data-nau="${esc(u.id)}" ${c.to.includes(u.id) ? 'checked' : ''}> ${esc(u.name)}${u.owner ? ' <span class="tag">المالك</span>' : ''}</label>`).join('')}</div></div>
-        <div class="row" style="margin-top:10px;gap:8px"><button class="btn s p" id="naSv">حفظ</button><button class="btn s" id="naT">ابعت تنبيه تجربة</button></div>`;
+        <div class="row" style="margin-top:10px;gap:8px"><button class="btn s p" id="naSv">حفظ</button><button class="btn s" id="naT">ابعت تنبيه تجربة</button></div>
+        <div id="naR" style="margin-top:14px"></div>`;
+      fetch('/api/notifs/recent', { credentials: 'same-origin' }).then(r => r.json()).then(xs => {
+        const el2 = el.querySelector('#naR'); if (!el2 || !Array.isArray(xs)) return;
+        el2.innerHTML = '<b class="small">آخر التنبيهات</b>' + (xs.length ? `<div class="tw" style="margin-top:6px"><table class="t"><thead><tr><th>الوقت</th><th class="n">المبلغ</th><th>استلمها</th><th>الخزينة</th><th>وصل لـ</th></tr></thead><tbody>${xs.map(x => `<tr><td class="small">${esc(tm(x.at))}${x.test ? ' <span class="tag">تجربة</span>' : ''}</td><td class="n num">${money(x.amount)}</td><td>${esc(x.by || '')}</td><td>${esc(x.safeName || '')}</td><td class="small">${x.to.map(t => esc(t.name) + (t.seen ? ' ✓' : ' ⏳')).join('، ')}</td></tr>`).join('')}</tbody></table></div><p class="small muted">✓ شافه · ⏳ لسه ماشافهوش (هيظهرله أول ما يفتح ميزان)</p>` : '<p class="small muted">لسه مفيش تنبيهات.</p>');
+      }).catch(() => {});
       el.querySelector('#naSv').onclick = async () => {
         const safes = [...el.querySelectorAll('[data-nas]')].filter(x => x.checked).map(x => x.dataset.nas);
         const users = [...el.querySelectorAll('[data-nau]')].filter(x => x.checked).map(x => x.dataset.nau);

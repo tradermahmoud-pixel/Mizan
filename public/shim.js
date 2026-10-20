@@ -6,11 +6,25 @@
   const H = { 'Content-Type': 'application/json', 'X-Mizan': '1' };
   async function api(path, opts) {
     const r = await fetch(path, Object.assign({ credentials: 'same-origin' }, opts || {}));
+    try { const b = r.headers.get('x-mizan-build'); if (b) { if (!window.MZ.build) window.MZ.build = b; else if (b !== window.MZ.build && !window.MZ.newBuild) { window.MZ.newBuild = b; newBuild(); } } } catch (e) {}
     try { const sd = r.headers.get('date'); if (sd) { const t = new Date(sd).getTime(); if (t) window.MZ.skew = t - Date.now(); } } catch (e) {}
     if (r.status === 401) { location.href = '/login'; throw Object.assign(new Error('login'), { code: 'unauthenticated' }); }
     let j = null; try { j = await r.json(); } catch (e) {}
     if (!r.ok) throw Object.assign(new Error((j && j.error) || ('HTTP ' + r.status)), { code: r.status === 403 ? 'permission_denied' : 'server', status: r.status });
     return j;
+  }
+  /* نسخة جديدة اتنشرت: الصفحة المفتوحة بتتحدّث لوحدها (من غير ما تضيّع شغل مفتوح) */
+  function busy() { return /^#\/(sale|purchase|sret|pret|quote|porder|open|adj|count|transfer|reval)\b/.test(location.hash) || !!document.querySelector('#modal.on,#mzN'); }
+  function newBuild() {
+    const go = () => { try { sessionStorage.setItem('mz.upd', '1'); } catch (e) {} location.reload(); };
+    const tick = () => { if (!busy() || document.hidden) go(); else setTimeout(tick, 15000); };
+    if (!document.getElementById('mzUpd')) {
+      const d = document.createElement('div'); d.id = 'mzUpd';
+      d.style.cssText = 'position:fixed;bottom:16px;left:16px;z-index:9998;background:#0a7a3a;color:#fff;padding:10px 14px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.3);font:600 14px system-ui;display:flex;gap:10px;align-items:center';
+      d.innerHTML = 'فيه تحديث جديد لميزان <button style="background:#fff;color:#0a7a3a;border:0;border-radius:8px;padding:6px 12px;font:700 13px system-ui;cursor:pointer">حدّث دلوقتي</button>';
+      d.querySelector('button').onclick = go; (document.body || document.documentElement).appendChild(d);
+    }
+    setTimeout(tick, 20000);
   }
   window.MZ = {
     api,

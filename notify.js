@@ -106,6 +106,14 @@ function mount(app, { pool, auth }) {
       res.json({ ok: true, to: c.to.length });
     } catch (e) { next(e); }
   });
+  // آخر التنبيهات (للمراجعة: اتعمل تنبيه ولا لأ، ومين شافه)
+  app.get('/api/notifs/recent', auth(true), async (req, res, next) => {
+    try {
+      const { rows } = await pool.query(`SELECT id, data FROM docs WHERE col='notifs' AND NOT deleted ORDER BY seq DESC LIMIT 15`);
+      const { rows: us } = await pool.query(`SELECT id, name FROM users`); const nm = new Map(us.map(u => [u.id, u.name]));
+      res.json(rows.map(r => ({ id: r.id, at: r.data.at, amount: r.data.amount, by: r.data.by, safeName: r.data.safeName, what: r.data.what, test: !!r.data.test, to: (r.data.to || []).map(id => ({ name: nm.get(id) || id, seen: !!(r.data.seen && r.data.seen[id]) })) })));
+    } catch (e) { next(e); }
+  });
   app.get('/api/notifs/config', auth(true), async (req, res, next) => {
     try { const c = await cfg(pool); res.json({ off: c.off, watch: [...c.watch], to: c.to, safes: [...c.safes].map(([id, name]) => ({ id, name })), users: c.users.map(u => ({ id: u.id, name: u.name, owner: u.owner })) }); } catch (e) { next(e); }
   });
