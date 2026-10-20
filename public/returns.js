@@ -34,15 +34,16 @@
   // ctx: {partyId, runId, reqId}
   RT.collect = function (ctx) {
     const req = ctx.reqId ? get(ctx.reqId) : null;
-    RT.form = { partyId: ctx.partyId || (req && req.partyId) || '', runId: ctx.runId || (req && req.runId) || '', reqId: req ? req.id : '', lines: [], note: req && req.reqNote ? '' : '', reason: 'exp' };
+    RT.form = { lockParty: !!ctx.partyId, partyId: ctx.partyId || (req && req.partyId) || '', runId: ctx.runId || (req && req.runId) || '', reqId: req ? req.id : '', lines: [], note: req && req.reqNote ? '' : '', reason: 'exp' };
     drawForm();
   };
   function drawForm() {
     const F = RT.form; const p = F.partyId ? G('parties', F.partyId) || {} : null; const req = F.reqId ? get(F.reqId) : null;
     const custs = L('parties').filter(x => x.kind !== 'vendor').sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-    modal(`<h2>↩️ استلام مرتجع${p ? ' — ' + esc(p.name) : ''}</h2>
+    modal(`<h2>↩️ استلام مرتجع${p ? ' — ' + esc(p.name) : ''}${p && !F.reqId && !F.lockParty ? ' <button type="button" class="btn s" id="rt_pc" style="vertical-align:middle">تغيير</button>' : ''}</h2>
       ${req && req.reqNote ? `<div class="card" style="padding:8px 12px;margin-bottom:8px;border-color:var(--gold)">طلب المدير: ${esc(req.reqNote)}</div>` : ''}
-      ${p ? '' : `<label class="f">الصيدلية<select class="in" id="rt_p">${opts(custs.map(c => [c.id, c.name]), '', '— اختار الصيدلية —')}</select></label>`}
+      ${p ? '' : `<label class="f">الصيدلية<input class="in" id="rt_p" autocomplete="off" placeholder="🔍 اكتب اسم الصيدلية أو رقم التليفون" value="${esc(F.pq || '')}"></label>
+      <div class="sugg" id="rt_pg" hidden style="position:static;max-height:240px;overflow:auto;margin-top:4px"></div>`}
       <div class="row" style="gap:6px;margin-top:8px;flex-wrap:nowrap"><input class="in" id="rt_s" autocomplete="off" placeholder="امسح باركود الصنف أو اكتب اسمه" style="flex:1">${'BarcodeDetector' in window ? '<button class="btn" id="rt_cam" type="button">📷</button>' : ''}</div>
       <div class="sugg" id="rt_sg" hidden style="position:static;max-height:200px;overflow:auto;margin-top:4px"></div>
       <div class="row small" style="margin-top:6px;gap:6px">السبب للأصناف الجاية:<select class="in" id="rt_r" style="width:auto;padding:4px 8px">${opts(REASONS, F.reason)}</select></div>
@@ -70,7 +71,32 @@
     sIn.oninput = () => { const q = sIn.value.trim(); if (q.length < 2 || /^\d{6,}$/.test(q)) { sg.hidden = true; return; } hits = pSearch(q, 12); sg.hidden = !hits.length; sg.innerHTML = hits.map((p, k) => `<button type="button" data-k="${k}" style="display:flex;width:100%;text-align:right;padding:6px 8px;border:0;background:none;color:inherit;cursor:pointer;border-bottom:1px solid var(--line)"><b style="flex:1">${esc(p.name)}</b><span class="small muted">${esc(p.code || '')}</span></button>`).join(''); sg.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { add(hits[+b.dataset.k].id); sIn.value = ''; sg.hidden = true; sIn.focus(); }); };
     sIn.onkeydown = e => { if (e.key !== 'Enter') return; e.preventDefault(); let v = sIn.value.trim(); if (!v) return; let q = 1; const m = v.match(/^(\d+)\s*[*xX×]\s*(.+)$/); if (m) { q = +m[1]; v = m[2]; } const pid = resolveBc(v); if (pid) { add(pid, q); sIn.value = ''; sg.hidden = true; return; } if (hits.length) { add(hits[0].id, q); sIn.value = ''; sg.hidden = true; return; } beep('err'); msg('الباركود ده مش معروف — دوّر بالاسم', true); };
     const cam = document.getElementById('rt_cam'); if (cam) cam.onclick = () => MZ_PK.camScan(v => { const pid = resolveBc(v); if (pid) { add(pid, 1); return '✓ ' + pname(pid); } beep('err'); return 'مش معروف: ' + v; }, 'امسح الأصناف الراجعة');
-    const ps = document.getElementById('rt_p'); if (ps) ps.onchange = () => { F.partyId = ps.value; };
+    const pc = document.getElementById('rt_pc'); if (pc) pc.onclick = () => { F.partyId = ''; drawForm(); };
+    const ps = document.getElementById('rt_p'), pg = document.getElementById('rt_pg');
+    if (ps) {
+      // بحث بالاسم (من غير ما يفرق أ/ا، ة/ه، ى/ي) أو بالتليفون أو الكود
+      let hit = [], at = 0;
+      const show = () => {
+        const q = norm(ps.value), d = ps.value.replace(/\D/g, '');
+        if (!q) { pg.hidden = true; F.pq = ''; return; }
+        const words = q.split(' ').filter(Boolean);
+        hit = custs.filter(c => { const n = norm(c.name); return words.every(w => n.includes(w)) || (d.length >= 3 && String(c.phone || '').replace(/\D/g, '').includes(d)) || String(c.code || '') === ps.value.trim(); })
+          .sort((a, b) => (norm(a.name).startsWith(q) ? 0 : 1) - (norm(b.name).startsWith(q) ? 0 : 1)).slice(0, 30);
+        at = 0;
+        pg.innerHTML = hit.length ? hit.map((c, i) => `<button type="button" data-pp="${esc(c.id)}" class="${i === at ? 'on' : ''}"><span style="flex:1">${esc(c.name)}</span>${c.address ? `<span class="small muted">${esc(String(c.address).slice(0, 30))}</span>` : ''}</button>`).join('') : '<div class="small muted" style="padding:10px 14px">مفيش صيدلية بالاسم ده</div>';
+        pg.hidden = false;
+        pg.querySelectorAll('[data-pp]').forEach(b => b.onclick = () => pick(b.dataset.pp));
+      };
+      const pick = id => { F.partyId = id; F.pq = ''; drawForm(); setTimeout(() => { const x = document.getElementById('rt_s'); if (x) x.focus(); }, 30); };
+      ps.oninput = () => { F.partyId = ''; F.pq = ps.value; show(); };
+      ps.onkeydown = e => {
+        if (pg.hidden || !hit.length) return;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); at = (at + (e.key === 'ArrowDown' ? 1 : -1) + hit.length) % hit.length; pg.querySelectorAll('[data-pp]').forEach((b, i) => b.classList.toggle('on', i === at)); }
+        else if (e.key === 'Enter') { e.preventDefault(); pick(hit[at].id); }
+      };
+      if (F.pq) show();
+      setTimeout(() => ps.focus(), 40);
+    }
     document.getElementById('rt_n').oninput = e => { F.note = e.target.value; };
     drawLines(); setTimeout(() => sIn.focus(), 60);
     document.getElementById('rt_ok').onclick = async () => {
