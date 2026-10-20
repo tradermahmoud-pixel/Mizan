@@ -18,6 +18,7 @@ const pool = new Pool({
 });
 
 const ADMIN_ONLY = new Set(['roles', 'roledefs', 'settings']);
+const notify = require('./notify');
 const SESSION_DAYS = 30;
 const COOKIE = 'mz_s';
 
@@ -286,8 +287,9 @@ app.get('/api/sync', auth(false), async (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     const parts = ['{"seq":', String(seq), ',"full":', since === 0 ? 'true' : 'false', ',"docs":['];
-    rows.forEach((r, i) => parts.push((i ? ',' : '') + JSON.stringify({ c: r.col, i: r.id, s: Number(r.seq), d: r.deleted ? null : viewDoc(r.col, r.data, view), x: r.deleted ? 1 : 0 })));
-    if (view.costHidden && (since === 0 || rows.some(r => PX_COLS.has(r.col)))) parts.push((rows.length ? ',' : '') + JSON.stringify({ c: '_px', i: 'main', s: seq, d: await tierPrices(pool), x: 0 }));
+    let first = true;
+    rows.forEach(r => { if (r.col === 'notifs' && !r.deleted && !(r.data && Array.isArray(r.data.to) && r.data.to.includes(req.user.id))) return; parts.push((first ? '' : ',') + JSON.stringify({ c: r.col, i: r.id, s: Number(r.seq), d: r.deleted ? null : viewDoc(r.col, r.data, view), x: r.deleted ? 1 : 0 })); first = false; });
+    if (view.costHidden && (since === 0 || rows.some(r => PX_COLS.has(r.col)))) parts.push((first ? '' : ',') + JSON.stringify({ c: '_px', i: 'main', s: seq, d: await tierPrices(pool), x: 0 }));
     parts.push(']}');
     res.end(parts.join(''));
   } catch (e) { next(e); }
@@ -303,9 +305,10 @@ app.post('/api/write', auth(false), async (req, res, next) => {
     if (!['set', 'update', 'delete'].includes(o.op)) return res.status(400).json({ error: 'bad op' });
     if (ADMIN_ONLY.has(o.c) && !admin) return res.status(403).json({ error: 'forbidden', code: 'permission_denied' });
     if (o.c === 'members' && o.i !== req.user.id && !admin) return res.status(403).json({ error: 'forbidden' });
+    if (o.c === 'notifs') return res.status(403).json({ error: 'forbidden' }); // التنبيهات بيعملها السيرفر بس
     if (o.op === 'delete' && o.c.startsWith('x_') && !admin) return res.status(403).json({ error: 'forbidden' });
   }
-  const gctx = { admin, seenNo: new Set(), renumbered: [] };
+  const gctx = { admin, seenNo: new Set(), renumbered: [], cashEv: [] };
   const view = admin ? { admin: true, costHidden: false } : await viewOf(req.user, pool);
   for (const o of ops) {
     // كتابة chunk كامل (set) بتمسح اللي فيه — للمالك بس (البرنامج نفسه بيكتب update دايمًا)
@@ -342,6 +345,7 @@ app.post('/api/write', auth(false), async (req, res, next) => {
           await numberNewInvoices(client, ni, bi, o.i, gctx);
         }
         if (o.op === 'update') data = mergeDoc(base, o.d);
+        if ((o.c === 'x_cash' || o.c === 'x_invoices') && isObj(o.d.items)) gctx.cashEv.push(...notify.detect(o.c, isObj(base.items) ? base.items : {}, o.d.items, 'mizan'));
       }
       const r = await client.query(
         `INSERT INTO docs(col,id,data,deleted,seq,updated_at,updated_by) VALUES($1,$2,$3,false,nextval('doc_seq'),$4,$5)
@@ -349,6 +353,7 @@ app.post('/api/write', auth(false), async (req, res, next) => {
          RETURNING seq`, [o.c, o.i, JSON.stringify(data), now(), req.user.id]);
       out.push({ c: o.c, i: o.i, s: Number(r.rows[0].seq), d: viewDoc(o.c, data, view), x: 0 });
     }
+    if (gctx.cashEv.length) await notify.emit(client, gctx.cashEv, { id: req.user.id, name: req.user.name });
     await client.query('COMMIT');
     if (view.costHidden && out.some(d => PX_COLS.has(d.c))) { try { out.push({ c: '_px', i: 'main', s: 0, d: await tierPrices(pool), x: 0 }); } catch (e) {} }
     res.json({ ok: true, docs: out, ...(gctx.renumbered.length ? { renumbered: gctx.renumbered } : {}) });
@@ -360,7 +365,8 @@ app.post('/api/write', auth(false), async (req, res, next) => {
 });
 
 /* ============ ربط أورجا (اتجاه واحد: أورجا ← ميزان) ============ */
-require('./orga')(app, { pool, auth, now });
+require('./orga')(app, { pool, auth, now, notify });
+notify.mount(app, { pool, auth });
 
 /* ============ ترقيم الفواتير على السيرفر ============ */
 const NUM_TYPES = new Set(['sale', 'sret', 'purchase', 'pret', 'adj', 'reval', 'count', 'transfer', 'open', 'porder', 'quote']);

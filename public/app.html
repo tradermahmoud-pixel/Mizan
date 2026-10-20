@@ -2131,6 +2131,7 @@ function vSettings(){
    <div class="card" style="grid-column:1/-1"><h3>شرائح أسعار العملاء</h3><p class="small muted" style="margin-top:0">سعر البيع = متوسط تكلفة الصنف + نسبة الشريحة، ويتحسب تلقائيًا في الفاتورة لما تختار العميل. العميل بدون شريحة بيتباع له بسعر المستهلك.</p>
     <div class="tw"><table class="t"><thead><tr><th>اسم الشريحة</th><th>نسبة على التكلفة %</th><th>مدة الأجل (يوم)</th><th class="n">عدد العملاء</th><th></th></tr></thead><tbody>${tiers().map(t=>`<tr><td><input class="cell" data-tn="${t.id}" value="${esc(t.name)}"></td><td><input class="cell n" data-tm="${t.id}" inputmode="decimal" value="${t.markup}"></td><td><input class="cell n" data-td="${t.id}" inputmode="numeric" value="${t.days||0}"></td><td class="n">${L('parties').filter(x=>x.tier===t.id).length}</td><td><button class="btn s d" data-tx="${t.id}">حذف</button></td></tr>`).join('')}</tbody></table></div>
     <div class="row" style="margin-top:10px"><button class="btn s" id="tAdd">${ic('plus')}شريحة جديدة</button><button class="btn s p" id="tSave" ${S.ro?'disabled':''}>حفظ الشرائح</button><a class="small" href="#/parties">تعيين الشرائح للعملاء ←</a></div></div>
+   ${window.MZ_STANDALONE&&S.isAdmin?`<div class="card" id="notifCard" style="grid-column:1/-1;border-color:var(--gold)"><h3>🔔 تنبيه استلام النقدية</h3><p class="small muted">جارٍ التحميل…</p></div>`:''}
    ${window.MZ_STANDALONE&&window.MZ&&MZ.me&&MZ.me.owner?`<div class="card" id="orgaCard" style="grid-column:1/-1"><h3>ربط أورجا</h3><p class="small muted">جارٍ التحميل…</p></div>`:''}
    ${window.MZ_STANDALONE&&S.isAdmin?`<div class="card" id="aiCard" style="grid-column:1/-1"><h3>المساعد الذكي</h3><p class="small muted">جارٍ التحميل…</p></div>`:''}
    ${window.MZ_STANDALONE&&S.isAdmin?`<div class="card" style="grid-column:1/-1;border-color:var(--gold)"><h3>النسخ الاحتياطي</h3><p class="small muted" style="margin-top:0">نزّل نسخة كاملة من بيانات ميزان (الأصناف والفواتير والحسابات والمستخدمين) واحتفظ بيها على جهازك أو Google Drive. <b>قاعدة البيانات المجانية على Render بتتمسح بعد 30 يوم من إنشائها</b> — خد نسخة قبلها، والنسخة بترجع على قاعدة جديدة بضغطة.</p><div class="row"><a class="btn p" href="/api/backup">${ic('dl')}تنزيل نسخة احتياطية كاملة</a>${S.isOwner?`<button class="btn" id="rstB">${ic('up')}استرجاع من نسخة</button><input type="file" id="rstF" accept=".gz,.json" hidden>`:''}</div></div>`:''}
@@ -2161,6 +2162,7 @@ function vSettings(){
   $$('[data-th]').forEach(b=>b.onclick=()=>{const v=b.dataset.th;if(v)document.documentElement.dataset.theme=v;else delete document.documentElement.dataset.theme;try{localStorage.setItem('mizan.theme',v)}catch(e){}render()});
   if(window.MZ_AI&&$('#aiCard'))MZ_AI.settingsCard($('#aiCard'));
   if(window.MZ_ORGA&&$('#orgaCard'))MZ_ORGA.settingsCard($('#orgaCard'));
+  if(window.MZ_NOTIF&&$('#notifCard'))MZ_NOTIF.settingsCard($('#notifCard'),{put,settings});
   $('#s_demo').onclick=loadDemo;
   $('#s_undemo').onclick=async()=>{if(!(await confirmBox('حذف كل البيانات التجريبية؟ بياناتك الحقيقية مش هتتأثر.','حذف',true)))return;const ops=[];COLS.forEach(c=>{for(const [id,v] of S.data[c])if(v&&v.demo)ops.push([c,id])});for(const [c,id] of ops)await del(c,id);toast(`تم حذف ${ops.length} سجل تجريبي`)};
 }
@@ -2364,6 +2366,7 @@ init();
 <script src="/delivery.js?v=7"></script>
 <script src="/flow.js?v=2"></script>
 <script src="/orgalink.js?v=2"></script>
+<script src="/notif.js?v=1"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=9"></script>
 <script src="/brain.js?v=5"></script>

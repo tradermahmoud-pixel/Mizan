@@ -40,7 +40,7 @@ function validItem(col, v) {
   return '';
 }
 
-module.exports = function mountOrga(app, { pool, auth, now }) {
+module.exports = function mountOrga(app, { pool, auth, now, notify }) {
   async function getCfg(db = pool) { const { rows } = await db.query(`SELECT v FROM kv WHERE k=$1`, [KV]); return (rows[0] && rows[0].v) || {}; }
   async function setCfg(v, db = pool) { await db.query(`INSERT INTO kv(k,v) VALUES($1,$2) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v`, [KV, JSON.stringify(v)]); }
   const ownerOnly = (req, res, next) => (req.user && req.user.owner ? next() : res.status(403).json({ error: 'للمالك بس' }));
@@ -108,7 +108,7 @@ module.exports = function mountOrga(app, { pool, auth, now }) {
     for (const id of del) if (typeof id !== 'string' || !IDRX[col].test(id) || id in up) return res.status(400).json({ error: 'bad delete id' });
     if (col === 'safes' && del.length) return res.status(400).json({ error: 'الخزائن مش بتتحذف من الربط' });
 
-    const st = { written: 0, same: 0, kept: 0, deleted: 0 };
+    const st = { written: 0, same: 0, kept: 0, deleted: 0 }; const cashEv = [];
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -156,6 +156,7 @@ module.exports = function mountOrga(app, { pool, auth, now }) {
             Object.assign(nv, v);
             for (const k of Object.keys(nv)) if (nv[k] === null || nv[k] === undefined) delete nv[k];
             if (isObj(old) && same(old, nv)) { st.same++; continue; }
+            if (notify && (col === 'cash' || col === 'invoices') && !isObj(old)) cashEv.push(...notify.detect('x_' + col, {}, { [id]: nv }, 'orga'));
             items[id] = nv; changed = true; st.written++;
           }
           if (!changed) continue;
@@ -164,6 +165,7 @@ module.exports = function mountOrga(app, { pool, auth, now }) {
             [X, cid, JSON.stringify({ ...base, items, u: now() }), now()]);
         }
       }
+      if (cashEv.length) await notify.emit(client, cashEv, null);
       await client.query('COMMIT');
       const c = await getCfg(); const stats = c.stats || {}; const s0 = stats[col] || {};
       stats[col] = { at: now(), written: (s0.written || 0) + st.written, deleted: (s0.deleted || 0) + st.deleted, kept: st.kept };
