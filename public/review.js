@@ -4,7 +4,7 @@
    وبيسجّل المراجعة (مين، إمتى، قد إيه، والأخطاء) في collection اسمها picks، وبيعلّم الفاتورة «اتحضرت» لما تطابق. */
 (function () {
   'use strict';
-  const RV = { inv: null, lines: [], log: [], start: '', mult: 1, last: null, flash: null, hideDone: false, tab: 'work', hist: 1, dirty: false, saveT: 0 };
+  const RV = { inv: null, lines: [], log: [], start: '', mult: 1, last: null, flash: null, hideDone: (() => { try { return localStorage.getItem('mz.rvHide') !== '0'; } catch (e) { return true; } })(), tab: 'work', hist: 1, dirty: false, saveT: 0 };
   window.MZ_RV = RV;
   const canRev = () => S.isAdmin || can('prep') || can('sell');
   const pk = id => G('picks', id) || null;
@@ -246,7 +246,7 @@
           <div class="row" style="gap:6px"><button class="btn ${s.ok ? 'p' : ''}" id="rvFin">${s.ok ? '✓ إنهاء المراجعة' : 'إنهاء المراجعة'}</button><button class="btn s" id="rvPause" title="تقفلها مؤقتًا وتكملها بعدين">تعليق</button><button class="btn s" id="rvRep">${ic('print')}تقرير</button><button class="btn s" id="rvRestart" title="تصفير العدّ والبدء من الأول">من الأول</button></div></div>
         <div class="rv-scan" style="margin-top:12px">${RV.mult > 1 ? `<span class="rv-mult">×${RV.mult}</span>` : ''}<input id="rvI" autocomplete="off" placeholder="امسح باركود الصنف"><button class="btn" id="rvUndo" title="تراجع عن آخر مسحة">↶ تراجع</button>${camBtn()}</div>${fl}
         <div class="small muted" style="margin-top:6px">لكمية كبيرة: اكتب العدد و* (مثلًا 12*) وبعدين امسح الصنف مرة واحدة.</div>${RV.pendingOpen ? `<div class="row small" style="margin-top:-4px"><button class="btn s" id="rvGoPend">افتح الفاتورة التانية برضه</button></div>` : ''}</div>
-        <div class="row" style="margin:12px 0 8px"><label class="row small" style="gap:6px"><input type="checkbox" id="rvHide" ${RV.hideDone ? 'checked' : ''}>اخفي الأصناف المطابقة</label><span class="sp"></span><span class="small muted">الأصناف اللي فيها مشكلة بتطلع فوق، وآخر صنف اتمسح أول سطر</span></div>
+        <div class="row" style="margin:12px 0 8px"><label class="row small" style="gap:6px"><input type="checkbox" id="rvHide" ${RV.hideDone ? 'checked' : ''}>اخفي الأصناف المطابقة${RV.hideDone && RV.lines.length - showLines.length ? ` <span class="tag ok">${RV.lines.length - showLines.length} مطابق مخفي</span>` : ''}</label><span class="sp"></span><span class="small muted">الأصناف اللي فيها مشكلة بتطلع فوق، وآخر صنف اتمسح أول سطر</span></div>
         <div class="tw"><table class="t" id="rvT"><thead><tr><th>الصنف</th><th class="rv-hide-m">الباركود</th><th class="n">المطلوب</th><th class="n" style="text-align:center">اتجهز</th><th class="n">باقي</th><th>الحالة</th></tr></thead><tbody>
         ${sorted.map(l => { const p = G('products', l.pid) || {}; const k = st(l); return `<tr class="rv-${k} ${l.pid === RV.last ? 'rv-last' : ''}"><td><b>${esc(pname(l.pid))}</b><div class="small muted">${esc(p.code || '')}${p.unit ? ' · ' + esc(p.unit) : ''}</div></td><td class="small num rv-hide-m">${esc(p.barcode || '—')}</td><td class="n"><b>${fq(l.req)}</b></td>
           <td><div class="rv-q"><button class="btn ic s" data-rvm="${l.pid}" title="ناقص واحد">−</button><input class="cell n" data-rvs="${l.pid}" value="${fq(l.got)}" inputmode="decimal"><button class="btn ic s" data-rvp="${l.pid}" title="زود واحد">+</button></div></td>
@@ -286,7 +286,7 @@
     $$('[data-rvp]').forEach(b => b.onclick = () => adjust(b.dataset.rvp, 1));
     $$('[data-rvm]').forEach(b => b.onclick = () => adjust(b.dataset.rvm, -1));
     $$('[data-rvs]').forEach(x => { x.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); x.blur(); } }; x.onchange = () => adjust(x.dataset.rvs, 0, String(x.value).replace(/[^\d.]/g, '')); });
-    const h = document.getElementById('rvHide'); if (h) h.onchange = () => { RV.hideDone = h.checked; render(); };
+    const h = document.getElementById('rvHide'); if (h) h.onchange = () => { RV.hideDone = h.checked; try { localStorage.setItem('mz.rvHide', h.checked ? '1' : '0'); } catch (e) {} render(); };
     const f = document.getElementById('rvFin'); if (f) f.onclick = finish;
     const ps = document.getElementById('rvPause'); if (ps) ps.onclick = pause;
     const rp = document.getElementById('rvRep'); if (rp) rp.onclick = () => printReport(false);
