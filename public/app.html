@@ -642,6 +642,20 @@ document.addEventListener('DOMContentLoaded',()=>{const b=$('#backBtn');if(b)b.o
 document.addEventListener('keydown',e=>{const t=e.target,ed=t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
   if(e.altKey&&!e.ctrlKey&&!e.metaKey&&e.key==='ArrowLeft'&&!$('#modal').classList.contains('on')){e.preventDefault();goBack();return}
   if(e.key==='Backspace'&&!ed&&!e.altKey&&!e.ctrlKey&&!e.metaKey){e.preventDefault();goBack()}});
+/* اختيار العميل/المورد بالكود أو الاسم (زي أورجا): اكتب الكود + Enter، أو جزء من الاسم واختار */
+const pCode=p=>p?String(p.code||p.orga||''):'';
+function partyLbl(p){if(!p)return'';const c=pCode(p);return (c?c+' — ':'')+p.name}
+function partyCombo(inp,sg,sel,list){if(!inp||!sel)return;let hit=[],at=0;
+  const pick=p=>{sg.hidden=true;inp.value=p?partyLbl(p):'';if(sel.value!==(p?p.id:'')){sel.value=p?p.id:'';sel.dispatchEvent(new Event('change'))}};
+  const find=v=>{const q=norm(v),t=v.trim();if(!t)return[];const ex=list.filter(p=>pCode(p)===t);if(/^\d+$/.test(t))return ex.concat(list.filter(p=>!ex.includes(p)&&(pCode(p).startsWith(t)||String(p.phone||'').replace(/\D/g,'').includes(t)))).slice(0,30);
+    const w=q.split(' ').filter(Boolean);return list.filter(p=>{const n=norm(p.name);return w.every(x=>n.includes(x))}).sort((a,b)=>(norm(a.name).startsWith(q)?0:1)-(norm(b.name).startsWith(q)?0:1)).slice(0,30)};
+  const show=()=>{hit=find(inp.value);at=0;if(!inp.value.trim()){sg.hidden=true;return}
+    sg.innerHTML=hit.length?hit.map((p,i)=>`<button type="button" data-pci="${i}" class="${i===at?'on':''}"><b class="num" style="min-width:44px">${esc(pCode(p))}</b><span style="flex:1">${esc(p.name)}</span>${p.phone?`<span class="small muted num">${esc(p.phone)}</span>`:''}</button>`).join(''):'<div class="small muted" style="padding:10px 14px">مفيش نتيجة</div>';
+    sg.hidden=false;sg.querySelectorAll('[data-pci]').forEach(b=>b.onmousedown=e=>{e.preventDefault();pick(hit[+b.dataset.pci])})};
+  inp.oninput=show;inp.onfocus=()=>{inp.select()};
+  inp.onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(sg.hidden)show();if(!hit.length)return;e.preventDefault();at=(at+(e.key==='ArrowDown'?1:-1)+hit.length)%hit.length;sg.querySelectorAll('[data-pci]').forEach((b,i)=>b.classList.toggle('on',i===at))}
+    else if(e.key==='Enter'){e.preventDefault();if(!inp.value.trim()){pick(null);return}if(hit.length)pick(hit[at])}else if(e.key==='Escape'&&!sg.hidden){e.stopPropagation();sg.hidden=true}};
+  inp.onblur=()=>setTimeout(()=>{sg.hidden=true;const cur=list.find(p=>p.id===sel.value);if(!inp.value.trim()){if(sel.value)pick(null)}else inp.value=cur?partyLbl(cur):''},150)}
 function kbHelp(){modal(`<h2>⌨️ اختصارات الكيبورد</h2><div class="tw"><table class="t"><tbody>
   ${[['فاتورة البيع/الشراء',''],['Alt + F','البحث عن صنف'],['Alt + W','توسيع البحث (شاشة كبيرة)'],['Alt + I','حركة الصنف اللي واقف عليه (أو افتح متابعة صنف)'],['↓ / ↑ في البحث','تنقّل بين النتايج ثم Enter للإضافة'],['Ctrl + S','حفظ الفاتورة'],['Ctrl + P','طباعة الفاتورة'],
      ['شاشة توسيع البحث',''],['↓ / ↑','الصنف اللي بعده / قبله'],['PgDn / PgUp','صفحة لتحت / لفوق'],['Ctrl + ↓ / ↑','آخر / أول القايمة'],['Alt + ← / →','تحريك الجدول بالجانب'],['Enter','إضافة الصنف المحدد (والشاشة تفضل مفتوحة)'],['Ctrl + Enter','إضافة وقفل الشاشة'],['Alt + 1 / Alt + 2','البحث بأول الكلمة / بجزء منها'],['Alt + R','اللي ليه رصيد بس'],
@@ -745,7 +759,7 @@ function vEditor(type,id){
    ${ED.id?`<div class="row" style="margin-bottom:12px"><span class="tag ${inv.type}">${T.t}</span>${T.doc?(inv.status==='converted'?` <span class="tag ok">تم التحويل</span>`:` <span class="tag purchase">مفتوح</span>`):''}<span class="small muted">أنشأها ${esc(whoName(inv.createdBy)||inv.orgaUser||'')} · ${ltm(inv.createdAt)}${inv.updatedAt?` · آخر تعديل ${ltm(inv.updatedAt)}`:''}</span></div>${window.MZ_FLOW?MZ_FLOW.strip({...(ED.orig||inv),id:ED.id}):''}`:''}
    <div class="edhead">
      <label class="f">التاريخ${dateEditOK()?`<input class="in" type="date" data-h="date" value="${esc(inv.date)}">`:`<input class="in" type="date" value="${esc(ED.id?inv.date:today())}" disabled title="التاريخ بيتسجل تلقائي من السيرفر">`}</label>
-     ${pk?`<label class="f">${pk==='customer'?'العميل':'المورد'}<div class="row" style="flex-wrap:nowrap;gap:6px"><select class="in" data-h="partyId">${opts(parties.map(p=>[p.id,p.name]),inv.partyId,pk==='customer'?'عميل نقدي':'— اختر المورد —')}</select><button class="btn ic" id="addParty" title="إضافة جديد">${ic('plus')}</button></div></label>`:''}
+     ${pk?`<label class="f">${pk==='customer'?'العميل':'المورد'}<div class="row" style="flex-wrap:nowrap;gap:6px"><select class="in" data-h="partyId" hidden>${opts(parties.map(p=>[p.id,p.name]),inv.partyId,pk==='customer'?'عميل نقدي':'— اختر المورد —')}</select><div style="position:relative;flex:1;min-width:0"><input class="in" id="pcIn" autocomplete="off" placeholder="${pk==='customer'?'كود أو اسم العميل (فاضي = عميل نقدي)':'كود أو اسم المورد'}" value="${esc(inv.partyId?partyLbl(G('parties',inv.partyId)):'')}"><div class="sugg" id="pcSg" hidden style="max-height:300px;overflow:auto"></div></div><button class="btn ic" id="addParty" title="إضافة جديد">${ic('plus')}</button></div></label>`:''}
      <label class="f">${inv.type==='transfer'?'من مخزن':'المخزن'}<select class="in" data-h="storeId">${opts(stores().map(s=>[s.id,s.name]),inv.storeId)}</select></label>
      ${inv.type==='transfer'?`<label class="f">إلى مخزن<select class="in" data-h="toStoreId">${opts(stores().map(s=>[s.id,s.name]),inv.toStoreId,'— اختر —')}</select></label>`:''}
      ${isSale?`<label class="f">البائع (للعمولة)<select class="in" data-h="empId">${opts(L('employees').map(e=>[e.id,e.name]),inv.empId,'—')}</select></label>`:''}
@@ -782,6 +796,7 @@ function vEditor(type,id){
     if(k==='partyId'&&isSaleT(inv.type)&&inv.type!=='sret'){if(!ED.id&&inv.lines.length){inv.lines.forEach(l=>{const pp=G('products',l.pid);if(pp&&!l.bonus)l.price=salePrice(pp,inv.partyId)});const t=tierOf(inv.partyId);toast('تم تسعير الأصناف '+(t?'بشريحة '+t.name:'بسعر المستهلك'))}render()}});
   $$('[data-type]').forEach(b=>b.onclick=()=>{const k=b.dataset.type;const ln=inv.lines;ED.inv={...newInv(k),lines:ln,date:inv.date,storeId:inv.storeId};const P=TYPES[k].party;if(P!==T.party)ED.inv.partyId='';render()});
   const ap=$('#addParty');if(ap)ap.onclick=()=>partyModal(null,pk,id=>{inv.partyId=id;render()});
+  partyCombo($('#pcIn'),$('#pcSg'),$('select[data-h="partyId"]'),parties);
   const tsel=$('#tierSel');if(tsel)tsel.onchange=async()=>{const p=G('parties',inv.partyId);if(!p)return;const old=tierOf(inv.partyId);const nt=tiers().find(x=>x.id===tsel.value);
     await put('parties',inv.partyId,{...p,tier:tsel.value});await audit('party',inv.partyId,'شريحة الأسعار',old?old.name:'بدون',nt?nt.name:'بدون',p.name);
     if(inv.type!=='sret'&&inv.lines.length&&(!ED.id||await confirmBox('تحديث أسعار أصناف الفاتورة دي على الشريحة الجديدة؟','تحديث الأسعار'))){inv.lines.forEach(l=>{const pp=G('products',l.pid);if(pp&&!l.bonus)l.price=salePrice(pp,inv.partyId)})}
