@@ -1201,7 +1201,10 @@ async function printMany(ids){if(!ids.length)return;$('#print').className='';
   await recordPrint(ids).catch(()=>{});setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50)}
 
 /* ============ تنبيه الطباعة في الرئيسية ============ */
-let PP_={days:1};
+let PP_={days:1,ph:(()=>{try{return localStorage.getItem('mz.ppPh')||'all'}catch(e){return'all'}})(),q:''};
+/* الصيدليات = الاسم بيبدأ بـ «ص » أو «ص.» أو «صيدلية» */
+const isPharm=n=>/^\s*(ص[\s.\-ـ]|صيدلي)/.test(String(n||''));
+function ppFilter(rows){const q=norm(PP_.q||'');const w=q.split(' ').filter(Boolean);return rows.filter(x=>{const n=x.pid?partyName(x.pid):'عميل نقدي';if(PP_.ph==='ph'&&!isPharm(n))return false;if(PP_.ph==='other'&&isPharm(n))return false;if(w.length){const nn=norm(n);if(!w.every(t=>nn.includes(t))&&!x.todo.some(i=>String(i.no)===PP_.q.trim()))return false}return true})}
 const canPrintQ=()=>canPrep()||(can('sell')&&!settings().printOnlyPrep);
 const seesPQ=()=>canPrep()||can('sell');
 function pqGroups(days){
@@ -1216,27 +1219,32 @@ function pqPill(){const el=$('#pqPill');if(!el)return;if(!seesPQ()||!S.data.invo
   const {todo}=pqGroups(1);el.hidden=!todo;el.innerHTML=`${ic('print')}<b class="num">${todo}</b> لسه ما اتطبعتش`;el.title='دوس علشان تشوفهم في الرئيسية';
   el.onclick=e=>{e.preventDefault();PP_.days=1;if(route().p==='dash'||!route().p){render();setTimeout(()=>$('#pqBox')?.scrollIntoView({behavior:'smooth',block:'start'}),30)}else{go('');setTimeout(()=>$('#pqBox')?.scrollIntoView({behavior:'smooth',block:'start'}),120)}}}
 function pqPanel(){
-  if(!seesPQ())return '';const {rows,todo,all}=pqGroups(PP_.days);const older=pqOlder();const cp=canPrintQ();
+  if(!seesPQ())return '';const G0=pqGroups(PP_.days);const rows=ppFilter(G0.rows);const filt=rows.length!==G0.rows.length;const todo=rows.reduce((a,x)=>a+x.todo.length,0),all=rows.reduce((a,x)=>a+x.all,0);const older=pqOlder();const cp=canPrintQ();
   const per={1:'النهارده',2:'من امبارح',7:'آخر أسبوع'}[PP_.days]||'';
   return `<div class="card pqbox ${todo?'warn':''}" id="pqBox" style="margin-bottom:18px">
    <div class="row"><h3 style="margin:0">${ic('print','style="width:20px;height:20px;vertical-align:-4px"')} طباعة فواتير الصيدليات</h3>
     ${todo?`<span class="tag bad">${todo} لسه ما اتطبعتش</span>`:all?'<span class="tag ok">كله اتطبع ✓</span>':''}<span class="sp"></span>
     <div class="seg">${[[1,'النهارده'],[2,'من امبارح'],[7,'أسبوع']].map(([d,t])=>`<button data-ppd="${d}" class="${PP_.days==d?'on':''}">${t}</button>`).join('')}</div>
     ${cp&&todo?`<button class="btn p" id="ppAll">${ic('print')}اطبع كل اللي لسه (${todo})</button>`:''}</div>
+   <div class="row" style="margin-top:10px;gap:8px"><input class="in" id="ppQ" autocomplete="off" placeholder="🔍 اسم العميل أو جزء منه، أو رقم الفاتورة" value="${esc(PP_.q)}" style="flex:1 1 220px;min-width:0">
+    <div class="seg">${[['all','الكل'],['ph','الصيدليات (ص …)'],['other','غير الصيدليات']].map(([k,t])=>`<button data-pph="${k}" class="${PP_.ph===k?'on':''}">${t}</button>`).join('')}</div>
+    ${filt?`<span class="small muted">${rows.length} من ${G0.rows.length} عميل</span>`:''}</div>
    ${older?`<div class="small" style="margin-top:8px;color:var(--danger)">⚠️ فيه <b>${older}</b> فاتورة من الأيام اللي فاتت لسه ما اتطبعتش — <a href="#" id="ppOld">اعرضهم</a></div>`:''}
    ${rows.length?`<div class="pqlist">${rows.map(x=>`<div class="pqrow ${x.todo.length?'todo':''}">
      <div class="pqn"><b>${esc(x.pid?partyName(x.pid):'عميل نقدي')}</b><span class="small muted">${x.all} ${x.all===1?'فاتورة':x.all<=10?'فواتير':'فاتورة'} ${esc(per)}</span></div>
      <div class="pqc"><span class="tag ok">اتطبع ${x.done}</span>${x.todo.length?`<span class="tag bad">لسه ${x.todo.length}</span>`:''}</div>
      <div class="pqa">${x.todo.length?(cp?`<button class="btn s p" data-ppg="${esc(x.pid)}">${ic('print')}اطبع اللي لسه (${x.todo.length})</button>`:''):'<span class="small" style="color:var(--brand)">✓ كله اتطبع</span>'}</div>
      ${x.todo.length?`<div class="pqi">${x.todo.map(i=>`<button class="pqchip" data-ppi="${i.id}" title="${cp?'اطبع الفاتورة دي':'افتح الفاتورة'}">#${esc(i.no)} <span class="muted">${esc(ltm(i.createdAt).slice(11,16))}</span></button>`).join('')}</div>`:''}
-   </div>`).join('')}</div>`:`<p class="muted small" style="margin:10px 0 0">مفيش فواتير بيع ${esc(per)}.</p>`}
+   </div>`).join('')}</div>`:`<p class="muted small" style="margin:10px 0 0">${filt?'مفيش عملاء بالبحث ده':'مفيش فواتير بيع '+esc(per)}.</p>`}
    ${canPrep()?`<div class="small muted" style="margin-top:10px"><a href="#/prep">شاشة التحضير والطباعة</a> للتفاصيل وتعليم «تم التحضير».</div>`:''}</div>`;
 }
 function bindPQ(){
   const b=$('#pqBox');if(!b)return;
   $$('[data-ppd]').forEach(x=>x.onclick=()=>{PP_.days=+x.dataset.ppd;render()});
   const o=$('#ppOld');if(o)o.onclick=e=>{e.preventDefault();PP_.days=7;render()};
-  const g=()=>pqGroups(PP_.days);
+  $$('[data-pph]').forEach(x=>x.onclick=()=>{PP_.ph=x.dataset.pph;try{localStorage.setItem('mz.ppPh',PP_.ph)}catch(e){}render()});
+  const qi=$('#ppQ');if(qi)qi.oninput=()=>{PP_.q=qi.value;const pos=qi.selectionStart;render();const n=$('#ppQ');if(n){n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}}};
+  const g=()=>{const r=pqGroups(PP_.days);return {...r,rows:ppFilter(r.rows)}};
   const a=$('#ppAll');if(a)a.onclick=async()=>{const ids=g().rows.flatMap(x=>x.todo.map(i=>i.id));if(!ids.length)return;if(ids.length>1&&!(await confirmBox(`طباعة ${ids.length} فاتورة مرة واحدة؟`,'طباعة')))return;printMany(ids)};
   $$('[data-ppg]').forEach(x=>x.onclick=()=>{const r=g().rows.find(r=>r.pid===x.dataset.ppg);if(r&&r.todo.length)printMany(r.todo.map(i=>i.id))});
   $$('[data-ppi]').forEach(x=>x.onclick=()=>canPrintQ()?printInv(x.dataset.ppi):go('inv/'+x.dataset.ppi));
