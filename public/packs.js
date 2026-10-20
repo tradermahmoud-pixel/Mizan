@@ -67,7 +67,7 @@
 
   /* ---------- كاميرا ---------- */
   async function camScan(onVal, title) {
-    if (!('BarcodeDetector' in window)) { toast('الكاميرا مش مدعومة على المتصفح ده — استخدم الماسح', 'err'); return; }
+    if (!('BarcodeDetector' in window) || !navigator.mediaDevices) { toast('الكاميرا مش متاحة هنا — افتح ميزان من المتصفح على https أو استخدم الماسح', 'err'); return; }
     let stream; try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }); } catch (e) { toast('اسمح بإذن الكاميرا', 'err'); return; }
     const wrap = document.createElement('div'); wrap.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;gap:10px';
     wrap.innerHTML = `<div style="color:#fff;font-weight:700">${esc(title || 'وجّه الكاميرا على الباركود')}</div><video playsinline muted style="width:min(520px,100%);border-radius:14px;background:#000"></video><div class="pkcam-s" style="color:#fff;min-height:20px"></div><button class="btn" type="button">قفل</button>`;
