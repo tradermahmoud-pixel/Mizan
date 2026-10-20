@@ -44,7 +44,7 @@ module.exports = function mountOrga(app, { pool, auth, now }) {
   async function getCfg(db = pool) { const { rows } = await db.query(`SELECT v FROM kv WHERE k=$1`, [KV]); return (rows[0] && rows[0].v) || {}; }
   async function setCfg(v, db = pool) { await db.query(`INSERT INTO kv(k,v) VALUES($1,$2) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v`, [KV, JSON.stringify(v)]); }
   const ownerOnly = (req, res, next) => (req.user && req.user.owner ? next() : res.status(403).json({ error: 'للمالك بس' }));
-  const pub = c => ({ active: !!c.hash, hint: c.hint || '', createdAt: c.createdAt || 0, createdBy: c.createdBy || '', lastAt: c.lastAt || 0, lastIp: c.lastIp || '', agent: c.agent || null, stats: c.stats || {}, lastErr: c.lastErr || '' });
+  const pub = c => ({ active: !!c.hash, hint: c.hint || '', createdAt: c.createdAt || 0, createdBy: c.createdBy || '', lastAt: c.lastAt || 0, lastIp: c.lastIp || '', agent: c.agent || null, stats: c.stats || {}, lastErr: c.lastErr || '', purgedAt: c.purgedAt || 0 });
 
   /* ---- إدارة المفتاح (المالك بس) ---- */
   app.get('/api/orga/status', auth(false), ownerOnly, async (req, res, next) => { try { res.json(pub(await getCfg())); } catch (e) { next(e); } });
@@ -173,5 +173,81 @@ module.exports = function mountOrga(app, { pool, auth, now }) {
       await client.query('ROLLBACK').catch(() => {});
       next(e);
     } finally { client.release(); }
+  });
+  /* ---- قايمة كل سجلات أورجا (البرنامج بيبعتها بعد كل مراجعة كاملة) — بتتستخدم في «ميزان = أورجا بس» ---- */
+  app.post('/api/orga/manifest', agentAuth, async (req, res, next) => {
+    try {
+      const b = req.body || {};
+      if (!IDRX[b.col] || !Array.isArray(b.ids) || b.ids.length > 200000) return res.status(400).json({ error: 'bad manifest' });
+      if (!b.ids.every(id => typeof id === 'string' && IDRX[b.col].test(id))) return res.status(400).json({ error: 'bad id' });
+      await pool.query(`INSERT INTO kv(k,v) VALUES($1,$2) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v`, ['orga:manifest:' + b.col, JSON.stringify({ at: now(), ids: b.ids })]);
+      await touch(req, {}); res.json({ ok: true, n: b.ids.length });
+    } catch (e) { next(e); }
+  });
+
+  /* ---- «ميزان = أورجا بس»: المالك بيمسح كل الأصناف/العملاء/الفواتير/الخزينة اللي مش موجودة في أورجا دلوقتي،
+         ومعاها التحضير والشنط وخطوط السير والمرتجعات بتاعتها. المستخدمين والإعدادات والشرايح والموظفين والـ CRM بيفضلوا. ---- */
+  async function manifests(db) {
+    const { rows } = await db.query(`SELECT k, v FROM kv WHERE k LIKE 'orga:manifest:%'`);
+    const m = {}; for (const r of rows) m[r.k.slice(14)] = r.v; return m;
+  }
+  app.get('/api/orga/purge', auth(false), ownerOnly, async (req, res, next) => {
+    try { const m = await manifests(pool); res.json({ ready: Object.keys(IDRX).every(c => m[c] && now() - m[c].at < 26 * 3600e3), at: Math.min(...Object.keys(IDRX).map(c => (m[c] && m[c].at) || 0)), n: Object.fromEntries(Object.entries(m).map(([c, v]) => [c, (v.ids || []).length])) }); } catch (e) { next(e); }
+  });
+  app.post('/api/orga/purge', auth(false), ownerOnly, async (req, res, next) => {
+    if ((req.body || {}).confirm !== 'أورجا بس') return res.status(400).json({ error: 'اكتب «أورجا بس» للتأكيد' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const m = await manifests(client);
+      for (const c of Object.keys(IDRX)) if (!m[c] || now() - m[c].at > 26 * 3600e3 || !(m[c].ids || []).length) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'لسه مفيش قايمة كاملة حديثة من أورجا — استنى أول مزامنة كاملة تخلص (أو شغّل run.bat على جهاز أورجا)' }); }
+      const keep = Object.fromEntries(Object.keys(IDRX).map(c => [c, new Set(m[c].ids)]));
+      // أمان: لو القايمة أصغر بكتير من سجلات أورجا اللي في ميزان (ملف غلط أو قديم) → رفض
+      for (const col of ['products', 'parties', 'invoices', 'cash']) {
+        const { rows } = await client.query(`SELECT count(*)::int n FROM docs d CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(d.data->'items')='object' THEN d.data->'items' ELSE '{}'::jsonb END) e(k,v) WHERE d.col=$1 AND NOT d.deleted AND jsonb_typeof(e.v)='object' AND (e.v ? 'orga' OR e.v ? 'orgaUser')`, ['x_' + col]);
+        if (keep[col].size < rows[0].n * 0.5) { await client.query('ROLLBACK'); return res.status(409).json({ error: `قايمة أورجا فيها ${keep[col].size} بس من ${col} وميزان فيه ${rows[0].n} من أورجا — غالبًا الملف غلط، المسح اتلغى` }); }
+      }
+      const out = {};
+      const write = (col, id, data) => client.query(`UPDATE docs SET data=$3,seq=nextval('doc_seq'),updated_at=$4,updated_by='orga-purge' WHERE col=$1 AND id=$2`, [col, id, JSON.stringify(data), now()]);
+      const kill = (col, id) => client.query(`UPDATE docs SET deleted=true,data=NULL,seq=nextval('doc_seq'),updated_at=$3,updated_by='orga-purge' WHERE col=$1 AND id=$2`, [col, id, now()]);
+      // خطوة 1: الجداول اللي جاية من أورجا
+      const left = {};
+      for (const col of ['products', 'parties', 'invoices', 'cash']) {
+        const { rows } = await client.query(`SELECT id, data FROM docs WHERE col=$1 AND NOT deleted FOR UPDATE`, ['x_' + col]);
+        let n = 0; left[col] = new Set();
+        for (const r of rows) {
+          const items = isObj(r.data && r.data.items) ? { ...r.data.items } : {}; let ch = false;
+          for (const [id, v] of Object.entries(items)) { if (!isObj(v)) continue; if (keep[col].has(id) || (col === 'invoices' && /^ov\d+$/.test(id))) { // ov = تقييم المخزون من أورجا وقت النقلة
+            left[col].add(id); continue; } items[id] = null; ch = true; n++; }
+          if (ch) await write('x_' + col, r.id, { ...r.data, items, u: now() });
+        }
+        out[col] = n;
+      }
+      { const { rows } = await client.query(`SELECT id FROM docs WHERE col='safes' AND NOT deleted FOR UPDATE`); let n = 0; for (const r of rows) if (!keep.safes.has(r.id)) { await kill('safes', r.id); n++; } out.safes = n; }
+      // خطوة 2: اللي مربوط بالفواتير والعملاء اللي اتمسحت
+      const inv = left.invoices, par = left.parties;
+      for (const col of ['prints', 'picks']) { // مفتاحهم = رقم الفاتورة
+        const { rows } = await client.query(`SELECT id, data FROM docs WHERE col=$1 AND NOT deleted FOR UPDATE`, ['x_' + col]);
+        let n = 0; for (const r of rows) { const items = isObj(r.data && r.data.items) ? { ...r.data.items } : {}; let ch = false; for (const [id, v] of Object.entries(items)) if (v != null && !inv.has(id)) { items[id] = null; ch = true; n++; } if (ch) await write('x_' + col, r.id, { ...r.data, items, u: now() }); }
+        out[col] = n;
+      }
+      { const { rows } = await client.query(`SELECT id, data FROM docs WHERE col='x_pkgs' AND NOT deleted FOR UPDATE`); let n = 0;
+        for (const r of rows) { const items = isObj(r.data && r.data.items) ? { ...r.data.items } : {}; let ch = false;
+          for (const [id, v] of Object.entries(items)) { if (!isObj(v)) continue; const ids = (v.invIds || []).filter(x => inv.has(x)); if (!ids.length) { items[id] = null; ch = true; n++; } else if (ids.length !== (v.invIds || []).length) { items[id] = { ...v, invIds: ids }; ch = true; } }
+          if (ch) await write('x_pkgs', r.id, { ...r.data, items, u: now() }); } out.pkgs = n; }
+      { const { rows } = await client.query(`SELECT id, data FROM docs WHERE col='runs' AND NOT deleted FOR UPDATE`); let n = 0;
+        for (const r of rows) { const st = Array.isArray(r.data && r.data.stops) ? r.data.stops : []; const ok = st.filter(x => inv.has(x.invId)); if (!ok.length) { await kill('runs', r.id); n++; } else if (ok.length !== st.length) await write('runs', r.id, { ...r.data, stops: ok }); } out.runs = n; }
+      for (const col of ['rets', 'cheques']) { // مرتجعات وشيكات لعملاء اتمسحوا
+        const { rows } = await client.query(`SELECT id, data FROM docs WHERE col=$1 AND NOT deleted FOR UPDATE`, ['x_' + col]);
+        let n = 0; for (const r of rows) { const items = isObj(r.data && r.data.items) ? { ...r.data.items } : {}; let ch = false; for (const [id, v] of Object.entries(items)) if (isObj(v) && v.partyId && !par.has(v.partyId)) { items[id] = null; ch = true; n++; } if (ch) await write('x_' + col, r.id, { ...r.data, items, u: now() }); }
+        out[col] = n;
+      }
+      // الترقيم يكمّل من آخر رقم في أورجا
+      await client.query(`DELETE FROM kv WHERE k LIKE 'no:%'`);
+      await client.query('COMMIT');
+      const c = await getCfg(); c.purgedAt = now(); c.purged = out; await setCfg(c);
+      res.json({ ok: true, removed: out });
+    } catch (e) { await client.query('ROLLBACK').catch(() => {}); next(e); }
+    finally { client.release(); }
   });
 };

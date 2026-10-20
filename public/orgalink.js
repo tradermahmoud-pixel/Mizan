@@ -31,10 +31,32 @@
         <a class="btn s" href="/dl/mizan-orga-agent.zip" download>تحميل برنامج الربط</a>
         <button class="btn s ${s.active ? '' : 'p'}" id="ogNew">${s.active ? 'مفتاح جديد (القديم يبطل)' : 'إنشاء مفتاح ربط'}</button>
         ${s.active ? '<button class="btn s d" id="ogOff">إلغاء الربط</button>' : ''}
-        <button class="btn s" id="ogRf">تحديث</button></div>`;
+        <button class="btn s" id="ogRf">تحديث</button></div>
+      ${s.active ? '<div id="ogPurge" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px"></div>' : ''}`;
     const cp = el.querySelector('#ogCp');
     if (cp) cp.onclick = async () => { const i = el.querySelector('#ogTok'); i.select(); try { await navigator.clipboard.writeText(i.value); } catch (e) { document.execCommand('copy'); } cp.textContent = 'اتنسخ ✓'; };
     el.querySelector('#ogRf').onclick = () => load(el);
+    const pz = el.querySelector('#ogPurge');
+    if (pz) call('/api/orga/purge').then(p => {
+      const done = s.purgedAt ? `<p class="small" style="color:var(--ok)">✓ اتعمل قبل كده ${esc(ago(s.purgedAt))} — ميزان دلوقتي فيه بيانات أورجا بس.</p>` : '';
+      pz.innerHTML = `<b>ميزان = أورجا بس</b>
+        <p class="small muted" style="margin:4px 0 8px">بيمسح كل الأصناف والعملاء والموردين والفواتير وحركات الخزينة والخزائن اللي <b>مش موجودة في أورجا دلوقتي</b> (اللي اتعملت في ميزان أو اتمسحت من أورجا)، ومعاها التحضير والشنط وخطوط السير والمرتجعات والشيكات بتاعتها.
+        المستخدمين والصلاحيات والإعدادات والشرايح والموظفين والـ CRM بيفضلوا. <b style="color:var(--danger)">مفيش رجوع.</b></p>${done}
+        ${p.ready ? `<p class="small muted">قايمة أورجا جاهزة (${esc(ago(p.at))}): ${Object.entries(p.n).map(([k, v]) => esc(NAMES[k] || k) + ' ' + v).join(' · ')}</p><button class="btn s d" id="ogPg">امسح كل حاجة مش من أورجا</button>`
+          : '<p class="small muted">⏳ مستني أول مزامنة كاملة من البرنامج الجديد (1.2) على جهاز أورجا علشان يبعت قايمة سجلات أورجا.</p>'}`;
+      const b = pz.querySelector('#ogPg'); if (!b) return;
+      b.onclick = async () => {
+        const v = window.prompt('المسح ده مفيش منه رجوع. اكتب: أورجا بس');
+        if ((v || '').trim() !== 'أورجا بس') { if (v != null) window.toast('ماتكتبتش صح — المسح اتلغى', 'err'); return; }
+        b.disabled = true; b.textContent = 'جارٍ المسح…';
+        try {
+          const r = await fetch('/api/orga/purge', { method: 'POST', credentials: 'same-origin', headers: H, body: JSON.stringify({ confirm: 'أورجا بس' }) });
+          const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+          const R = j.removed || {}; window.toast(`اتمسح: ${R.products || 0} صنف، ${R.parties || 0} عميل/مورد، ${R.invoices || 0} فاتورة، ${R.cash || 0} حركة خزينة`);
+          load(el);
+        } catch (e) { window.toast(e.message, 'err'); b.disabled = false; b.textContent = 'امسح كل حاجة مش من أورجا'; }
+      };
+    }).catch(() => {});
     el.querySelector('#ogNew').onclick = async () => {
       if (s.active && !(await window.confirmBox('مفتاح جديد؟ البرنامج اللي على جهاز أورجا هيقف لحد ما تحط المفتاح الجديد فيه (setup.bat).', 'مفتاح جديد', true))) return;
       try { const r = await call('/api/orga/key', 'POST'); draw(el, r, r.token); } catch (e) { window.toast(e.message, 'err'); }
