@@ -213,11 +213,8 @@ table.t tr.click{cursor:pointer}
   .g2,.g3,.g4,.g21,.gat{grid-template-columns:1fr}
   .totals{grid-template-columns:1fr}
   .strip .v{font-size:24px}.strip>div:first-child .v{font-size:32px}
-  .stickybar{bottom:calc(64px + env(safe-area-inset-bottom,0px));margin-bottom:0;box-shadow:0 -6px 14px rgba(0,0,0,.06);padding:8px 4px;flex-wrap:nowrap;overflow-x:auto;gap:6px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
-  .stickybar::-webkit-scrollbar{display:none}
-  .stickybar>.btn,.stickybar>a.btn{flex:0 0 auto;padding:8px 12px;font-size:14px;white-space:nowrap}
-  .stickybar>span.small{flex:0 0 auto;white-space:nowrap}
-  body.kb-open .stickybar{position:static;box-shadow:none}
+  .stickybar{position:static;margin-bottom:0;box-shadow:none;padding:12px 0;gap:8px}
+  .stickybar>.btn,.stickybar>a.btn{flex:1 1 calc(50% - 8px);justify-content:center}
   body.kb-open #bottom,body.kb-open #aiFab{display:none}
   .sync span{display:none}
   .hide-m{display:none}
