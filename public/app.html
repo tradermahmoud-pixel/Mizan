@@ -213,7 +213,12 @@ table.t tr.click{cursor:pointer}
   .g2,.g3,.g4,.g21,.gat{grid-template-columns:1fr}
   .totals{grid-template-columns:1fr}
   .strip .v{font-size:24px}.strip>div:first-child .v{font-size:32px}
-  .stickybar{bottom:calc(64px + env(safe-area-inset-bottom,0px));margin-bottom:0;box-shadow:0 -6px 14px rgba(0,0,0,.06);padding:10px 4px}
+  .stickybar{bottom:calc(64px + env(safe-area-inset-bottom,0px));margin-bottom:0;box-shadow:0 -6px 14px rgba(0,0,0,.06);padding:8px 4px;flex-wrap:nowrap;overflow-x:auto;gap:6px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .stickybar::-webkit-scrollbar{display:none}
+  .stickybar>.btn,.stickybar>a.btn{flex:0 0 auto;padding:8px 12px;font-size:14px;white-space:nowrap}
+  .stickybar>span.small{flex:0 0 auto;white-space:nowrap}
+  body.kb-open .stickybar{position:static;box-shadow:none}
+  body.kb-open #bottom,body.kb-open #aiFab{display:none}
   .sync span{display:none}
   .hide-m{display:none}
 }
@@ -636,6 +641,8 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&(e.key==='s'|
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#modal').classList.contains('on'))closeModal()});
 /* اختصارات عامة — بنستخدم e.code علشان تشتغل مع الكيبورد العربي والإنجليزي */
 /* رجوع: زرار فوق + Alt+← + Backspace (برّه خانات الكتابة) — مهم في نسخة البرنامج المتسطّبة اللي مالهاش زرار رجوع */
+/* الموبايل: لما الكيبورد يفتح، شريط الحفظ والقايمة اللي تحت بيتشالوا من على الشاشة علشان مايغطوش الشغل */
+(function(){const vv=window.visualViewport;if(!vv)return;let base=window.innerHeight;const f=()=>{if(!document.activeElement||!/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){base=Math.max(base,window.innerHeight)}const open=base-vv.height>140&&matchMedia('(max-width: 860px)').matches;document.body.classList.toggle('kb-open',open)};vv.addEventListener('resize',f);window.addEventListener('orientationchange',()=>{base=0;setTimeout(()=>{base=window.innerHeight;f()},400)});document.addEventListener('focusout',()=>setTimeout(f,300))})();
 let NAVN=0;window.addEventListener('hashchange',()=>{NAVN++;backUi()});
 function goBack(){if($('#modal').classList.contains('on')){closeModal();return}if(NAVN>0&&history.length>1){NAVN-=2;history.back()}else if(location.hash&&location.hash!=='#/'){location.hash='#/'}}
 function backUi(){const b=$('#backBtn');if(b)b.hidden=!location.hash||location.hash==='#/'||location.hash==='#'}
@@ -778,7 +785,7 @@ function vEditor(type,id){
      <div class="tbox" id="tbox"></div>
    </div>
    <div class="stickybar">
-     <button class="btn p" id="save" ${S.ro?'disabled':''}>حفظ (Ctrl+S)</button>
+     <button class="btn p" id="save" ${S.ro?'disabled':''}>حفظ<span class="hide-m"> (Ctrl+S)</span></button>
      ${!ED.id?`<button class="btn" id="saveNew" ${S.ro?'disabled':''}>حفظ وفاتورة جديدة</button>`:''}
      ${ED.id&&['sale','purchase'].includes(inv.type)&&can(inv.type==='sale'?'sell':'buy')&&!S.ro?`<button class="btn" id="mkRet">${ic('ret')}مرتجع من الفاتورة</button>`:''}
      ${settings().printOnlyPrep&&!canPrep()&&['sale','sret'].includes(inv.type)?`<span class="small muted" style="align-self:center">${ED.id?(prn(ED.id)&&prn(ED.id).n?'✓ اتطبعت '+prn(ED.id).n+' مرة':'لسه ما اتطبعتش')+' — ':''}الطباعة من شاشة التحضير</span>`:`${!ED.id&&!S.ro?`<button class="btn" id="savePrt">${ic('print')}حفظ وطباعة</button>`:''}<button class="btn" id="prt">${ic('print')}طباعة${ED.id?(prn(ED.id)&&prn(ED.id).n?' (اتطبعت '+prn(ED.id).n+')':''):' (مسودة)'}</button>`}${ED.id?`<button class="btn" id="newB">${ic('plus')}جديد</button>`:''}
