@@ -1271,6 +1271,31 @@ function bindPQ(){
 /* ============ PREP / PRINT QUEUE ============ */
 let PQ_={f:'todo',days:1,q:'',who:'',type:'sale'};
 const canPrep=()=>S.isAdmin||can('prep');
+/* لستة التجميع: كل الأصناف المطلوبة للفواتير اللي لسه ماتحضرتش (لكل العملاء) — إجمالي كل صنف + مين طالبه */
+function pickPending(){return L('invoices').filter(i=>['sale','transfer'].includes(i.type)&&(!window.MZ_FLOW||!MZ_FLOW.inFlow||MZ_FLOW.inFlow(i))&&!(prn(i.id)&&prn(i.id).prepAt)&&!(G('picks',i.id)&&G('picks',i.id).status==='ok'))}
+const PL_={detail:true,sort:'name'};
+function pickAgg(ids){const m=new Map();const invs=ids.map(id=>G('invoices',id)).filter(Boolean);
+  for(const i of invs)for(const l of i.lines||[]){if(!l.pid)continue;const q=+l.qty||0;if(!q)continue;const x=m.get(l.pid)||{pid:l.pid,qty:0,by:new Map(),n:0};x.qty+=q;x.n++;const k=i.type==='transfer'?'تحويل '+storeName(i.toStoreId):(partyName(i.partyId)||'نقدي');x.by.set(k,(x.by.get(k)||0)+q);m.set(l.pid,x)}
+  const rows=[...m.values()];const P=id=>G('products',id)||{};
+  rows.sort((a,b)=>PL_.sort==='qty'?b.qty-a.qty:PL_.sort==='code'?(+P(a.pid).code||0)-(+P(b.pid).code||0):PL_.sort==='group'?String(P(a.pid).group||'').localeCompare(String(P(b.pid).group||''),'ar')||pname(a.pid).localeCompare(pname(b.pid),'ar'):pname(a.pid).localeCompare(pname(b.pid),'ar'));
+  return {invs,rows,parties:new Set(invs.map(i=>i.partyId||'_')).size}}
+function pendQty(){const m={};for(const i of pickPending())if(i.type==='sale'&&(i.storeId||MAIN)===MAIN)for(const l of i.lines||[])if(l.pid)m[l.pid]=(m[l.pid]||0)+(+l.qty||0);return m}
+// الفواتير اللي لسه ماتحضرتش اتخصمت من الرصيد بالفعل، فاللي على الرف = الرصيد + كمياتها
+function pickHTML(ids,title,forPrint){const {invs,rows,parties}=pickAgg(ids);const tq=rows.reduce((a,r)=>a+r.qty,0);const st=MAIN;const pq=pendQty();
+  return `${forPrint?`<div style="display:flex;justify-content:space-between;border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:8px"><div><h2 style="margin:0">لستة تجميع الأصناف</h2><div>${esc(title)}</div></div><div style="text-align:left">${esc(settings().company||'')}<br>${today()} ${nowHM()}</div></div>`:''}
+   <p class="small" style="margin:4px 0 8px"><b>${invs.length}</b> فاتورة · <b>${parties}</b> عميل · <b>${rows.length}</b> صنف · إجمالي <b>${fq(tq)}</b> قطعة — الفواتير: ${invs.map(i=>'#'+esc(i.no)).join(' ')}</p>
+   <table class="t"><thead><tr><th style="width:28px">م</th><th style="width:60px">الكود</th><th>الصنف</th><th class="n" style="width:70px">الإجمالي</th><th class="n" style="width:55px">فواتير</th>${forPrint?'':'<th class="n" style="width:70px" title="الرصيد قبل خصم الفواتير اللي لسه ماتحضرتش">على الرف</th>'}${PL_.detail?'<th>العملاء</th>':''}${forPrint?'<th style="width:40px">✓</th>':''}</tr></thead><tbody>
+   ${rows.map((r,k)=>{const p=G('products',r.pid)||{};const av=qtyIn(r.pid,st)+(pq[r.pid]||0);return `<tr><td>${k+1}</td><td class="num">${esc(p.code||'')}</td><td><b>${esc(pname(r.pid))}</b>${p.barcode&&!forPrint?`<div class="small muted num">${esc(p.barcode)}</div>`:''}</td><td class="n num" style="font-size:${forPrint?'15px':'16px'}"><b>${fq(r.qty)}</b></td><td class="n">${r.n}</td>${forPrint?'':`<td class="n num ${av<r.qty?'neg':''}" title="${av<r.qty?'اللي على الرف أقل من المطلوب':''}">${fq(av)}</td>`}${PL_.detail?`<td class="small">${[...r.by].sort((a,b)=>b[1]-a[1]).map(([n,q])=>esc(n)+' <b class="num">'+fq(q)+'</b>').join(' · ')}</td>`:''}${forPrint?'<td></td>':''}</tr>`}).join('')}</tbody></table>`}
+function pickList(ids,title){if(!ids.length){toast('مفيش فواتير','err');return}
+  const draw=()=>{modal(`<h2>📋 لستة تجميع الأصناف</h2><div class="row small" style="gap:8px;margin-bottom:6px"><span class="muted">${esc(title)}</span><span class="sp"></span>
+     <select class="in" id="plS" style="width:auto;padding:4px 8px">${opts([['name','ترتيب بالاسم'],['code','ترتيب بالكود'],['qty','الأكتر كمية الأول'],['group','حسب المجموعة']],PL_.sort)}</select>
+     <label class="row" style="gap:4px"><input type="checkbox" id="plD" ${PL_.detail?'checked':''}>تفاصيل العملاء</label></div>
+     <div style="max-height:60vh;overflow:auto">${pickHTML(ids,title,false)}</div>
+     <div class="row" style="margin-top:12px"><button class="btn p" id="plP">${ic('print')}اطبع اللستة</button><button class="btn" id="plX">تصدير Excel</button><span class="sp"></span><button class="btn" data-close>قفل</button></div>`,true);
+    $('#plS').onchange=e=>{PL_.sort=e.target.value;draw()};$('#plD').onchange=e=>{PL_.detail=e.target.checked;draw()};
+    $('#plP').onclick=()=>{$('#print').className='';$('#print').innerHTML='<style>@page{size:A4 portrait;margin:8mm}</style>'+pickHTML(ids,title,true);setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50)};
+    $('#plX').onclick=()=>{try{const {rows}=pickAgg(ids);const pq=pendQty();const data=[['م','الكود','الصنف','الباركود','الإجمالي','عدد الفواتير','على الرف','العملاء']].concat(rows.map((r,k)=>{const p=G('products',r.pid)||{};return [k+1,p.code||'',pname(r.pid),p.barcode||'',r.qty,r.n,qtyIn(r.pid,MAIN)+(pq[r.pid]||0),[...r.by].map(([n,q])=>n+' '+q).join(' · ')]}));const wb=XLSX.utils.book_new();const ws=XLSX.utils.aoa_to_sheet(data);ws['!cols']=[{wch:5},{wch:8},{wch:45},{wch:16},{wch:9},{wch:9},{wch:9},{wch:60}];XLSX.utils.book_append_sheet(wb,ws,'لستة التجميع');XLSX.writeFile(wb,'لستة-التجميع-'+today()+'.xlsx')}catch(e){toast('التصدير مش متاح','err')}}};
+  draw()}
 function vPrep(){
   setTitle('التحضير والطباعة');const t=today();const from=addDays(t,-(+PQ_.days||1)+1);
   let xs=L('invoices').filter(i=>(PQ_.type==='all'?['sale','sret','transfer'].includes(i.type):i.type===PQ_.type)&&(i.date||'')>=from&&(!window.MZ_FLOW||!MZ_FLOW.inFlow||MZ_FLOW.inFlow(i)));
@@ -1290,8 +1315,8 @@ function vPrep(){
       <select class="in" style="width:130px" id="pqD">${opts([[1,'النهارده'],[2,'من امبارح'],[7,'آخر أسبوع'],[30,'آخر شهر']],String(PQ_.days))}</select>
       <select class="in" style="width:160px" id="pqW">${opts(users.map(u=>[u,whoName(u)]),PQ_.who,'كل السيلز')}</select>
       <input class="in" style="width:170px" id="pqQ" placeholder="رقم الفاتورة أو العميل" value="${esc(PQ_.q)}">
-      <span class="sp"></span>${canPrep()?`<button class="btn p" id="pqAll" ${!cnt.todo?'disabled':''}>${ic('print')}اطبع كل اللي ما اتطبعتش (${cnt.todo})</button>`:''}</div>
-      ${canPrep()?`<div class="row small" id="pqSelBar" style="margin-top:10px;${sel.size?'':'display:none'}"><b id="pqSelN">${sel.size} مختارة</b><button class="btn s" id="pqSelP">${ic('print')}طباعة المختار</button>${S.isAdmin||settings().flowLoose?'<button class="btn s" id="pqSelD">تم تحضير المختار</button>':''}<button class="btn s" id="pqSelC">إلغاء الاختيار</button></div>`:''}</div>
+      <span class="sp"></span>${(()=>{const n=pickPending().length;return n?`<button class="btn" id="pqPick" title="كل الأصناف المطلوبة للفواتير اللي لسه ماتحضرتش — مجمعة بإجمالي كل صنف">📋 لستة التجميع (${n} فاتورة)</button>`:''})()}${canPrep()?`<button class="btn p" id="pqAll" ${!cnt.todo?'disabled':''}>${ic('print')}اطبع كل اللي ما اتطبعتش (${cnt.todo})</button>`:''}</div>
+      ${canPrep()?`<div class="row small" id="pqSelBar" style="margin-top:10px;${sel.size?'':'display:none'}"><b id="pqSelN">${sel.size} مختارة</b><button class="btn s" id="pqSelP">${ic('print')}طباعة المختار</button>${S.isAdmin||settings().flowLoose?'<button class="btn s" id="pqSelD">تم تحضير المختار</button>':''}<button class="btn s" id="pqSelL">📋 لستة تجميع المختار</button><button class="btn s" id="pqSelC">إلغاء الاختيار</button></div>`:''}</div>
     <div class="tw"><table class="t" id="pqTbl"><thead><tr>${canPrep()?'<th style="width:30px"><input type="checkbox" id="pqChkAll"></th>':''}<th>رقم</th><th>الوقت</th><th>العميل</th><th>السيلز</th><th class="n">أصناف</th><th class="n">الصافي</th><th>الطباعة</th><th>المراجعة</th><th>التحضير</th><th></th></tr></thead><tbody>
     ${xs.slice(0,400).map(i=>{const p=prn(i.id);const tt=R.inv[i.id]||invTotals(i);return `<tr data-pid="${i.id}" style="${!p||!p.n?'background:color-mix(in srgb,var(--gold-soft) 55%,transparent)':''}">${canPrep()?`<td><input type="checkbox" data-psel="${i.id}" ${sel.has(i.id)?'checked':''}></td>`:''}
       <td class="num"><b>${esc(i.no)}</b>${i.type!=='sale'?` <span class="tag ${i.type}">${TYPES[i.type].t}</span>`:''}</td><td class="num small">${i.date!==t?esc(i.date)+' ':''}${esc(ltm(i.createdAt).slice(11))}</td>
@@ -1310,6 +1335,8 @@ function vPrep(){
   $$('[data-prv]').forEach(b=>b.onclick=()=>go('pick/'+b.dataset.prv));
   const markDone=async ids=>{if(!S.isAdmin&&!settings().flowLoose){toast('التحضير بيتسجّل من «مراجعة التحضير» بالباركود','err');return}const at=new Date().toISOString(),who=(S.me&&S.me.name)||'';await putMany(ids.map(id=>{const c=prn(id)||{};return ['prints',id,{...c,prepAt:at,prepBy:who}]}));toast(ids.length>1?`اتسجل تحضير ${ids.length} فاتورة`:'اتسجل التحضير')};
   $$('[data-pdone]').forEach(b=>b.onclick=()=>markDone([b.dataset.pdone]));
+  const pk_=$('#pqPick');if(pk_)pk_.onclick=()=>pickList(pickPending().map(i=>i.id),'كل الفواتير اللي لسه ماتحضرتش');
+  const psl=$('#pqSelL');if(psl)psl.onclick=()=>pickList([...sel],'الفواتير المختارة');
   const upd=()=>{const bar=$('#pqSelBar');if(bar){bar.style.display=sel.size?'':'none';$('#pqSelN').textContent=sel.size+' مختارة'}};
   $$('[data-psel]').forEach(c=>c.onchange=()=>{if(c.checked)sel.add(c.dataset.psel);else sel.delete(c.dataset.psel);upd()});
   const ca=$('#pqChkAll');if(ca)ca.onchange=()=>{$$('[data-psel]').forEach(c=>{c.checked=ca.checked;if(ca.checked)sel.add(c.dataset.psel);else sel.delete(c.dataset.psel)});upd()};
