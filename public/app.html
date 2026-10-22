@@ -850,18 +850,29 @@ const pctTxt=v=>v==null||Math.abs(v)<0.05?'—':(v<0?'+'+fmt(-v):fmt(v))+'%';
 const noDisc=inv=>isSaleT(inv.type)&&!(inv.lines||[]).some(l=>+l.disc);
 const SMODE=()=>{try{return localStorage.getItem('mizan.smode')||'start'}catch(e){return 'start'}};
 const setSMODE=v=>{try{localStorage.setItem('mizan.smode',v)}catch(e){}};
-function pFind(q,mode,lim){q=String(q||'').trim();if(!q)return [];const nq=norm(q);const ws=nq.split(/\s+/).filter(Boolean);const out=[],seen=new Set();
-  const push=p=>{if(!seen.has(p.id)){seen.add(p.id);out.push(p)}};
-  const idx=pIndex();
-  for(const x of idx){if(x.c===nq||x.b.split(' ').includes(q))push(x.p)}
-  if(mode==='start'){
-    for(const x of idx){if(x.n.startsWith(nq)||x.c.startsWith(nq))push(x.p)}
-    if(ws.length>1)for(const x of idx){if(x.n.startsWith(ws[0])&&ws.slice(1).every(w=>x.n.includes(w)))push(x.p)}
-  }else{
-    for(const x of idx){if(x.n.startsWith(nq))push(x.p)}
-    for(const x of idx){if(x.n.includes(nq)||x.c.includes(nq)||x.b.includes(q))push(x.p)}
-    if(ws.length>1)for(const x of idx){if(ws.every(w=>x.n.includes(w)))push(x.p)}
-  }
+/* بحث ذكي: الكلام بأي ترتيب، أجزاء كلمات، أرقام لازقة في الوحدة (250مل = 250 مل)، «ال» مش فارقة، وغلطة حرف واحد لو مفيش نتايج */
+const sNorm=s=>norm(s).replace(/[ؤ]/g,'و').replace(/[ئ]/g,'ي').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/([0-9])([^0-9\s.,])/g,'$1 $2').replace(/([^0-9\s.,])([0-9])/g,'$1 $2').replace(/[\/\\\-_+*،,()\[\]{}"'«»]+/g,' ').replace(/\s+/g,' ').trim();
+const noAl=t=>t.length>4&&t.startsWith('ال')?t.slice(2):t;
+function pToks(x){if(!x.t){x.t=sNorm(x.p.name).split(' ').filter(Boolean);x.t2=x.t.map(noAl);x.sn=x.t.join(' ')}return x}
+function ed1(a,b){if(a===b)return true;const la=a.length,lb=b.length;if(Math.abs(la-lb)>1)return false;let i=0,j=0,d=0;while(i<la&&j<lb){if(a[i]===b[j]){i++;j++;continue}if(++d>1)return false;if(la>lb)i++;else if(lb>la)j++;else{i++;j++}}return d+(la-i)+(lb-j)<=1}
+function pFind(q,mode,lim){q=String(q||'').trim();if(!q)return [];const nq=norm(q);const sq=sNorm(q);const ws=[...new Set(sq.split(' ').filter(Boolean))];if(!ws.length)return [];
+  const idx=pIndex();const exact=[],seen=new Set();
+  for(const x of idx){if(x.c===nq||x.b.split(' ').includes(q)){exact.push(x.p);seen.add(x.p.id)}}
+  // درجة كل كلمة: 4 = الكلمة نفسها، 3 = أول كلمة، 1 = جزء من كلمة (في «جزء من الكلمة» أو لو الكلمة 3 حروف أو أكتر)، 0.6 = غلطة حرف
+  const anyOk=mode!=='start';
+  const score=(x,fuzzy)=>{pToks(x);let sc=0,pos=[];for(const w0 of ws){const w=noAl(w0);let best=0,at=-1;
+      for(let k=0;k<x.t.length;k++){const t=x.t[k],t2=x.t2[k];let v=0;
+        if(t===w0||t2===w)v=4;else if(t.startsWith(w0)||t2.startsWith(w))v=3;else if((anyOk||w.length>=3)&&w.length>=2&&t.includes(w))v=1;else if(fuzzy&&w.length>=4&&t.length>=4&&(ed1(t2,w)||ed1(t2.slice(0,w.length),w)))v=.6;
+        if(v>best){best=v;at=k}}
+      if(!best){if(/^[0-9a-z]+$/.test(w0)&&(x.c.includes(w0)))best=2;else return -1}
+      sc+=best;pos.push(at)}
+    if(x.sn.startsWith(sq))sc+=6;else if(x.t[0]&&(x.t[0].startsWith(ws[0])||x.t2[0].startsWith(noAl(ws[0]))))sc+=2;
+    if(pos.every((v,k)=>!k||v>=pos[k-1]))sc+=.5;
+    return sc-x.t.length*.05};
+  let res=[];for(const x of idx){if(seen.has(x.p.id))continue;const v=score(x,false);if(v>=0)res.push([v,x.p])}
+  if(!res.length&&!exact.length)for(const x of idx){const v=score(x,true);if(v>=0)res.push([v,x.p])}
+  res.sort((a,b)=>b[0]-a[0]||a[1].name.length-b[1].name.length);
+  const out=exact.concat(res.map(r=>r[1]));
   return lim?out.slice(0,lim):out}
 function wideSearch(q0,inv,isSale){
   let q=q0||'',mode=SMODE(),onlyStock=false,added=0,hi=0,xs=[];
