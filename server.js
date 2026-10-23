@@ -19,6 +19,7 @@ const pool = new Pool({
 
 const ADMIN_ONLY = new Set(['roles', 'roledefs', 'settings']);
 const notify = require('./notify');
+const presence = require('./presence');
 const SESSION_DAYS = 30;
 const COOKIE = 'mz_s';
 // رقم النسخة: الأجهزة المفتوحة بتعرف إن فيه تحديث وبتعمل reload
@@ -311,7 +312,7 @@ app.post('/api/write', auth(false), async (req, res, next) => {
     if (o.c === 'notifs') return res.status(403).json({ error: 'forbidden' }); // التنبيهات بيعملها السيرفر بس
     if (o.op === 'delete' && o.c.startsWith('x_') && !admin) return res.status(403).json({ error: 'forbidden' });
   }
-  const gctx = { admin, seenNo: new Set(), renumbered: [], cashEv: [] };
+  const gctx = { admin, seenNo: new Set(), renumbered: [], cashEv: [], acts: [] };
   const view = admin ? { admin: true, costHidden: false } : await viewOf(req.user, pool);
   for (const o of ops) {
     // كتابة chunk كامل (set) بتمسح اللي فيه — للمالك بس (البرنامج نفسه بيكتب update دايمًا)
@@ -348,6 +349,7 @@ app.post('/api/write', auth(false), async (req, res, next) => {
           await numberNewInvoices(client, ni, bi, o.i, gctx);
         }
         if (o.op === 'update') data = mergeDoc(base, o.d);
+        try { gctx.acts.push(...presence.describe(o.c, isObj(base.items) ? base.items : {}, o.d)); gctx.described = true; } catch (e) {}
         if ((o.c === 'x_cash' || o.c === 'x_invoices') && isObj(o.d.items)) gctx.cashEv.push(...notify.detect(o.c, isObj(base.items) ? base.items : {}, o.d.items, 'mizan'));
       }
       const r = await client.query(
@@ -358,6 +360,7 @@ app.post('/api/write', auth(false), async (req, res, next) => {
     }
     if (gctx.cashEv.length) await notify.emit(client, gctx.cashEv, { id: req.user.id, name: req.user.name });
     await client.query('COMMIT');
+    try { presence.record(req.user, gctx.acts); } catch (e) {}
     if (view.costHidden && out.some(d => PX_COLS.has(d.c))) { try { out.push({ c: '_px', i: 'main', s: 0, d: await tierPrices(pool), x: 0 }); } catch (e) {} }
     res.json({ ok: true, docs: out, ...(gctx.renumbered.length ? { renumbered: gctx.renumbered } : {}) });
   } catch (e) {
@@ -370,6 +373,7 @@ app.post('/api/write', auth(false), async (req, res, next) => {
 /* ============ ربط أورجا (اتجاه واحد: أورجا ← ميزان) ============ */
 require('./orga')(app, { pool, auth, now, notify });
 notify.mount(app, { pool, auth });
+presence.mount(app, { auth });
 
 /* ============ ترقيم الفواتير على السيرفر ============ */
 const NUM_TYPES = new Set(['sale', 'sret', 'purchase', 'pret', 'adj', 'reval', 'count', 'transfer', 'open', 'porder', 'quote']);
