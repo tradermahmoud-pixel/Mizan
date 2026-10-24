@@ -974,8 +974,45 @@ function edTotals(all){
    if(show){const sgn=(G('parties',inv.partyId).kind==='vendor'?-1:1)*({sale:1,pret:1,sret:-1,purchase:-1}[inv.type]||0);$('#tpb').textContent=fmt(pb);$('#tgt').textContent=fmt(pb+sgn*t.total);$('#tnb').textContent=fmt(pb+sgn*(t.total-(+inv.paid||0)))}}
   if(inv.type==='sale'&&$('#tpr')&&can('seeCost')){let c=0;inv.lines.forEach(l=>{c+=(+l.qty||0)*((l.cost!==''&&l.cost!=null)?+l.cost:avgCost(l.pid))});const p=t.after-c;$('#tpr').textContent=fmt(p);$('#tpr').className='num '+(p<0?'neg':'pos')}
 }
+/* مرتجع: الصنف لازم يكون اتباع (أو اتشرى) قبل كده، والمرتجع بيتربط بالفاتورة اللي خرج فيها */
+function dealsOf(pid,rt,partyId){const st=RET_SRC[rt];const out=[];
+  for(const i of L('invoices')){if(i.type!==st)continue;if(partyId&&i.partyId!==partyId)continue;const ls=(i.lines||[]).filter(l=>l.pid===pid);if(!ls.length)continue;
+    const q=ls.reduce((a,l)=>a+(+l.qty||0),0);out.push({inv:i,qty:q,price:+ls[0].price||0,disc:+ls[0].disc||0,rem:retRemain(i,pid,ED&&ED.id)})}
+  return out.sort((a,b)=>(b.inv.date||'').localeCompare(a.inv.date||'')||(b.inv.createdAt||'').localeCompare(a.inv.createdAt||''))}
+function retPick(pid){const inv=ED.inv,rt=inv.type,st=RET_SRC[rt];const P=rt==='sret'?'العميل':'المورد';
+  const all=dealsOf(pid,rt,'');const mine=inv.partyId?all.filter(d=>d.inv.partyId===inv.partyId):all;
+  if(!all.length){toast(`«${pname(pid)}» ${rt==='sret'?'مااتباعش':'مااتشراش'} قبل كده خالص — مينفعش يترجع`,'err');return}
+  if(inv.partyId&&!mine.length){toast(`«${pname(pid)}» ${rt==='sret'?'مااتباعش للعميل':'مااتشراش من المورد'} «${partyName(inv.partyId)}» قبل كده — مينفعش يترجع منه`,'err');return}
+  let show=mine.slice(0,60);
+  const draw=()=>{modal(`<h2>↩️ «${esc(pname(pid))}» ${rt==='sret'?'اتباع لمين؟':'اتشرى من مين؟'}</h2>
+    <p class="small muted" style="margin-top:0">${inv.partyId?`فواتير ${esc(partyName(inv.partyId))} اللي فيها الصنف ده`:`كل ${TYPES[st].full} اللي فيها الصنف ده — اختار الفاتورة اللي هيترجع منها`} (${mine.length})</p>
+    <input class="in" id="rtpQ" placeholder="فلتر باسم ${P} أو رقم الفاتورة" style="margin-bottom:8px" autocomplete="off">
+    <div class="tw" style="max-height:55vh;overflow:auto"><table class="t"><thead><tr><th>التاريخ</th><th>${P}</th><th>الفاتورة</th><th class="n">الكمية</th><th class="n">اترجع</th><th class="n">ينفع يرجع</th><th class="n">السعر</th><th></th></tr></thead><tbody>
+    ${show.map((d,k)=>`<tr style="${d.rem<=0.0001?'opacity:.55':''}"><td class="num">${esc(d.inv.date||'')}</td><td>${esc(partyName(d.inv.partyId)||'نقدي')}</td><td class="num">#${esc(d.inv.no)}</td><td class="n">${fq(d.qty)}</td><td class="n">${fq(d.qty-d.rem)}</td><td class="n"><b>${fq(Math.max(0,d.rem))}</b></td><td class="n">${fmt(d.price)}${d.disc?` <span class="small muted">خ ${d.disc}%</span>`:''}</td>
+      <td style="white-space:nowrap">${d.rem>0.0001?`<button class="btn s p" data-rtk="${k}">رجّع منها</button> `:'<span class="small muted">اترجع كله</span> '}<button class="btn s" data-rtv="${k}" title="اعرض كل أصناف الفاتورة واختار">الفاتورة كلها</button></td></tr>`).join('')||`<tr><td colspan="8" class="muted small">مفيش نتايج</td></tr>`}</tbody></table></div>
+    <div class="row" style="margin-top:12px"><span class="small muted">المرتجع بيتربط بالفاتورة، ومش هيسمح بكمية أكبر من اللي اتباع ناقص اللي رجع قبل كده.</span><span class="sp"></span><button class="btn" data-close>إلغاء</button></div>`,true);
+    const q=$('#rtpQ');q.oninput=()=>{const v=norm(q.value.trim());show=(v?mine.filter(d=>String(d.inv.no)===q.value.trim()||norm(partyName(d.inv.partyId)||'نقدي').includes(v)):mine).slice(0,60);const pos=q.selectionStart;draw();const n=$('#rtpQ');n.value=q.value;n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}};
+    $$('[data-rtk]').forEach(b=>b.onclick=()=>{const d=show[+b.dataset.rtk];closeModal();retAdd(pid,d)});
+    $$('[data-rtv]').forEach(b=>b.onclick=()=>{const d=show[+b.dataset.rtv];closeModal();useSrc(d.inv)})};
+  draw();setTimeout(()=>{const q=$('#rtpQ');if(q&&!inv.partyId)q.focus()},40)}
+function retAdd(pid,d){const inv=ED.inv;const o=d.inv;
+  if(inv.lines.length&&inv.fromInv&&inv.fromInv!==o.id){const cur=G('invoices',inv.fromInv);if(cur&&(cur.partyId||'')===(o.partyId||'')&&o.partyId){delete inv.fromInv;toast('المرتجع بقى من أكتر من فاتورة لنفس العميل')}else{toast('المرتجع ده مربوط بفاتورة '+(cur?'#'+cur.no+' لـ '+(partyName(cur.partyId)||'نقدي'):'تانية')+' — اعمل مرتجع منفصل للفاتورة دي','err');return}}
+  else if(inv.lines.length&&!inv.fromInv&&inv.partyId&&inv.partyId!==o.partyId){toast('الفاتورة دي لعميل تاني — اعمل مرتجع منفصل','err');return}
+  else if(!inv.lines.length){inv.fromInv=o.id;inv.storeId=o.storeId||MAIN}
+  inv.partyId=o.partyId||'';if(!o.partyId)inv.payFull=true;
+  const R=calc();const k=(o.lines||[]).findIndex(l=>l.pid===pid);const x=k>=0?R.line[o.id+':'+k]:null;
+  inv.lines.push({pid,qty:Math.min(1,Math.max(0,d.rem))||1,price:d.price,disc:d.disc,cost:inv.type==='sret'&&x&&!costHidden()?r2c(x.cost):''});
+  toast(`من ${TYPES[o.type].full} #${o.no} — ${o.date} — ${partyName(o.partyId)||'نقدي'} (ينفع يرجع ${fq(d.rem)})`);
+  const ni=inv.lines.length-1;render();setTimeout(()=>{const q=$(`input[data-i="${ni}"][data-f="qty"]`);if(q){q.focus();q.select();q.classList.add('flash')}},30)}
 function addLine(pid){
   const inv=ED.inv;const p=G('products',pid);const ex=inv.lines.findIndex(l=>l.pid===pid);
+  if(['sret','pret'].includes(inv.type)){const src=inv.fromInv&&G('invoices',inv.fromInv);
+    if(src){const rem=retRemain(src,pid,ED.id);const cur=inv.lines.filter(l=>l.pid===pid).reduce((a,l)=>a+(+l.qty||0),0);
+      if(!(src.lines||[]).some(l=>l.pid===pid)){if(inv.partyId&&dealsOf(pid,inv.type,inv.partyId).some(d=>d.rem>0.0001)){retPick(pid);return}toast(`«${p?.name||''}» مش موجود في ${TYPES[src.type].full} #${src.no}`,'err');return}
+      if(cur+1>rem+0.0001){toast(`المرتجع من «${p?.name||''}» وصل للحد — اتباع ${fq(retRemain(src,pid,ED.id)+0)} متبقي في الفاتورة #${src.no}`,'err');return}
+      if(ex<0){const R=calc();const k=src.lines.findIndex(l=>l.pid===pid);const l=src.lines[k];const x=R.line[src.id+':'+k];inv.lines.push({pid,qty:1,price:+l.price||0,disc:+l.disc||0,cost:inv.type==='sret'&&x&&!costHidden()?r2c(x.cost):''});const ni=inv.lines.length-1;render();setTimeout(()=>{const q=$(`input[data-i="${ni}"][data-f="qty"]`);if(q){q.focus();q.select();q.classList.add('flash')}},30);return}}
+    else if(ex<0){retPick(pid);return}
+    else if(inv.partyId){const lim=retRemainParty(inv.partyId,pid,inv.type,ED.id);if(lim!=null&&(+inv.lines[ex].qty||0)+1>lim+0.0001){toast(`المرتجع من «${p?.name||''}» وصل للي اتباع للعميل ده (${fq(lim)})`,'err');return}}}
   if(OUTT.includes(inv.type)&&!allowNeg()){const av=availFor(pid),cur=ex>=0?(+inv.lines[ex].qty||0):0;
     if(av<=0.0001){toast(`الصنف «${p?.name||''}» رصيده صفر في المخزن ده — مينفعش يتباع`,'err');return}
     if(cur+1>av+0.0001){toast(`الكمية أقل من المطلوبة — المتاح من «${p?.name||''}» ${fq(av)} بس`,'err');return}}
@@ -1036,8 +1073,11 @@ async function saveInv(andNew){
     for(const pid of [...new Set(lines.map(l=>l.pid))]){const q=lines.filter(l=>l.pid===pid).reduce((s,l)=>s+(+l.qty||0),0);
       const lim=src?retRemain(src,pid,ED.id):(inv.partyId?retRemainParty(inv.partyId,pid,inv.type,ED.id):null);
       if(lim!=null&&q>lim+0.0001)over.push(`${pname(pid)} (المرتجع ${fq(q)} والمسموح ${fq(Math.max(0,lim))})`)}
-    if(over.length){if(src){toast('الكمية المرتجعة أكبر من اللي في الفاتورة بعد المرتجعات السابقة: '+over.slice(0,4).join('، '),'err');return}
-      if(!(await confirmBox('الكمية أكبر من اللي '+(inv.type==='sret'?'اتباع للعميل ده':'اتشرى من المورد ده')+' (بعد المرتجعات السابقة): '+over.slice(0,4).join('، ')+'. تحفظ برضه؟','حفظ رغم ذلك')))return}
+    if(over.length&&ED.id){if(!(await confirmBox('الكمية أكبر من المسموح (بعد المرتجعات السابقة): '+over.slice(0,4).join('، ')+'. تحفظ برضه؟','حفظ رغم ذلك')))return}
+    else if(over.length){toast((src?'الكمية المرتجعة أكبر من اللي في الفاتورة بعد المرتجعات السابقة: ':'الكمية أكبر من اللي '+(inv.type==='sret'?'اتباع للعميل ده':'اتشرى من المورد ده')+' بعد المرتجعات السابقة: ')+over.slice(0,4).join('، '),'err');return}
+    if(!src&&!ED.id){const never=[...new Set(lines.map(l=>l.pid))].filter(pid=>!inv.partyId||retRemainParty(inv.partyId,pid,inv.type,ED.id)==null);
+      if(!inv.partyId){toast(`المرتجع لازم يكون من فاتورة — امسح باركود الفاتورة أو اختار ${inv.type==='sret'?'العميل':'المورد'}`,'err');return}
+      if(never.length){toast(`الأصناف دي ${inv.type==='sret'?'مااتباعتش للعميل ده':'مااتشرتش من المورد ده'} قبل كده: `+never.slice(0,4).map(pname).join('، '),'err');return}}
   }
   if(ED.id&&window.MZ_FLOW&&!(await MZ_FLOW.beforeSave({...ED.orig,id:ED.id},{...inv,lines})))return;
   const orig_=ED.id?ED.orig:null;
