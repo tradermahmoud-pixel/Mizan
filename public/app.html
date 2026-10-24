@@ -2208,10 +2208,16 @@ function vReports(){
      <div class="grid g3">${RCATS.map(([c,t,i])=>{const rs=REPS.filter(r=>r.cat===c&&repOk(r));if(!rs.length)return '';return `<div class="card"><div class="row" style="margin-bottom:8px"><span style="color:var(--brand)">${ic(i,'style="width:22px;height:22px"')}</span><h3 style="margin:0;font:700 18px/1.3 var(--display)">${t}</h3></div>
       ${rs.map(r=>`<a href="#/reports/${r.id}" style="display:block;padding:8px 0;border-top:1px solid var(--line);color:inherit;text-decoration:none"><b style="color:var(--brand)">${r.t}</b><div class="small muted">${r.d}</div></a>`).join('')}</div>`}).join('')}</div></div>`;return}
   const rep=REPS.find(r=>r.id===id);if(!rep||!repOk(rep)){denied();return}
-  if(RS.id!==id){RS={id,k:null,dir:-1,sel:new Set(),q:''}}if(!RS.sel)RS.sel=new Set();
+  if(RS.id!==id){RS={id,k:null,dir:-1,sel:new Set(),q:'',f:{},g:''}}if(!RS.sel)RS.sel=new Set();if(!RS.f)RS.f={};
   setTitle(rep.t);const res=rep.run();const sc=can('seeCost');
   const cols=res.cols.filter(c=>!c[3]||sc);
-  let rows=res.rows.slice();if(RS.q){const w=norm(RS.q).split(' ').filter(Boolean);const tk=cols.filter(c=>c[2]==='t'||c[2]==='i').map(c=>c[0]);rows=rows.filter(r=>w.every(x=>tk.some(k=>norm(String(r[k]??'')).includes(x))))}
+  const stripH=v=>String(v??'').replace(/<[^>]+>/g,' ');
+  // فلاتر سريعة لأعمدة النصوص اللي قيمها محدودة (النوع، العميل، البائع، المورد...)
+  const fcols=res.rows.length>3?cols.filter(c=>c[2]==='t'||c[2]==='h'||(res.html||[]).includes(c[0])).map(c=>{const vs=[...new Set(res.rows.map(r=>stripH(r[c[0]]).trim()).filter(Boolean))];return vs.length>1&&vs.length<=80&&vs.length<res.rows.length?[c[0],c[1],vs.sort((a,b)=>a.localeCompare(b,'ar'))]:null}).filter(Boolean):[];
+  let rows=res.rows.slice();
+  for(const [k,v] of Object.entries(RS.f))if(v)rows=rows.filter(r=>stripH(r[k]).trim()===v);
+  if(RS.q){const w=norm(RS.q).split(/\s+/).filter(Boolean);
+    rows=rows.filter(r=>{const hay=cols.map(([k,,f])=>{const v=r[k];return norm(stripH(v))+' '+(typeof v==='number'?String(Math.round(v*100)/100):'')}).join(' | ');return w.every(x=>hay.includes(x))})}
   const sk=RS.k||(res.sort&&res.sort[0]);const sd=RS.k?RS.dir:(res.sort?res.sort[1]:-1);
   if(sk&&!res.nosort)rows.sort((a,b)=>{const x=a[sk],y=b[sk];if(typeof x==='number'||typeof y==='number')return sd*((+x||0)-(+y||0));return sd*String(x??'').localeCompare(String(y??''),'ar',{numeric:true})});
   const tot={};cols.forEach(([k,,f,,ns])=>{if(!ns&&['m','q','i'].includes(f))tot[k]=rows.reduce((s,r)=>s+(Math.abs(r[k])===99999?0:(+r[k]||0)),0)});if(res.totFn)Object.assign(tot,res.totFn(tot));
@@ -2235,11 +2241,24 @@ function vReports(){
   $('#view').innerHTML=`<div class="wrap"><div class="row" style="margin-bottom:6px"><a href="#/reports" class="small">← مركز التقارير</a></div>
    <p class="muted" style="margin:0 0 12px">${rep.d}</p>
    <div class="card" style="margin-bottom:14px;padding:12px 14px"><div class="row">${(rep.f||[]).map(k=>F[k]).join('')}<span class="sp"></span>${res.action?`<button class="btn" id="rAct" ${S.ro?'disabled':''}>${res.action[0]}</button>`:''}<button class="btn" id="rX">${ic('dl')}Excel</button><button class="btn" id="rP">${ic('print')}طباعة</button></div></div>
-   ${res.rows.length>8?`<div class="row small" style="gap:8px;margin-bottom:10px;flex-wrap:wrap"><input class="in" id="rQ" placeholder="🔍 بحث في التقرير" value="${esc(RS.q||'')}" style="flex:1 1 220px;max-width:340px" autocomplete="off">
+   ${res.rows.length>3?`<div class="row small" style="gap:8px;margin-bottom:10px;flex-wrap:wrap"><input class="in" id="rQ" placeholder="🔍 بحث في التقرير" value="${esc(RS.q||'')}" style="flex:1 1 220px;max-width:340px" autocomplete="off">
      ${res.nosort?'':`<label class="row" style="gap:6px">ترتيب حسب<select class="in" id="rSk" style="width:auto;padding:5px 8px">${opts(cols.map(c=>[c[0],c[1]]),sk||'')}</select></label><button class="btn s" id="rSd" title="عكس الترتيب">${sd>0?'تصاعدي ▲':'تنازلي ▼'}</button>`}
+     ${fcols.map(([k,t,vs])=>`<select class="in" data-rcf="${k}" style="width:auto;max-width:200px;padding:5px 8px">${opts(vs.map(v=>[v,v]),RS.f[k]||'',t+': الكل')}</select>`).join('')}
+     ${fcols.length&&Object.keys(tot).length?`<label class="row" style="gap:6px">تجميع حسب<select class="in" id="rG" style="width:auto;padding:5px 8px">${opts(fcols.map(([k,t])=>[k,t]),RS.g||'','— بدون —')}</select></label>`:''}
+     ${RS.q||Object.values(RS.f).some(Boolean)?'<button class="btn s" id="rClr">مسح الفلاتر</button>':''}
      ${res.select?`<span class="sp"></span><span id="rSelBar" class="row" style="gap:8px;${RS.sel.size?'':'display:none'}"><b id="rSelN">${RS.sel.size} مختار</b><button class="btn s p" id="rSelGo" ${S.ro?'disabled':''}>${res.select.label}</button><button class="btn s" id="rSelC">إلغاء الاختيار</button></span>`:''}</div>`:''}
    ${res.kpi&&res.kpi.length?`<div class="strip" style="grid-template-columns:repeat(${res.kpi.length},1fr);margin-bottom:14px">${res.kpi.map(([k,v])=>`<div><div class="k">${k}</div><div class="v" style="font-size:26px">${v}</div></div>`).join('')}</div>`:''}
+   ${(()=>{const ks=cols.filter(([k])=>k in tot);if(!ks.length||!res.rows.length)return '';const filt=rows.length!==res.rows.length;
+     return `<div class="card" style="padding:10px 14px;margin-bottom:12px"><div class="row" style="gap:18px;flex-wrap:wrap"><div><div class="small muted">عدد الصفوف</div><b class="num" style="font-size:20px">${fmt(rows.length)}</b>${filt?` <span class="small muted">من ${fmt(res.rows.length)}</span>`:''}</div>
+       ${ks.map(([k,t,f])=>`<div><div class="small muted">إجمالي ${esc(t)}</div><b class="num ${f==='m'&&tot[k]<-0.009?'neg':''}" style="font-size:20px">${cellF(tot[k],f==='i'?'q':f)}</b></div>`).join('')}
+       ${filt?'<span class="small muted" style="align-self:center">الإجماليات حسب البحث والفلاتر</span>':''}</div></div>`})()}
    ${chart}
+   ${RS.g&&rows.length?(()=>{const gt=(fcols.find(c=>c[0]===RS.g)||[])[1]||'';const ks=cols.filter(([k])=>k in tot);const m=new Map();
+     for(const r of rows){const g=stripH(r[RS.g]).trim()||'—';const x=m.get(g)||{g,n:0};x.n++;for(const [k] of ks)x[k]=(x[k]||0)+(Math.abs(r[k])===99999?0:(+r[k]||0));m.set(g,x)}
+     const gs=[...m.values()].sort((a,b)=>ks.length?(Math.abs(b[ks[0][0]])-Math.abs(a[ks[0][0]])):b.n-a.n);
+     return `<div class="tw" style="margin-bottom:14px"><table class="t"><thead><tr><th>${esc(gt)}</th><th class="n">العدد</th>${ks.map(([k,t])=>`<th class="n">${esc(t)}</th>`).join('')}<th></th></tr></thead><tbody>
+       ${gs.map(x=>`<tr class="click" data-rgv="${esc(x.g)}"><td><b>${esc(x.g)}</b></td><td class="n">${fmt(x.n)}</td>${ks.map(([k,,f])=>`<td class="n ${f==='m'&&x[k]<-0.009?'neg':''}">${cellF(x[k],f==='i'?'q':f)}</td>`).join('')}<td class="small muted">التفاصيل ←</td></tr>`).join('')}</tbody>
+       <tfoot><tr><td>الإجمالي (${gs.length})</td><td class="n">${fmt(rows.length)}</td>${ks.map(([k,,f])=>`<td class="n">${cellF(tot[k],f==='i'?'q':f)}</td>`).join('')}<td></td></tr></tfoot></table></div>`})():''}
    ${rows.length?`<div class="tw"><table class="t" id="rt"><thead><tr>${res.select?'<th style="width:28px"><input type="checkbox" id="rSelAll" title="اختار كل اللي ظاهر"></th>':''}${cols.map(([k,t,f])=>`<th class="${['m','q','i','p'].includes(f)?'n':''}" data-sk="${k}" style="cursor:${res.nosort?'default':'pointer'}">${t}${sk===k&&!res.nosort?(sd>0?' ▲':' ▼'):''}</th>`).join('')}</tr></thead><tbody>
     ${shown.map(r=>`<tr ${res.link&&r[res.link]?`class="click" data-go="${r[res.link]}"`:''}>${res.select?`<td><input type="checkbox" data-rsel="${esc(r[res.select.key])}" ${RS.sel.has(r[res.select.key])?'checked':''}></td>`:''}${cols.map(([k,,f])=>`<td class="${['m','q','i','p'].includes(f)?'n':''} ${f==='m'&&r[k]<-0.009?'neg':''}">${(res.html||[]).includes(k)?r[k]:cellF(r[k],f)}</td>`).join('')}</tr>`).join('')}</tbody>
     ${Object.keys(tot).length?`<tfoot><tr>${res.select?'<td></td>':''}${cols.map(([k,,f],ix)=>`<td class="${['m','q','i','p'].includes(f)?'n':''}">${k in tot?cellF(tot[k],f==='i'?'q':f):ix===0?`الإجمالي (${rows.length})`:''}</td>`).join('')}</tr></tfoot>`:''}</table></div>
@@ -2252,6 +2271,10 @@ function vReports(){
   if(!res.nosort)$$('[data-sk]').forEach(th=>th.onclick=()=>{const k=th.dataset.sk;if(RS.k===k)RS.dir*=-1;else{RS.k=k;RS.dir=-1}render()});
   $$('[data-go]').forEach(r=>r.onclick=e=>{if(e.target.closest('[data-rsel]'))return;go('inv/'+r.dataset.go)});
   const rq=$('#rQ');if(rq)rq.oninput=()=>{RS.q=rq.value;const pos=rq.selectionStart;render();const n=$('#rQ');if(n){n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}}};
+  $$('[data-rcf]').forEach(el=>el.onchange=()=>{RS.f[el.dataset.rcf]=el.value;render()});
+  const rg=$('#rG');if(rg)rg.onchange=()=>{RS.g=rg.value;render()};
+  $$('[data-rgv]').forEach(tr=>tr.onclick=()=>{RS.f[RS.g]=tr.dataset.rgv;RS.g='';render()});
+  const rclr=$('#rClr');if(rclr)rclr.onclick=()=>{RS.q='';RS.f={};render()};
   const rsk=$('#rSk');if(rsk)rsk.onchange=()=>{RS.k=rsk.value;RS.dir=RS.dir||-1;render()};
   const rsd=$('#rSd');if(rsd)rsd.onclick=()=>{if(!RS.k){RS.k=sk;RS.dir=sd}RS.dir*=-1;render()};
   if(res.select){const upd=()=>{const b=$('#rSelBar');if(b){b.style.display=RS.sel.size?'':'none';$('#rSelN').textContent=RS.sel.size+' مختار'}};
