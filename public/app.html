@@ -1809,30 +1809,81 @@ function noticeModal(pid){
 
 /* ============ CASH ============ */
 const CATS_IN=['تحصيل من عميل','إيداع / رأس مال','إيرادات أخرى'],CATS_OUT=['سداد لمورد','مصروفات','سلفة موظف','رواتب','مسحوبات','أخرى'];
-let CF={from:'',to:'',safe:'',cat:'',q:'',n:300};
+let CF={from:'',to:'',safe:'',cat:'',q:'',n:300,kind:'',by:'cat',rg:'m',party:'',user:''};
+function cfRange(k){const t=today();const d=new Date(t);if(k==='t')return [t,t];if(k==='y'){const y=addDays(t,-1);return [y,y]}if(k==='w')return [addDays(t,-6),t];if(k==='m')return [t.slice(0,8)+'01',t];
+  if(k==='pm'){const a=new Date(d.getFullYear(),d.getMonth()-1,1),b=new Date(d.getFullYear(),d.getMonth(),0);return [ds(a),ds(b)]}if(k==='yr')return [t.slice(0,4)+'-01-01',t];return ['','']}
 function vCash(){
   setTitle('الخزينة');const R=calc();const sl=safes();
-  let list=L('cash').filter(c=>!c.nocash&&(!CF.from||c.date>=CF.from)&&(!CF.to||c.date<=CF.to)&&(!CF.safe||(c.kind==='xfer'?(c.from===CF.safe||c.to===CF.safe):(c.safe||defSafe())===CF.safe))&&(!CF.cat||c.category===CF.cat));
-  if(CF.q){const q=norm(CF.q);list=list.filter(c=>norm(c.note).includes(q)||norm(partyName(c.partyId)).includes(q)||norm(c.category).includes(q)||String(c.amount)===CF.q)}
-  list.sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.createdAt||'').localeCompare(a.createdAt||''));
-  const ti=list.filter(c=>c.kind==='in').reduce((s,c)=>s+(+c.amount||0),0),to=list.filter(c=>c.kind==='out').reduce((s,c)=>s+(+c.amount||0),0);
-  const cats=[...new Set(L('cash').filter(c=>!c.nocash).map(c=>c.category).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+  if(CF.rg&&CF.rg!=='c'){[CF.from,CF.to]=cfRange(CF.rg)}
+  const who=c=>whoName(c.createdBy)||c.orgaUser||'';const pty=c=>partyName(c.partyId)||empName(c.empId)||c.acct||'';
+  const base=L('cash').filter(c=>!c.nocash&&(!CF.from||c.date>=CF.from)&&(!CF.to||c.date<=CF.to)&&(!CF.safe||(c.kind==='xfer'?(c.from===CF.safe||c.to===CF.safe):(c.safe||defSafe())===CF.safe)));
+  let list=base.filter(c=>(!CF.cat||c.category===CF.cat)&&(!CF.party||pty(c)===CF.party)&&(!CF.user||who(c)===CF.user));
+  if(CF.q){const w=norm(CF.q).split(/\s+/).filter(Boolean);list=list.filter(c=>{const h=norm([c.note,pty(c),c.category,who(c),safeName(c.safe||defSafe()),c.date,c.no||'',c.invNo||''].join(' '))+' '+String(c.amount);return w.every(x=>h.includes(x))})}
+  const sum=(xs,k)=>xs.filter(c=>c.kind===k).reduce((a,c)=>a+(+c.amount||0),0);
+  const ti=sum(list,'in'),to=sum(list,'out'),tx=sum(list,'xfer'),ni=list.filter(c=>c.kind==='in').length,no_=list.filter(c=>c.kind==='out').length,nx=list.filter(c=>c.kind==='xfer').length;
+  const shown=CF.kind?list.filter(c=>c.kind===CF.kind):list;
+  shown.sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.createdAt||'').localeCompare(a.createdAt||''));
+  const KN={in:'قبض',out:'صرف',xfer:'تحويل'};
+  // توزيع حسب البند / الطرف / المستخدم / الخزينة / اليوم
+  const keyOf={cat:c=>c.category||'—',party:c=>pty(c)||'—',user:c=>who(c)||'—',safe:c=>c.kind==='xfer'?safeName(c.from)+' ← '+safeName(c.to):safeName(c.safe||defSafe()),day:c=>c.date||'—'}[CF.by]||(c=>c.category||'—');
+  const gm=new Map();for(const c of shown){const k=keyOf(c);const x=gm.get(k)||{k,n:0,in:0,out:0,xfer:0};x.n++;x[c.kind]+=(+c.amount||0);gm.set(k,x)}
+  const groups=[...gm.values()].sort((a,b)=>CF.by==='day'?b.k.localeCompare(a.k):(b.in+b.out+b.xfer)-(a.in+a.out+a.xfer));const gmax=Math.max(1,...groups.map(g=>g.in+g.out+g.xfer));
+  const byLbl={cat:'البند',party:'الطرف',user:'المستخدم',safe:'الخزينة',day:'اليوم'};
+  // جدول بفواصل الأيام
+  const rowsH=[];let lastD=null;const dayTot={};for(const c of shown){const d=dayTot[c.date]||(dayTot[c.date]={in:0,out:0,n:0});d.n++;if(c.kind!=='xfer')d[c.kind]+=(+c.amount||0)}
+  for(const c of shown.slice(0,CF.n)){if(c.date!==lastD){lastD=c.date;const d=dayTot[c.date];rowsH.push(`<tr class="cf-day"><td colspan="8"><b>${esc(c.date)}</b> <span class="muted">${esc(DAYS[new Date(c.date).getDay()]||'')}</span><span class="cf-dt">${d.in?`<span class="pos">قبض ${fmt(d.in)}</span>`:''}${d.out?`<span class="neg">صرف ${fmt(d.out)}</span>`:''}<span>${d.n} سند</span></span></td></tr>`)}
+    rowsH.push(`<tr><td><span class="tag ${c.kind==='in'?'ok':c.kind==='out'?'bad':'purchase'}">${KN[c.kind]}</span></td><td>${esc(c.category||'')}</td><td>${esc(pty(c))}</td>
+     <td class="small">${c.kind==='xfer'?`${esc(safeName(c.from))} ← ${esc(safeName(c.to))}`:esc(safeName(c.safe||defSafe()))}</td><td class="small">${esc(c.note||'')}</td><td class="n ${c.kind==='in'?'pos':c.kind==='out'?'neg':''}" style="font-weight:700">${fmt(c.amount)}</td><td class="hide-m small muted">${esc(who(c))}<div class="num">${esc(ltm(c.createdAt||'').slice(11,16))}</div></td><td><button class="btn s" data-ce="${c.id}">تعديل</button></td></tr>`)}
+  const fOn=CF.cat||CF.party||CF.user||CF.q;
   $('#view').innerHTML=`<div class="wrap">
-   <div class="strip" style="grid-template-columns:1.3fr repeat(${Math.min(sl.length,5)},1fr);margin-bottom:16px"><div><div class="k">إجمالي النقدية في كل الخزائن</div><div class="v">${fmt(R.cash)}</div><div class="s">${sl.length} خزينة</div></div>
-     ${sl.slice(0,5).map(s=>`<div style="cursor:pointer" data-sf="${s.id}"><div class="k">${esc(s.name)}${s.id===defSafe()?' · افتراضية':''}</div><div class="v ${(R.safe[s.id]||0)<0?'neg':''}" style="font-size:24px">${fmt(R.safe[s.id]||0)}</div></div>`).join('')}</div>
-   <div class="row" style="margin-bottom:12px"><button class="btn p" id="cin" ${S.ro?'disabled':''}>سند قبض</button><button class="btn" id="cout" ${S.ro?'disabled':''}>سند صرف</button><button class="btn" id="cx" ${S.ro?'disabled':''}>تحويل بين الخزائن</button>${S.isAdmin?`<button class="btn" id="cs">إدارة الخزائن</button>`:''}<span class="sp"></span>
-    <select class="in" style="width:170px" id="cfs">${opts(sl.map(s=>[s.id,s.name]),CF.safe,'كل الخزائن')}</select><select class="in" style="width:170px" id="cfc">${opts(cats.map(c=>[c,c]),CF.cat,'كل البنود')}</select><input class="in" style="width:160px" id="cfq" placeholder="بحث في البيان" value="${esc(CF.q)}"><input class="in" type="date" style="width:150px" id="cf" value="${CF.from}"><input class="in" type="date" style="width:150px" id="ct" value="${CF.to}"></div>
-   <div class="row small muted" style="margin-bottom:8px;gap:16px"><span>${list.length} سند</span><span>مقبوضات <b class="num pos">${fmt(ti)}</b></span><span>مدفوعات <b class="num neg">${fmt(to)}</b></span><span>الصافي <b class="num">${fmt(ti-to)}</b></span></div>
-   ${list.length?`<div class="tw"><table class="t"><thead><tr><th>التاريخ</th><th>النوع</th><th>البند</th><th>الطرف / الموظف</th><th>الخزينة</th><th>البيان</th><th class="n">المبلغ</th><th class="hide-m">المستخدم</th><th></th></tr></thead><tbody>
-   ${list.slice(0,CF.n).map(c=>`<tr><td class="num">${c.date}</td><td><span class="tag ${c.kind==='in'?'ok':c.kind==='out'?'bad':'purchase'}">${c.kind==='in'?'قبض':c.kind==='out'?'صرف':'تحويل'}</span></td><td>${esc(c.category||'')}</td><td>${esc(partyName(c.partyId)||empName(c.empId)||c.acct||'')}</td>
-     <td class="small">${c.kind==='xfer'?`${esc(safeName(c.from))} ← ${esc(safeName(c.to))}`:esc(safeName(c.safe||defSafe()))}</td><td class="small">${esc(c.note||'')}</td><td class="n ${c.kind==='in'?'pos':c.kind==='out'?'neg':''}">${fmt(c.amount)}</td><td class="hide-m small muted">${esc(whoName(c.createdBy)||c.orgaUser||'')}</td><td><button class="btn s" data-ce="${c.id}">تعديل</button></td></tr>`).join('')}</tbody></table></div>
-   ${list.length>CF.n?`<div class="row" style="justify-content:center;margin-top:12px"><button class="btn" id="cmore">عرض المزيد (${list.length-CF.n} باقي)</button></div>`:''}`:`<div class="empty card"><b>لا توجد سندات</b>سجّل تحصيلًا من عميل أو مصروفًا أو تحويلًا بين الخزائن.</div>`}</div>`;
+   <div class="strip" style="grid-template-columns:1.3fr repeat(${Math.min(sl.length,5)},1fr);margin-bottom:14px"><div><div class="k">إجمالي النقدية في كل الخزائن</div><div class="v">${fmt(R.cash)}</div><div class="s">${sl.length} خزينة</div></div>
+     ${sl.slice(0,5).map(s=>`<div class="dk ${CF.safe===s.id?'cf-on':''}" data-sf="${s.id}" title="اعرض حركة الخزينة دي بس"><div class="k">${esc(s.name)}${s.id===defSafe()?' · افتراضية':''}</div><div class="v ${(R.safe[s.id]||0)<0?'neg':''}" style="font-size:24px">${fmt(R.safe[s.id]||0)}</div>${CF.safe===s.id?'<div class="s">✓ معروضة</div>':''}</div>`).join('')}</div>
+   <div class="row" style="margin-bottom:12px"><button class="btn p" id="cin" ${S.ro?'disabled':''}>+ سند قبض</button><button class="btn" id="cout" ${S.ro?'disabled':''}>− سند صرف</button><button class="btn" id="cx" ${S.ro?'disabled':''}>⇄ تحويل بين الخزائن</button>${S.isAdmin?`<button class="btn" id="cs">إدارة الخزائن</button>`:''}<span class="sp"></span><button class="btn" id="cxl">${ic('dl')}Excel</button><button class="btn" id="cpr">${ic('print')}طباعة</button></div>
+   <div class="card" style="padding:12px 14px;margin-bottom:12px"><div class="row" style="gap:8px;flex-wrap:wrap">
+     <div class="seg">${[['t','النهارده'],['y','امبارح'],['w','آخر 7 أيام'],['m','الشهر ده'],['pm','الشهر اللي فات'],['yr','السنة'],['a','الكل']].map(([k,t])=>`<button data-crg="${k}" class="${CF.rg===k?'on':''}">${t}</button>`).join('')}</div>
+     <input class="in" type="date" style="width:145px" id="cf" value="${CF.from}"><span class="small muted">لـ</span><input class="in" type="date" style="width:145px" id="ct" value="${CF.to}">
+     <select class="in" style="width:auto" id="cfs">${opts(sl.map(s=>[s.id,s.name]),CF.safe,'كل الخزائن')}</select>
+     <input class="in" style="flex:1 1 200px" id="cfq" placeholder="🔍 بحث: البيان، العميل، البند، المبلغ، المستخدم…" value="${esc(CF.q)}" autocomplete="off">
+     ${fOn?'<button class="btn s" id="cclr">مسح الفلاتر</button>':''}</div>
+     ${fOn?`<div class="small" style="margin-top:8px">فلتر: ${[CF.cat&&'البند «'+esc(CF.cat)+'»',CF.party&&'الطرف «'+esc(CF.party)+'»',CF.user&&'المستخدم «'+esc(CF.user)+'»',CF.q&&'بحث «'+esc(CF.q)+'»'].filter(Boolean).join(' · ')}</div>`:''}</div>
+   <div class="cf-sum">
+     <button class="cf-k ${!CF.kind?'on':''}" data-ck=""><span>كل الحركة</span><b class="num">${fmt(ti-to)}</b><small>الصافي · ${list.length} سند</small></button>
+     <button class="cf-k in ${CF.kind==='in'?'on':''}" data-ck="in"><span>⬇ المقبوضات</span><b class="num">${fmt(ti)}</b><small>${ni} سند قبض</small></button>
+     <button class="cf-k out ${CF.kind==='out'?'on':''}" data-ck="out"><span>⬆ المدفوعات</span><b class="num">${fmt(to)}</b><small>${no_} سند صرف</small></button>
+     <button class="cf-k xf ${CF.kind==='xfer'?'on':''}" data-ck="xfer"><span>⇄ التحويلات</span><b class="num">${fmt(tx)}</b><small>${nx} تحويل</small></button></div>
+   <div class="grid g21" style="margin-top:12px;align-items:start">
+    <div>${shown.length?`<div class="tw"><table class="t cf-t"><thead><tr><th>النوع</th><th>البند</th><th>الطرف / الموظف</th><th>الخزينة</th><th>البيان</th><th class="n">المبلغ</th><th class="hide-m">المستخدم</th><th></th></tr></thead><tbody>${rowsH.join('')}</tbody></table></div>
+      ${shown.length>CF.n?`<div class="row" style="justify-content:center;margin-top:12px"><button class="btn" id="cmore">عرض المزيد (${shown.length-CF.n} باقي)</button></div>`:''}`:`<div class="empty card"><b>مفيش ${CF.kind?'سندات '+KN[CF.kind]:'سندات'} في الفترة دي</b>غيّر الفترة أو الفلاتر، أو سجّل سند جديد.</div>`}</div>
+    <div class="card" style="padding:12px 14px"><div class="row" style="gap:6px;margin-bottom:8px"><h3 style="margin:0">${CF.kind?(CF.kind==='in'?'المقبوضات':CF.kind==='out'?'المدفوعات':'التحويلات'):'الحركة'} حسب</h3><span class="sp"></span>
+      <select class="in" id="cby" style="width:auto;padding:4px 8px">${opts(Object.entries(byLbl),CF.by)}</select></div>
+      ${groups.length?groups.slice(0,40).map(g=>{const tot=g.in+g.out+g.xfer;const fk={cat:'cat',party:'party',user:'user'}[CF.by];const on=fk&&CF[fk]===g.k;return `<div class="cf-g ${fk?'dk':''} ${on?'cf-on':''}" ${fk?`data-cg="${esc(g.k)}"`:''} title="${fk?(on?'شيل الفلتر':'اعرض '+esc(g.k)+' بس'):''}">
+        <div class="row" style="gap:6px"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.k)}</span><span class="small muted">${g.n}</span>${g.in?`<b class="num pos">${fmt(g.in)}</b>`:''}${g.out?`<b class="num neg">${fmt(g.out)}</b>`:''}${g.xfer?`<b class="num">${fmt(g.xfer)}</b>`:''}</div>
+        <div class="cf-bar"><i class="in" style="width:${g.in/gmax*100}%"></i><i class="out" style="width:${g.out/gmax*100}%"></i><i class="xf" style="width:${g.xfer/gmax*100}%"></i></div></div>`}).join(''):'<p class="small muted">مفيش حركة</p>'}
+      ${groups.length>40?`<p class="small muted">و${groups.length-40} تاني…</p>`:''}</div>
+   </div></div>
+   <style>.cf-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.cf-k{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:12px 14px;text-align:right;cursor:pointer;display:flex;flex-direction:column;gap:2px;font:inherit;color:inherit;transition:.15s}
+     .cf-k span{font-size:13px;color:var(--muted)}.cf-k b{font-size:24px}.cf-k small{color:var(--muted)}.cf-k.in b{color:var(--ok)}.cf-k.out b{color:var(--danger)}.cf-k:hover{border-color:var(--brand)}
+     .cf-k.on{border:2px solid var(--brand);box-shadow:0 4px 14px color-mix(in srgb,var(--brand) 18%,transparent)}.cf-k.in.on{border-color:var(--ok)}.cf-k.out.on{border-color:var(--danger)}
+     .cf-day td{background:var(--surface2);padding:7px 12px!important}.cf-dt{float:left;display:inline-flex;gap:12px;font-size:12.5px}.cf-g{padding:7px 6px;border-radius:8px}.cf-g.dk:hover{background:var(--surface2)}.cf-on{outline:2px solid var(--brand);background:var(--brand-soft)!important}
+     .cf-bar{display:flex;height:6px;border-radius:4px;background:var(--surface2);overflow:hidden;margin-top:4px}.cf-bar i{display:block;height:100%}.cf-bar i.in{background:var(--ok)}.cf-bar i.out{background:var(--danger)}.cf-bar i.xf{background:var(--gold)}
+     @media (max-width:860px){.cf-sum{grid-template-columns:1fr 1fr}.cf-k b{font-size:19px}.cf-dt{float:none;display:flex;margin-top:2px}}</style>`;
   $('#cin').onclick=()=>cashModal({kind:'in'});$('#cout').onclick=()=>cashModal({kind:'out'});$('#cx').onclick=()=>xferModal({});
   const cs=$('#cs');if(cs)cs.onclick=safesModal;
   $$('[data-sf]').forEach(d=>d.onclick=()=>{CF.safe=CF.safe===d.dataset.sf?'':d.dataset.sf;render()});
-  $('#cfs').onchange=e=>{CF.safe=e.target.value;render()};$('#cfc').onchange=e=>{CF.cat=e.target.value;render()};$('#cfq').onchange=e=>{CF.q=e.target.value.trim();render()};
-  $('#cf').onchange=e=>{CF.from=e.target.value;render()};$('#ct').onchange=e=>{CF.to=e.target.value;render()};
+  $$('[data-ck]').forEach(b=>b.onclick=()=>{CF.kind=b.dataset.ck;CF.n=300;render()});
+  $$('[data-crg]').forEach(b=>b.onclick=()=>{CF.rg=b.dataset.crg;CF.n=300;render()});
+  $('#cfs').onchange=e=>{CF.safe=e.target.value;render()};
+  const q=$('#cfq');q.oninput=()=>{clearTimeout(q._t);q._t=setTimeout(()=>{CF.q=q.value.trim();const pos=q.selectionStart;render();const n=$('#cfq');if(n){n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}}},250)};
+  $('#cf').onchange=e=>{CF.from=e.target.value;CF.rg='c';render()};$('#ct').onchange=e=>{CF.to=e.target.value;CF.rg='c';render()};
+  $('#cby').onchange=e=>{CF.by=e.target.value;render()};
+  $$('[data-cg]').forEach(el=>el.onclick=()=>{const fk={cat:'cat',party:'party',user:'user'}[CF.by];CF[fk]=CF[fk]===el.dataset.cg?'':el.dataset.cg;render()});
+  const cc=$('#cclr');if(cc)cc.onclick=()=>{CF.cat='';CF.party='';CF.user='';CF.q='';render()};
   const cm=$('#cmore');if(cm)cm.onclick=()=>{CF.n+=300;render()};
+  const rng=(CF.from||CF.to)?`${CF.from||'البداية'} → ${CF.to||today()}`:'كل الفترات';
+  $('#cxl').onclick=()=>xlsxOut('الخزينة_'+today()+'.xlsx',[['الخزينة — '+rng+(CF.kind?' — '+KN[CF.kind]:'')],['التاريخ','النوع','البند','الطرف','الخزينة','البيان','قبض','صرف','تحويل','المستخدم'],...shown.map(c=>[c.date,KN[c.kind],c.category||'',pty(c),c.kind==='xfer'?safeName(c.from)+' ← '+safeName(c.to):safeName(c.safe||defSafe()),c.note||'',c.kind==='in'?+c.amount:'',c.kind==='out'?+c.amount:'',c.kind==='xfer'?+c.amount:'',who(c)]),['','','','','','الإجمالي',ti,to,tx,'']],'الخزينة');
+  $('#cpr').onclick=()=>{$('#print').className='';$('#print').innerHTML=`<style>@page{size:A4 portrait;margin:8mm}</style><div style="display:flex;justify-content:space-between;border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:8px"><div><h2 style="margin:0">حركة الخزينة${CF.kind?' — '+KN[CF.kind]:''}</h2><div>${esc(rng)}${CF.safe?' — '+esc(safeName(CF.safe)):''}${fOn?' — مفلترة':''}</div></div><div style="text-align:left">${esc(settings().company||'')}<br>${today()} ${nowHM()}</div></div>
+     <p>مقبوضات <b>${fmt(ti)}</b> · مدفوعات <b>${fmt(to)}</b> · الصافي <b>${fmt(ti-to)}</b> · ${shown.length} سند</p>
+     <table><thead><tr><th>التاريخ</th><th>النوع</th><th>البند</th><th>الطرف</th><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${shown.map(c=>`<tr><td>${esc(c.date)}</td><td>${KN[c.kind]}</td><td>${esc(c.category||'')}</td><td>${esc(pty(c))}</td><td>${esc(c.note||'')}</td><td>${fmt(c.amount)}</td></tr>`).join('')}</tbody></table>`;setTimeout(()=>{try{window.print()}catch(e){}},50)};
   $$('[data-ce]').forEach(b=>b.onclick=()=>{const c={...G('cash',b.dataset.ce),id:b.dataset.ce};c.kind==='xfer'?xferModal(c):cashModal(c)});
 }
 function cashModal(o){
