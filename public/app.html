@@ -155,6 +155,7 @@ table.t tr.click{cursor:pointer}
 .tbox .l{display:flex;justify-content:space-between;align-items:center;padding:5px 0;gap:10px}
 .tbox .l .in{width:120px;text-align:left}
 .tbox .grand{border-top:2px solid var(--ink);margin-top:6px;padding-top:10px;font:700 24px/1.2 var(--display)}
+.dk{cursor:pointer;transition:background .15s,transform .1s}.strip>.dk:hover{background:color-mix(in srgb,var(--brand) 8%,transparent)}.row.dk:hover{background:var(--surface2)}.bars .b.dk:hover .col{filter:brightness(1.15)}.dk:active{transform:scale(.99)}
 .stickybar{position:sticky;bottom:-40px;background:var(--bg);padding:12px 0;margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid var(--line)}
 
 /* attendance */
@@ -728,16 +729,16 @@ function vDash(){
      <button class="btn g" id="demoBtn" ${S.ro?'disabled':''}>جرّب ببيانات تجريبية</button></div>`:''}
    ${pqPanel()}${window.MZ_FLOW?MZ_FLOW.card():''}${window.MZ_DLV?MZ_DLV.card():''}${window.MZ_RT?MZ_RT.card():''}
    <div class="strip">
-     <div><div class="k">مبيعات اليوم</div><div class="v">${fmt(d.sales)}</div><div class="s">${d.count} فاتورة · ${esc(DAYS[new Date().getDay()])} ${t}</div></div>
-     ${can('seeCost')?`<div><div class="k">ربح اليوم</div><div class="v ${d.profit<0?'neg':''}">${fmt(d.profit)}</div><div class="s">هامش ${d.sales?fmt(d.profit/d.sales*100):0}%</div></div>`:''}
-     <div><div class="k">رصيد الخزينة</div><div class="v ${R.cash<0?'neg':''}">${fmt(R.cash)}</div><div class="s">${esc(settings().currency||'ج.م')}</div></div>
-     <div><div class="k">الحاضرون الآن</div><div class="v">${presentNow}<span class="muted" style="font-size:18px"> / ${emps.length}</span></div><div class="s">حضر اليوم ${came}</div></div>
+     <div class="dk" data-dgo="rep:sales_invoices:${t}:${t}" title="فواتير بيع ومرتجع النهارده"><div class="k">مبيعات اليوم ↗</div><div class="v">${fmt(d.sales)}</div><div class="s">${d.count} فاتورة · ${esc(DAYS[new Date().getDay()])} ${t}${(()=>{const rt=L('invoices').filter(i=>i.type==='sret'&&i.date===t).reduce((a,i)=>a+(R.inv[i.id]?.total||0),0);return rt?` · مرتجع ${fmt(rt)}`:''})()}</div></div>
+     ${can('seeCost')?`<div class="dk" data-dgo="rep:sales_daily:${t.slice(0,8)}01:${t}" title="أرباح الشهر يوم بيوم"><div class="k">ربح اليوم ↗</div><div class="v ${d.profit<0?'neg':''}">${fmt(d.profit)}</div><div class="s">هامش ${d.sales?fmt(d.profit/d.sales*100):0}%</div></div>`:''}
+     <div class="dk" data-dgo="cash" title="الخزينة وحركاتها"><div class="k">رصيد الخزينة ↗</div><div class="v ${R.cash<0?'neg':''}">${fmt(R.cash)}</div><div class="s">${esc(settings().currency||'ج.م')}</div></div>
+     <div class="dk" data-dgo="attendance" title="الحضور والانصراف"><div class="k">الحاضرون الآن ↗</div><div class="v">${presentNow}<span class="muted" style="font-size:18px"> / ${emps.length}</span></div><div class="s">حضر اليوم ${came}</div></div>
    </div>
    <div class="grid g21" style="margin-top:18px">
      <div class="card"><div class="row"><h3 style="margin:0">المبيعات آخر ١٤ يوم</h3><span class="sp"></span><span class="small muted"><span class="dot" style="background:var(--brand)"></span>مبيعات <span class="dot" style="background:var(--gold);margin-inline-start:10px"></span>ربح</span></div>
-       <div class="bars">${days.map(([k,v])=>`<div class="b" title="${k}: مبيعات ${fmt(v.sales)} — ربح ${fmt(v.profit)}"><div class="col" style="height:${Math.max(0,v.sales)/mx*100}%"><i style="height:${v.sales>0?Math.max(0,Math.min(100,v.profit/v.sales*100)):0}%"></i></div><small>${+k.slice(8)}</small></div>`).join('')}</div>
-       <div class="row small muted" style="margin-top:10px">مبيعات ${ymLabel(ym)}: <b class="num" style="color:var(--ink)">${fmt(mS)}</b> · ربح الشهر: <b class="num" style="color:var(--ink)">${fmt(mP)}</b></div></div>
-     <div class="card">${R.chq.due.length?`<h3>شيكات مستحقة خلال أسبوع</h3>${R.chq.due.slice(0,5).map(c=>`<a href="#/cheques" class="row" style="padding:5px 0;border-bottom:1px solid var(--line);color:inherit;text-decoration:none"><span class="tag ${c.dir==='in'?'ok':'bad'}">${c.dir==='in'?'قبض':'دفع'}</span><span style="flex:1">${esc(partyName(c.partyId))}</span><span class="num">${fmt(c.amount)}</span><span class="due ${c.dueDate<today()?'neg':''}">${c.dueDate}</span></a>`).join('')}<div style="height:14px"></div>`:''}<div class="row"><h3 style="margin:0">نواقص عليها طلب</h3><span class="sp"></span>${lowAll.length?`<a class="small" href="#/reports/stock_low">${lowAll.length} صنف</a>`:''}</div><p class="small muted" style="margin:4px 0 6px">أصناف اتباعت آخر ${SH.days} يوم ورصيدها قليل</p>${low.length?low.map(p=>`<div class="row" style="padding:5px 0;border-bottom:1px solid var(--line)"><span style="flex:1">${esc(p.name)}</span><span class="tag bad num">${fq(qtyIn(p.id))}</span></div>`).join('')+`<button class="btn s" style="margin-top:10px" id="lowPO" ${S.ro?'disabled':''}>أمر توريد بالنواقص</button>`:'<p class="muted small">مفيش أصناف عليها طلب رصيدها قليل.</p>'}</div>
+       <div class="bars">${days.map(([k,v])=>`<div class="b dk" data-dgo="rep:sales_invoices:${k}:${k}" title="${k}: مبيعات ${fmt(v.sales)} — ربح ${fmt(v.profit)} — دوس تشوف فواتير اليوم ده"><div class="col" style="height:${Math.max(0,v.sales)/mx*100}%"><i style="height:${v.sales>0?Math.max(0,Math.min(100,v.profit/v.sales*100)):0}%"></i></div><small>${+k.slice(8)}</small></div>`).join('')}</div>
+       <div class="row small muted dk" data-dgo="rep:sales_daily:${ym}-01:${t}" style="margin-top:10px">مبيعات ${ymLabel(ym)}: <b class="num" style="color:var(--ink)">${fmt(mS)}</b> · ربح الشهر: <b class="num" style="color:var(--ink)">${fmt(mP)}</b> <span class="small">↗ تفاصيل الشهر</span></div></div>
+     <div class="card">${R.chq.due.length?`<h3>شيكات مستحقة خلال أسبوع</h3>${R.chq.due.slice(0,5).map(c=>`<a href="#/cheques" class="row" style="padding:5px 0;border-bottom:1px solid var(--line);color:inherit;text-decoration:none"><span class="tag ${c.dir==='in'?'ok':'bad'}">${c.dir==='in'?'قبض':'دفع'}</span><span style="flex:1">${esc(partyName(c.partyId))}</span><span class="num">${fmt(c.amount)}</span><span class="due ${c.dueDate<today()?'neg':''}">${c.dueDate}</span></a>`).join('')}<div style="height:14px"></div>`:''}<div class="row"><h3 style="margin:0">نواقص عليها طلب</h3><span class="sp"></span>${lowAll.length?`<a class="small" href="#/reports/stock_low">${lowAll.length} صنف</a>`:''}</div><p class="small muted" style="margin:4px 0 6px">أصناف اتباعت آخر ${SH.days} يوم ورصيدها قليل</p>${low.length?low.map(p=>`<div class="row dk" data-dcard="${p.id}" style="padding:5px 0;border-bottom:1px solid var(--line)" title="كارت الصنف"><span style="flex:1">${esc(p.name)}</span><span class="tag bad num">${fq(qtyIn(p.id))}</span></div>`).join('')+`<button class="btn s" style="margin-top:10px" id="lowPO" ${S.ro?'disabled':''}>📒 كشكول النواقص — أمر توريد</button>`:'<p class="muted small">مفيش أصناف عليها طلب رصيدها قليل.</p>'}</div>
    </div>
    <div class="grid g2" style="margin-top:18px">
      <div class="card"><div class="row"><h3 style="margin:0">آخر الفواتير</h3><span class="sp"></span><a href="#/invoices" class="small">عرض الكل</a></div>
@@ -748,6 +749,8 @@ function vDash(){
        <a class="btn" href="#/cash">${ic('cash')}سند قبض / صرف</a><a class="btn" href="#/lines">${ic('grid')}تعديل الحركات</a></div></div>
    </div></div>`;
   $$('[data-inv]').forEach(r=>r.onclick=()=>go('inv/'+r.dataset.inv));bindPQ();
+  $$('[data-dgo]').forEach(el=>el.onclick=()=>{const v=el.dataset.dgo;if(v.startsWith('rep:')){const [,id,f,to]=v.split(':');RF.from=f;RF.to=to;RS={};go('reports/'+id)}else go(v)});
+  $$('[data-dcard]').forEach(el=>el.onclick=()=>itemCard(el.dataset.dcard));
   const db=$('#demoBtn');if(db)db.onclick=loadDemo;
   const lp=$('#lowPO');if(lp)lp.onclick=poFromLow;
 }
@@ -1278,7 +1281,7 @@ async function printMany(ids){if(!ids.length)return;$('#print').className='';
   await recordPrint(ids).catch(()=>{});setTimeout(()=>{try{window.print()}catch(e){toast('الطباعة غير متاحة هنا','err')}},50)}
 
 /* ============ تنبيه الطباعة في الرئيسية ============ */
-let PP_={days:1,ph:(()=>{try{return localStorage.getItem('mz.ppPh')||'all'}catch(e){return'all'}})(),q:''};
+let PP_={open:(()=>{try{return localStorage.getItem('mz.ppOpen')==='1'}catch(e){return false}})(),days:1,ph:(()=>{try{return localStorage.getItem('mz.ppPh')||'all'}catch(e){return'all'}})(),q:''};
 /* الصيدليات = الاسم بيبدأ بـ «ص » أو «ص.» أو «صيدلية» */
 const isPharm=n=>/^\s*(ص[\s.\-ـ]|صيدلي)/.test(String(n||''));
 function ppFilter(rows){const q=norm(PP_.q||'');const w=q.split(' ').filter(Boolean);return rows.filter(x=>{const n=x.pid?partyName(x.pid):'عميل نقدي';if(PP_.ph==='ph'&&!isPharm(n))return false;if(PP_.ph==='other'&&isPharm(n))return false;if(w.length){const nn=norm(n);if(!w.every(t=>nn.includes(t))&&!x.todo.some(i=>String(i.no)===PP_.q.trim()))return false}return true})}
@@ -1299,11 +1302,12 @@ function pqPanel(){
   if(!seesPQ())return '';const G0=pqGroups(PP_.days);const rows=ppFilter(G0.rows);const filt=rows.length!==G0.rows.length;const todo=rows.reduce((a,x)=>a+x.todo.length,0),all=rows.reduce((a,x)=>a+x.all,0);const older=pqOlder();const cp=canPrintQ();
   const per={1:'النهارده',2:'من امبارح',7:'آخر أسبوع'}[PP_.days]||'';
   return `<div class="card pqbox ${todo?'warn':''}" id="pqBox" style="margin-bottom:18px">
-   <div class="row"><h3 style="margin:0">${ic('print','style="width:20px;height:20px;vertical-align:-4px"')} طباعة فواتير الصيدليات</h3>
+   <div class="row"><button type="button" id="ppTog" class="btn ic" title="${PP_.open?'اقفل':'افتح'}" style="font-size:14px">${PP_.open?'▲':'▼'}</button><h3 style="margin:0;cursor:pointer" id="ppTitle">${ic('print','style="width:20px;height:20px;vertical-align:-4px"')} طباعة فواتير الصيدليات</h3>
     ${todo?`<span class="tag bad">${todo} لسه ما اتطبعتش</span>`:all?'<span class="tag ok">كله اتطبع ✓</span>':''}<span class="sp"></span>
     <div class="seg">${[[1,'النهارده'],[2,'من امبارح'],[7,'أسبوع']].map(([d,t])=>`<button data-ppd="${d}" class="${PP_.days==d?'on':''}">${t}</button>`).join('')}</div>
     ${cp&&todo?`<button class="btn p" id="ppAll">${ic('print')}اطبع كل اللي لسه (${todo})</button>`:''}</div>
-   <div class="row" style="margin-top:10px;gap:8px"><input class="in" id="ppQ" autocomplete="off" placeholder="🔍 اسم العميل أو جزء منه، أو رقم الفاتورة" value="${esc(PP_.q)}" style="flex:1 1 220px;min-width:0">
+   ${PP_.open?'':`${(()=>{const n=G0.rows.filter(x=>x.todo.length).length;return n?`<div class="small muted" style="margin-top:6px">${n} عميل عندهم فواتير لسه ماتطبعتش — <a href="#" id="ppOpen2">اعرضهم</a></div>`:''})()}</div>`}
+   ${PP_.open?`<div class="row" style="margin-top:10px;gap:8px"><input class="in" id="ppQ" autocomplete="off" placeholder="🔍 اسم العميل أو جزء منه، أو رقم الفاتورة" value="${esc(PP_.q)}" style="flex:1 1 220px;min-width:0">
     <div class="seg">${[['all','الكل'],['ph','الصيدليات (ص …)'],['other','غير الصيدليات']].map(([k,t])=>`<button data-pph="${k}" class="${PP_.ph===k?'on':''}">${t}</button>`).join('')}</div>
     ${filt?`<span class="small muted">${rows.length} من ${G0.rows.length} عميل</span>`:''}</div>
    ${older?`<div class="small" style="margin-top:8px;color:var(--danger)">⚠️ فيه <b>${older}</b> فاتورة من الأيام اللي فاتت لسه ما اتطبعتش — <a href="#" id="ppOld">اعرضهم</a></div>`:''}
@@ -1313,12 +1317,14 @@ function pqPanel(){
      <div class="pqa">${x.todo.length?(cp?`<button class="btn s p" data-ppg="${esc(x.pid)}">${ic('print')}اطبع اللي لسه (${x.todo.length})</button>`:''):'<span class="small" style="color:var(--brand)">✓ كله اتطبع</span>'}</div>
      ${x.todo.length?`<div class="pqi">${x.todo.map(i=>`<button class="pqchip" data-ppi="${i.id}" title="${cp?'اطبع الفاتورة دي':'افتح الفاتورة'}">#${esc(i.no)} <span class="muted">${esc(ltm(i.createdAt).slice(11,16))}</span></button>`).join('')}</div>`:''}
    </div>`).join('')}</div>`:`<p class="muted small" style="margin:10px 0 0">${filt?'مفيش عملاء بالبحث ده':'مفيش فواتير بيع '+esc(per)}.</p>`}
-   ${canPrep()?`<div class="small muted" style="margin-top:10px"><a href="#/prep">شاشة التحضير والطباعة</a> للتفاصيل وتعليم «تم التحضير».</div>`:''}</div>`;
+   ${canPrep()?`<div class="small muted" style="margin-top:10px"><a href="#/prep">شاشة التحضير والطباعة</a> للتفاصيل وتعليم «تم التحضير».</div>`:''}</div>`:''}`;
 }
 function bindPQ(){
   const b=$('#pqBox');if(!b)return;
   $$('[data-ppd]').forEach(x=>x.onclick=()=>{PP_.days=+x.dataset.ppd;render()});
   const o=$('#ppOld');if(o)o.onclick=e=>{e.preventDefault();PP_.days=7;render()};
+  const tg=()=>{PP_.open=!PP_.open;try{localStorage.setItem('mz.ppOpen',PP_.open?'1':'0')}catch(e){}render()};
+  const pt=$('#ppTog');if(pt)pt.onclick=tg;const ptt=$('#ppTitle');if(ptt)ptt.onclick=tg;const po2=$('#ppOpen2');if(po2)po2.onclick=e=>{e.preventDefault();tg()};
   $$('[data-pph]').forEach(x=>x.onclick=()=>{PP_.ph=x.dataset.pph;try{localStorage.setItem('mz.ppPh',PP_.ph)}catch(e){}render()});
   const qi=$('#ppQ');if(qi)qi.oninput=()=>{PP_.q=qi.value;const pos=qi.selectionStart;render();const n=$('#ppQ');if(n){n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}}};
   const g=()=>{const r=pqGroups(PP_.days);return {...r,rows:ppFilter(r.rows)}};
