@@ -712,6 +712,7 @@ function xlsxOut(name,aoa,sheet='Sheet1'){
 }
 
 /* ============ DASHBOARD ============ */
+const LOWO={v:(()=>{try{return localStorage.getItem('mz.lowOpen')==='1'}catch(e){return false}})()};
 function vDash(){
   if(!can('reports')){vDashLite();return}
   setTitle('الرئيسية');const R=calc();const t=today();const d=R.daily[t]||{sales:0,profit:0,count:0};
@@ -728,17 +729,15 @@ function vDash(){
      <div class="steps"><div><a href="#/import">ارفع أصنافك من شيت Excel</a>&nbsp;أو أضفها يدويًا من <a href="#/products">الأصناف</a></div><div>سجّل أول <a href="#/purchase">فاتورة شراء</a> أو رصيد أول المدة</div><div>ابدأ <a href="#/sale">البيع</a> — بالباركود أو بالبحث</div><div>أضف <a href="#/employees">الموظفين</a> وفعّل الحضور من الموبايل</div></div>
      <button class="btn g" id="demoBtn" ${S.ro?'disabled':''}>جرّب ببيانات تجريبية</button></div>`:''}
    ${pqPanel()}${window.MZ_FLOW?MZ_FLOW.card():''}${window.MZ_DLV?MZ_DLV.card():''}${window.MZ_RT?MZ_RT.card():''}
-   <div class="strip">
+   <div class="strip" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
      <div class="dk" data-dgo="rep:sales_invoices:${t}:${t}" title="فواتير بيع ومرتجع النهارده"><div class="k">مبيعات اليوم ↗</div><div class="v">${fmt(d.sales)}</div><div class="s">${d.count} فاتورة · ${esc(DAYS[new Date().getDay()])} ${t}${(()=>{const rt=L('invoices').filter(i=>i.type==='sret'&&i.date===t).reduce((a,i)=>a+(R.inv[i.id]?.total||0),0);return rt?` · مرتجع ${fmt(rt)}`:''})()}</div></div>
      ${can('seeCost')?`<div class="dk" data-dgo="rep:sales_daily:${t.slice(0,8)}01:${t}" title="أرباح الشهر يوم بيوم"><div class="k">ربح اليوم ↗</div><div class="v ${d.profit<0?'neg':''}">${fmt(d.profit)}</div><div class="s">هامش ${d.sales?fmt(d.profit/d.sales*100):0}%</div></div>`:''}
+     <div class="dk" data-dgo="rep:sales_daily:${ym}-01:${t}" title="مبيعات الشهر يوم بيوم"><div class="k">مبيعات ${ymLabel(ym)} ↗</div><div class="v">${fmt(mS)}</div><div class="s">${can('seeCost')?'ربح الشهر '+fmt(mP):''}</div></div>
      <div class="dk" data-dgo="cash" title="الخزينة وحركاتها"><div class="k">رصيد الخزينة ↗</div><div class="v ${R.cash<0?'neg':''}">${fmt(R.cash)}</div><div class="s">${esc(settings().currency||'ج.م')}</div></div>
      <div class="dk" data-dgo="attendance" title="الحضور والانصراف"><div class="k">الحاضرون الآن ↗</div><div class="v">${presentNow}<span class="muted" style="font-size:18px"> / ${emps.length}</span></div><div class="s">حضر اليوم ${came}</div></div>
    </div>
-   <div class="grid g21" style="margin-top:18px">
-     <div class="card"><div class="row"><h3 style="margin:0">المبيعات آخر ١٤ يوم</h3><span class="sp"></span><span class="small muted"><span class="dot" style="background:var(--brand)"></span>مبيعات <span class="dot" style="background:var(--gold);margin-inline-start:10px"></span>ربح</span></div>
-       <div class="bars">${days.map(([k,v])=>`<div class="b dk" data-dgo="rep:sales_invoices:${k}:${k}" title="${k}: مبيعات ${fmt(v.sales)} — ربح ${fmt(v.profit)} — دوس تشوف فواتير اليوم ده"><div class="col" style="height:${Math.max(0,v.sales)/mx*100}%"><i style="height:${v.sales>0?Math.max(0,Math.min(100,v.profit/v.sales*100)):0}%"></i></div><small>${+k.slice(8)}</small></div>`).join('')}</div>
-       <div class="row small muted dk" data-dgo="rep:sales_daily:${ym}-01:${t}" style="margin-top:10px">مبيعات ${ymLabel(ym)}: <b class="num" style="color:var(--ink)">${fmt(mS)}</b> · ربح الشهر: <b class="num" style="color:var(--ink)">${fmt(mP)}</b> <span class="small">↗ تفاصيل الشهر</span></div></div>
-     <div class="card">${R.chq.due.length?`<h3>شيكات مستحقة خلال أسبوع</h3>${R.chq.due.slice(0,5).map(c=>`<a href="#/cheques" class="row" style="padding:5px 0;border-bottom:1px solid var(--line);color:inherit;text-decoration:none"><span class="tag ${c.dir==='in'?'ok':'bad'}">${c.dir==='in'?'قبض':'دفع'}</span><span style="flex:1">${esc(partyName(c.partyId))}</span><span class="num">${fmt(c.amount)}</span><span class="due ${c.dueDate<today()?'neg':''}">${c.dueDate}</span></a>`).join('')}<div style="height:14px"></div>`:''}<div class="row"><h3 style="margin:0">نواقص عليها طلب</h3><span class="sp"></span>${lowAll.length?`<a class="small" href="#/reports/stock_low">${lowAll.length} صنف</a>`:''}</div><p class="small muted" style="margin:4px 0 6px">أصناف اتباعت آخر ${SH.days} يوم ورصيدها قليل</p>${low.length?low.map(p=>`<div class="row dk" data-dcard="${p.id}" style="padding:5px 0;border-bottom:1px solid var(--line)" title="كارت الصنف"><span style="flex:1">${esc(p.name)}</span><span class="tag bad num">${fq(qtyIn(p.id))}</span></div>`).join('')+`<button class="btn s" style="margin-top:10px" id="lowPO" ${S.ro?'disabled':''}>📒 كشكول النواقص — أمر توريد</button>`:'<p class="muted small">مفيش أصناف عليها طلب رصيدها قليل.</p>'}</div>
+   <div style="margin-top:18px">
+     <div class="card">${R.chq.due.length?`<h3>شيكات مستحقة خلال أسبوع</h3>${R.chq.due.slice(0,5).map(c=>`<a href="#/cheques" class="row" style="padding:5px 0;border-bottom:1px solid var(--line);color:inherit;text-decoration:none"><span class="tag ${c.dir==='in'?'ok':'bad'}">${c.dir==='in'?'قبض':'دفع'}</span><span style="flex:1">${esc(partyName(c.partyId))}</span><span class="num">${fmt(c.amount)}</span><span class="due ${c.dueDate<today()?'neg':''}">${c.dueDate}</span></a>`).join('')}<div style="height:14px"></div>`:''}<div class="row"><button type="button" id="lowTog" class="btn ic" style="font-size:14px" title="${LOWO.v?'اقفل':'افتح'}">${LOWO.v?'▲':'▼'}</button><h3 style="margin:0;cursor:pointer" id="lowTitle">نواقص عليها طلب</h3>${lowAll.length?`<span class="tag bad">${lowAll.length} صنف</span>`:''}<span class="sp"></span>${lowAll.length?`<a class="small" href="#/reports/stock_low">تقرير النواقص</a> <button class="btn s p" id="lowPO" ${S.ro?'disabled':''}>📒 كشكول النواقص — أمر توريد</button>`:''}</div>${!LOWO.v?(lowAll.length?`<div class="small muted" style="margin-top:6px">أصناف اتباعت آخر ${SH.days} يوم ورصيدها قليل — <a href="#" id="lowOpen2">اعرضها</a></div>`:''):`<p class="small muted" style="margin:4px 0 6px">أصناف اتباعت آخر ${SH.days} يوم ورصيدها قليل</p>`+(low.length?low.map(p=>`<div class="row dk" data-dcard="${p.id}" style="padding:5px 0;border-bottom:1px solid var(--line)" title="كارت الصنف"><span style="flex:1">${esc(p.name)}</span><span class="tag bad num">${fq(qtyIn(p.id))}</span></div>`).join('')+(lowAll.length>low.length?`<a class="small" href="#/reports/stock_low" style="display:block;margin-top:8px">و${lowAll.length-low.length} صنف تاني ←</a>`:''):'<p class="muted small">مفيش أصناف عليها طلب رصيدها قليل.</p>')}</div>
    </div>
    <div class="grid g2" style="margin-top:18px">
      <div class="card"><div class="row"><h3 style="margin:0">آخر الفواتير</h3><span class="sp"></span><a href="#/invoices" class="small">عرض الكل</a></div>
@@ -753,6 +752,7 @@ function vDash(){
   $$('[data-dcard]').forEach(el=>el.onclick=()=>itemCard(el.dataset.dcard));
   const db=$('#demoBtn');if(db)db.onclick=loadDemo;
   const lp=$('#lowPO');if(lp)lp.onclick=poFromLow;
+  const ltg=()=>{LOWO.v=!LOWO.v;try{localStorage.setItem('mz.lowOpen',LOWO.v?'1':'0')}catch(e){}render()};const lt_=$('#lowTog');if(lt_)lt_.onclick=ltg;const lti=$('#lowTitle');if(lti)lti.onclick=ltg;const lo2=$('#lowOpen2');if(lo2)lo2.onclick=e=>{e.preventDefault();ltg()};
 }
 
 function vDashLite(){
