@@ -400,6 +400,24 @@ const consOf=p=>+(p&&p.consumer)||+(p&&p.price)||0;
 const costHidden=()=>!!(window.MZ&&MZ.costHidden&&!S.isAdmin);
 function salePrice(p,partyId){const t=tierOf(partyId);if(t&&costHidden()){const v=MZ.px&&MZ.px.t&&MZ.px.t[t.id]&&MZ.px.t[t.id][p.id];return v>0?v:consOf(p)}if(t){const c=avgCost(p.id)||+p.cost||0;if(c>0)return rnd2(c*(1+(+t.markup||0)/100))}return consOf(p)}
 const PURT=['purchase','porder','open'];
+/* فاتورة الشراء / أمر التوريد: الصنف اتشرى امتى ومن مين وبكام */
+function buyHist(pid,partyId){const out=[];for(const i of L('invoices')){if(i.type!=='purchase')continue;if(partyId&&i.partyId!==partyId)continue;const ls=(i.lines||[]).filter(l=>l.pid===pid);if(!ls.length)continue;out.push({inv:i,qty:ls.reduce((a,l)=>a+(+l.qty||0),0),price:+ls[0].price||0,disc:+ls[0].disc||0})}
+  return out.sort((a,b)=>(b.inv.date||'').localeCompare(a.inv.date||'')||(b.inv.createdAt||'').localeCompare(a.inv.createdAt||''))}
+function histInfo(inv){if(!['purchase','porder'].includes(inv.type)||!ED||!ED.lastPid||!inv.lines.some(l=>l.pid===ED.lastPid))return '';const pid=ED.lastPid;const h=buyHist(pid,'');
+  if(!h.length)return `<div class="card small" style="margin:12px 0 0;padding:8px 12px">🕘 «${esc(pname(pid))}» أول مرة يتشرى — مفيش مشتريات قبل كده.</div>`;
+  const l=h[0];const sameV=inv.partyId?h.find(x=>x.inv.partyId===inv.partyId):null;const prices=h.slice(0,10).map(x=>x.price);
+  return `<div class="card small" style="margin:12px 0 0;padding:8px 12px;border-color:var(--gold)"><div class="row" style="gap:10px;flex-wrap:wrap">🕘 <b>${esc(pname(pid))}</b>
+    <span>آخر شراء: <b class="num">${esc(l.inv.date)}</b> من <b>${esc(partyName(l.inv.partyId)||'نقدي')}</b> بسعر <b class="num">${fmt(l.price)}</b>${l.disc?` خصم ${l.disc}%`:''} (${fq(l.qty)})</span>
+    ${sameV&&sameV!==l?`<span>· من نفس المورد: <b class="num">${esc(sameV.inv.date)}</b> بـ <b class="num">${fmt(sameV.price)}</b></span>`:''}
+    <span class="muted">· أقل/أعلى سعر (آخر ${prices.length}): ${fmt(Math.min(...prices))} / ${fmt(Math.max(...prices))}</span><span class="sp"></span>
+    <button class="btn s" type="button" data-bh="${esc(pid)}">كل المشتريات (${h.length})</button></div></div>`}
+function buyHistModal(pid){const h=buyHist(pid,'');let show=h.slice(0,80);
+  const draw=()=>{modal(`<h2>🕘 «${esc(pname(pid))}» اتشرى امتى ومن مين</h2><input class="in" id="bhQ" placeholder="فلتر باسم المورد أو رقم الفاتورة" style="margin-bottom:8px" autocomplete="off">
+    <div class="tw" style="max-height:58vh;overflow:auto"><table class="t"><thead><tr><th>التاريخ</th><th>المورد</th><th>الفاتورة</th><th class="n">الكمية</th><th class="n">السعر</th><th class="n">خصم</th><th></th></tr></thead><tbody>
+    ${show.map(x=>`<tr><td class="num">${esc(x.inv.date||'')}</td><td>${esc(partyName(x.inv.partyId)||'نقدي')}</td><td class="num">#${esc(x.inv.no)}</td><td class="n">${fq(x.qty)}</td><td class="n"><b>${fmt(x.price)}</b></td><td class="n">${x.disc?x.disc+'%':''}</td><td><a class="btn s" href="#/inv/${esc(x.inv.id)}" target="_blank" rel="noopener">فتح</a></td></tr>`).join('')||'<tr><td colspan="7" class="muted small">مفيش</td></tr>'}</tbody></table></div>
+    <div class="row" style="margin-top:12px"><span class="small muted">«فتح» بيفتح الفاتورة في تبويب جديد علشان الفاتورة اللي شغال عليها ماتضيعش.</span><span class="sp"></span><button class="btn" data-close>قفل</button></div>`,true);
+    const q=$('#bhQ');q.oninput=()=>{const v=norm(q.value.trim());show=(v?h.filter(x=>String(x.inv.no)===q.value.trim()||norm(partyName(x.inv.partyId)||'نقدي').includes(v)):h).slice(0,80);const pos=q.selectionStart,val=q.value;draw();const n=$('#bhQ');n.value=val;n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}}};
+  draw()}
 function tierInfo(inv){if(!isSaleT(inv.type)||inv.type==='sret')return '';const t=tierOf(inv.partyId);
   if(!inv.partyId)return `<div class="small muted" style="margin-top:8px">عميل نقدي — البيع بسعر المستهلك</div>`;
   const ed=(can('parties')||S.isAdmin)&&!S.ro;
@@ -771,7 +789,7 @@ function vEditor(type,id){
    </div>
    ${['sret','pret'].includes(inv.type)&&!ED.id?(inv.fromInv&&G('invoices',inv.fromInv)?`<div class="card" style="margin:12px 0 0;padding:10px 14px;border-color:var(--brand)"><div class="row"><span>${ic('ret','style="width:18px;height:18px;vertical-align:-4px"')} مرتجع من ${esc(TYPES[G('invoices',inv.fromInv).type].full)} رقم <b>${esc(G('invoices',inv.fromInv).no)}</b> بتاريخ ${esc(G('invoices',inv.fromInv).date)}</span><span class="sp"></span><button class="btn s" id="retPick">تعديل الأصناف</button><button class="btn s" id="retUnlink">فك الربط</button></div></div>`
      :`<div class="card" style="margin:12px 0 0;padding:10px 14px"><div class="row"><b>${ic('ret','style="width:18px;height:18px;vertical-align:-4px"')} مرتجع برقم الفاتورة:</b><input class="in n" id="retNo" style="width:150px" placeholder="امسح باركود الفاتورة أو اكتب رقمها"><button class="btn s p" id="retLoad">تحميل أصنافها</button><span class="small muted">أو ابحث بالصنف تحت — السعر هيتجاب من آخر ${inv.type==='sret'?'فاتورة بيع للعميل':'فاتورة شراء من المورد'}.</span></div></div>`):''}
-   ${tierInfo(inv)}<div class="row" style="margin:16px 0 12px;gap:8px"><div class="psearch" style="flex:1 1 320px;margin:0">${ic('search')}<input class="in" id="ps" placeholder="امسح الباركود أو اكتب اسم/كود الصنف ثم Enter" autocomplete="off"><div class="sugg" id="sugg" hidden></div></div>
+   ${tierInfo(inv)}${histInfo(inv)}<div class="row" style="margin:16px 0 12px;gap:8px"><div class="psearch" style="flex:1 1 320px;margin:0">${ic('search')}<input class="in" id="ps" placeholder="امسح الباركود أو اكتب اسم/كود الصنف ثم Enter" autocomplete="off"><div class="sugg" id="sugg" hidden></div></div>
      <div class="seg" title="طريقة البحث بالاسم"><button type="button" data-sm="start" class="${SMODE()==='start'?'on':''}">أول الكلمة</button><button type="button" data-sm="any" class="${SMODE()==='any'?'on':''}">جزء من الكلمة</button></div>
      <button type="button" class="btn" id="psWide" title="عرض كل النتايج في شاشة كبيرة — Alt+W">${ic('search')}توسيع البحث</button><button type="button" class="btn ic" id="kbBtn" title="اختصارات الكيبورد — Alt+K" onclick="kbHelp()">⌨️</button></div>
    ${inv.type==='count'&&!ED.id?`<div class="row" style="margin:-4px 0 12px"><button class="btn s" id="cntAll">إضافة كل الأصناف بأرصدتها الدفترية</button><span class="small muted">ثم عدّل عمود "الكمية الفعلية" بما عددته على الرف. الفروقات تُسوّى بمتوسط التكلفة عند الحفظ.</span></div>`:''}
@@ -801,6 +819,7 @@ function vEditor(type,id){
     if(k==='partyId'&&isSaleT(inv.type)&&inv.type!=='sret'){if(!ED.id&&inv.lines.length){inv.lines.forEach(l=>{const pp=G('products',l.pid);if(pp&&!l.bonus)l.price=salePrice(pp,inv.partyId)});const t=tierOf(inv.partyId);toast('تم تسعير الأصناف '+(t?'بشريحة '+t.name:'بسعر المستهلك'))}render()}});
   $$('[data-type]').forEach(b=>b.onclick=()=>{const k=b.dataset.type;const ln=inv.lines;ED.inv={...newInv(k),lines:ln,date:inv.date,storeId:inv.storeId};const P=TYPES[k].party;if(P!==T.party)ED.inv.partyId='';render()});
   const ap=$('#addParty');if(ap)ap.onclick=()=>partyModal(null,pk,id=>{inv.partyId=id;render()});
+  $$('[data-bh]').forEach(b=>b.onclick=()=>buyHistModal(b.dataset.bh));
   partyCombo($('#pcIn'),$('#pcSg'),$('select[data-h="partyId"]'),parties);
   const tsel=$('#tierSel');if(tsel)tsel.onchange=async()=>{const p=G('parties',inv.partyId);if(!p)return;const old=tierOf(inv.partyId);const nt=tiers().find(x=>x.id===tsel.value);
     await put('parties',inv.partyId,{...p,tier:tsel.value});await audit('party',inv.partyId,'شريحة الأسعار',old?old.name:'بدون',nt?nt.name:'بدون',p.name);
@@ -1019,7 +1038,7 @@ function addLine(pid){
   if(ex>=0){if(inv.type!=='count')inv.lines[ex].qty=(+inv.lines[ex].qty||0)+1}
   else{const sale=isSaleT(inv.type);inv.lines.push({pid,qty:inv.type==='count'?Math.max(0,Math.round(qtyIn(pid,inv.storeId)*1000)/1000):1,price:sale?salePrice(p,inv.partyId):Math.round(avgCost(pid)*100)/100||(+p.cost||0),disc:0,cost:'',...(PURT.includes(inv.type)?{consumer:consOf(p)}:{})})}
   if(ex<0&&['sret','pret'].includes(inv.type)){const lp=lastDeal(pid,inv);const L_=inv.lines[inv.lines.length-1];if(lp){L_.price=lp.price;L_.disc=lp.disc||0;if(inv.type==='sret'&&lp.cost!=null&&!costHidden())L_.cost=lp.cost;toast(`السعر من ${TYPES[lp.inv.type].full} #${lp.inv.no} بتاريخ ${lp.inv.date}`)}else if(inv.partyId)toast(`الصنف ده مالوش ${inv.type==='sret'?'بيع للعميل ده':'شراء من المورد ده'} قبل كده — راجع السعر`,'err')}
-  let ni=ex>=0?ex:inv.lines.length-1;
+  let ni=ex>=0?ex:inv.lines.length-1;ED.lastPid=pid;
   if(isSaleT(inv.type)||inv.type==='transfer'){const cur=inv.lines[ni];inv.lines.sort((a,b)=>pname(a.pid).localeCompare(pname(b.pid)));ni=inv.lines.indexOf(cur)}
   render();setTimeout(()=>{const i=ni;const q=$(`input[data-i="${i}"][data-f="qty"]`);if(q){q.focus();q.select();q.classList.add('flash')}},30);
 }
