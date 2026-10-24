@@ -1482,30 +1482,85 @@ async function patchLine(invId,i,f,val,el){
 /* ============ PRODUCTS ============ */
 let PF={q:'',store:'',group:'',low:false};
 function vProducts(){
-  setTitle('الأصناف والأرصدة');const R=calc();
+  setTitle('الأصناف والأرصدة');const R=calc();const sc=can('seeCost');
+  if(!PF.sel)PF.sel=new Set();if(!PF.ch)PF.ch={};
+  const canP=S.isAdmin||can('products')||can('editPrice'),canQ=!S.ro&&(S.isAdmin||can('buy')||can('products')),canC=!S.ro&&sc&&(S.isAdmin||can('buy'));
   const groups=[...new Set(L('products').map(p=>p.group).filter(Boolean))].sort();
-  let list=PF.q?pSearch(PF.q):L('products');
+  let list=PF.q?pFind(PF.q,'any'):L('products');
   if(PF.group)list=list.filter(p=>p.group===PF.group);
   if(PF.low)list=list.filter(p=>+p.minQty>0&&qtyIn(p.id,PF.store)<=+p.minQty);
-  list.sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})||a.name.localeCompare(b.name,'ar'));
-  let tv=0;const rows=list.map(p=>{const q=qtyIn(p.id,PF.store);const ac=avgCost(p.id);const v=q*ac;tv+=v;return {p,q,ac,v}});
-  $('#view').innerHTML=`<div class="wrap"><div class="row" style="margin-bottom:14px">
-    <button class="btn p" id="np" ${S.ro?'disabled':''}>${ic('plus')}صنف جديد</button><a class="btn" href="#/import">${ic('up')}استيراد من Excel</a><button class="btn" id="xp">${ic('dl')}تصدير Excel</button><button class="btn" id="cntB" ${S.ro||!can('buy')?'disabled':''}>جرد وتسوية</button><a class="btn" href="#/barcode">${ic('bar')}طباعة باركود</a><span class="sp"></span>
+  if(PF.st==='neg')list=list.filter(p=>qtyIn(p.id,PF.store)<-0.0001);else if(PF.st==='zero')list=list.filter(p=>Math.abs(qtyIn(p.id,PF.store))<0.0001);else if(PF.st==='pos')list=list.filter(p=>qtyIn(p.id,PF.store)>0.0001);
+  if(!PF.q)list.sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})||a.name.localeCompare(b.name,'ar'));
+  let tv=0,tq=0,ts=0,nPos=0,nZero=0,nNeg=0,nLow=0;const rows=list.map(p=>{const q=qtyIn(p.id,PF.store);const ac=avgCost(p.id);const v=q*ac;
+    if(q>0.0001){tv+=v;tq+=q;ts+=q*(+p.price||consOf(p));nPos++}else if(q<-0.0001)nNeg++;else nZero++;if(+p.minQty>0&&q<=+p.minQty)nLow++;return {p,q,ac,v}});
+  const ed=PF.edit;const nch=Object.keys(PF.ch).length;const sel=PF.sel;
+  const cell=(pid,f,val,ok)=>{const c=PF.ch[pid]&&PF.ch[pid][f];return ed&&ok?`<input class="cell n ${c!=null?'flash':''}" data-ed="${pid}:${f}" inputmode="decimal" value="${c!=null?c:(f==='qty'?fq(val):rnd2(val))}" style="width:86px;${c!=null?'background:var(--gold-soft);font-weight:700':''}">`:(f==='qty'?null:fmt(val))};
+  $('#view').innerHTML=`<div class="wrap">
+   <div class="strip" style="grid-template-columns:repeat(${sc?5:4},1fr);margin-bottom:14px">
+     <div><div class="k">عدد الأصناف</div><div class="v">${fmt(list.length)}</div><div class="s">${PF.q||PF.group||PF.low||PF.st?'حسب الفلتر':'كل الأصناف'}</div></div>
+     <div><div class="k">أصناف ليها رصيد</div><div class="v">${fmt(nPos)}</div><div class="s">${fq(tq)} قطعة</div></div>
+     ${sc?`<div><div class="k">قيمة المخزون بالتكلفة</div><div class="v">${fmt(tv)}</div><div class="s">متوسط التكلفة × الرصيد</div></div>`:''}
+     <div><div class="k">قيمة المخزون بسعر البيع</div><div class="v">${fmt(ts)}</div><div class="s">${sc&&ts?'ربح متوقع '+fmt(ts-tv):''}</div></div>
+     <div><div class="k">تنبيهات</div><div class="v ${nLow||nNeg?'neg':''}" style="font-size:20px">${nLow} تحت حد الطلب</div><div class="s">${nZero} رصيد صفر · ${nNeg} بالسالب</div></div></div>
+   <div class="row" style="margin-bottom:14px">
+    <button class="btn p" id="np" ${S.ro?'disabled':''}>${ic('plus')}صنف جديد</button><a class="btn" href="#/import">${ic('up')}استيراد من Excel</a><button class="btn" id="xp">${ic('dl')}تصدير Excel</button><button class="btn" id="cntB" ${S.ro||!can('buy')?'disabled':''}>جرد وتسوية</button><a class="btn" href="#/barcode">${ic('bar')}طباعة باركود</a>${!S.ro&&can('buy')?'<button class="btn" id="lowB">📒 كشكول النواقص</button>':''}
+    ${canP||canQ||canC?`<button class="btn ${ed?'p':''}" id="edB">✏️ ${ed?'قفل التعديل السريع':'تعديل سريع'}</button>`:''}<span class="sp"></span>
     <input class="in" style="width:220px" id="pq" placeholder="بحث بالاسم / الكود / الباركود" value="${esc(PF.q)}">
     <select class="in" style="width:160px" id="pg">${opts(groups.map(g=>[g,g]),PF.group,'كل المجموعات')}</select>
     <select class="in" style="width:170px" id="pst">${opts(stores().map(s=>[s.id,s.name]),PF.store,'كل المخازن')}</select>
+    <select class="in" style="width:140px" id="pss">${opts([['pos','ليها رصيد'],['zero','رصيد صفر'],['neg','بالسالب']],PF.st||'','كل الأرصدة')}</select>
     <label class="row small" style="gap:6px"><input type="checkbox" id="plow" ${PF.low?'checked':''}>النواقص فقط</label></div>
-   ${list.length?`<div class="tw"><table class="t"><thead><tr><th>الكود</th><th>الصنف</th><th>المجموعة</th><th>الوحدة</th>${can('seeCost')?'<th class="n">متوسط التكلفة</th>':''}<th class="n">سعر البيع</th><th class="n">الرصيد</th>${can('seeCost')?'<th class="n">القيمة</th>':''}<th class="n hide-m">حد الطلب</th><th></th></tr></thead><tbody>
-   ${rows.slice(0,500).map(({p,q,ac,v})=>`<tr class="click" data-p="${p.id}"><td class="num">${esc(p.code||'')}</td><td><b>${esc(p.name)}</b>${p.barcode?`<div class="small muted num">${esc(p.barcode)}</div>`:''}</td><td>${esc(p.group||'')}</td><td>${esc(p.unit||'')}</td>${can('seeCost')?`<td class="n">${fmt(ac)}</td>`:''}<td class="n">${fmt(p.price)}</td><td class="n"><span class="${+p.minQty>0&&q<=+p.minQty?'tag bad':''}">${fq(q)}</span></td>${can('seeCost')?`<td class="n">${fmt(v)}</td>`:''}<td class="n hide-m">${p.minQty||''}</td><td><button class="btn s" data-card="${p.id}">كارت الصنف</button></td></tr>`).join('')}
-   </tbody><tfoot><tr><td colspan="${can('seeCost')?7:6}">${list.length} صنف</td>${can('seeCost')?`<td class="n">${fmt(tv)}</td>`:''}<td colspan="2" class="hide-m"></td></tr></tfoot></table></div>`
+   ${ed?`<div class="card small" style="padding:8px 12px;margin-bottom:10px;border-color:var(--gold)"><div class="row" style="gap:10px">✏️ التعديل السريع: غيّر ${[canP&&'سعر البيع',canC&&'متوسط التكلفة',canQ&&'الرصيد'].filter(Boolean).join(' / ')} في الجدول، وبعدين احفظ مرة واحدة.
+     <span class="muted">${canQ?'تغيير الرصيد بيعمل «تسوية جردية» بالفرق'+(PF.store?'':' في المخزن الرئيسي')+'، ':''}${canC?'وتغيير التكلفة بيعمل «تقييم مخزون».':''}</span><span class="sp"></span>
+     <button class="btn s p" id="chSave" ${nch?'':'disabled'}>حفظ التعديلات (${nch})</button><button class="btn s" id="chUndo" ${nch?'':'disabled'}>تراجع</button></div></div>`:''}
+   <div class="row small" id="pSelBar" style="margin-bottom:8px;gap:8px;${sel.size?'':'display:none'}"><b id="pSelN">${sel.size} صنف مختار</b>${!S.ro&&can('buy')?'<button class="btn s p" id="pSelPO">أمر توريد بالمختار</button>':''}<button class="btn s" id="pSelC">إلغاء الاختيار</button></div>
+   ${list.length?`<div class="tw"><table class="t"><thead><tr><th style="width:28px"><input type="checkbox" id="pAll" title="اختار كل اللي ظاهر"></th><th>الكود</th><th>الصنف</th><th class="hide-m">المجموعة</th><th class="hide-m">الوحدة</th>${sc?'<th class="n">متوسط التكلفة</th>':''}<th class="n">سعر البيع</th><th class="n">الرصيد</th>${sc?'<th class="n">القيمة</th>':''}<th class="n hide-m">حد الطلب</th><th></th></tr></thead><tbody>
+   ${rows.slice(0,500).map(({p,q,ac,v})=>`<tr class="${ed?'':'click'}" data-p="${p.id}"><td><input type="checkbox" data-psel="${p.id}" ${sel.has(p.id)?'checked':''}></td><td class="num">${esc(p.code||'')}</td><td><b>${esc(p.name)}</b>${p.barcode?`<div class="small muted num">${esc(p.barcode)}</div>`:''}</td><td class="hide-m">${esc(p.group||'')}</td><td class="hide-m">${esc(p.unit||'')}</td>${sc?`<td class="n">${cell(p.id,'cost',ac,canC)}</td>`:''}<td class="n">${cell(p.id,'price',+p.price||0,canP)}</td><td class="n">${ed&&canQ?cell(p.id,'qty',q,true):`<span class="${+p.minQty>0&&q<=+p.minQty?'tag bad':''}">${fq(q)}</span>`}</td>${sc?`<td class="n">${fmt(v)}</td>`:''}<td class="n hide-m">${p.minQty||''}</td><td><button class="btn s" data-card="${p.id}">كارت الصنف</button></td></tr>`).join('')}
+   </tbody><tfoot><tr><td colspan="${sc?8:7}">${list.length} صنف${list.length>500?' — بيعرض أول 500 (استخدم البحث أو الفلتر)':''} · ${fq(tq)} قطعة</td>${sc?`<td class="n">${fmt(tv)}</td>`:''}<td colspan="2" class="hide-m"></td></tr></tfoot></table></div>`
    :`<div class="empty card"><b>${S.data.products.size?'لا توجد أصناف مطابقة':'لا توجد أصناف بعد'}</b>أضف صنفًا جديدًا أو ارفع قائمة أصنافك من شيت Excel دفعة واحدة.<div class="row" style="justify-content:center;margin-top:12px"><a class="btn p" href="#/import">استيراد من Excel</a></div></div>`}</div>`;
   $('#np').onclick=()=>productModal(null);
   $('#cntB').onclick=()=>{ED={id:null,inv:newInv('count'),grp:'purchase'};go('purchase')};
-  $('#xp').onclick=()=>xlsxOut('الأصناف_والأرصدة_'+today()+'.xlsx',[['الكود','اسم الصنف','الباركود','المجموعة','الوحدة','متوسط التكلفة','سعر البيع','الرصيد','القيمة','حد الطلب'],...rows.map(({p,q,ac,v})=>[p.code||'',p.name,p.barcode||'',p.group||'',p.unit||'',+ac.toFixed(2),+p.price||0,q,+v.toFixed(2),+p.minQty||0])],'الأصناف');
-  $('#pq').onchange=e=>{PF.q=e.target.value.trim();render()};$('#pg').onchange=e=>{PF.group=e.target.value;render()};$('#pst').onchange=e=>{PF.store=e.target.value;render()};$('#plow').onchange=e=>{PF.low=e.target.checked;render()};
-  $$('[data-p]').forEach(r=>r.onclick=e=>{if(e.target.closest('[data-card]'))return;productModal(r.dataset.p)});
-  $$('[data-card]').forEach(b=>b.onclick=()=>itemCard(b.dataset.card));
+  $('#xp').onclick=()=>xlsxOut('الأصناف_والأرصدة_'+today()+'.xlsx',[['الكود','اسم الصنف','الباركود','المجموعة','الوحدة',...(sc?['متوسط التكلفة']:[]),'سعر البيع','الرصيد',...(sc?['القيمة']:[]),'حد الطلب'],...rows.map(({p,q,ac,v})=>[p.code||'',p.name,p.barcode||'',p.group||'',p.unit||'',...(sc?[+ac.toFixed(2)]:[]),+p.price||0,q,...(sc?[+v.toFixed(2)]:[]),+p.minQty||0])],'الأصناف');
+  $('#pq').onchange=e=>{PF.q=e.target.value.trim();render()};$('#pg').onchange=e=>{PF.group=e.target.value;render()};$('#pst').onchange=e=>{PF.store=e.target.value;render()};$('#plow').onchange=e=>{PF.low=e.target.checked;render()};$('#pss').onchange=e=>{PF.st=e.target.value;render()};
+  const lb_=$('#lowB');if(lb_)lb_.onclick=poFromLow;
+  const eb=$('#edB');if(eb)eb.onclick=async()=>{if(PF.edit&&Object.keys(PF.ch).length&&!(await confirmBox('فيه تعديلات لسه ماتحفظتش — تقفل من غير حفظ؟','قفل',true)))return;PF.edit=!PF.edit;PF.ch={};render()};
+  $$('[data-ed]').forEach(el=>{el.onclick=e=>e.stopPropagation();el.onfocus=()=>el.select();
+    el.onchange=()=>{const [pid,f]=el.dataset.ed.split(':');const p=G('products',pid);const v=numIn(el.value);const orig=f==='qty'?qtyIn(pid,PF.store):f==='cost'?avgCost(pid):(+p.price||0);
+      if(f!=='qty'&&v<0){toast('مينفعش رقم بالسالب','err');el.value=rnd2(orig);return}
+      const c=PF.ch[pid]||{};if(Math.abs(v-orig)<0.0001)delete c[f];else c[f]=v;if(Object.keys(c).length)PF.ch[pid]=c;else delete PF.ch[pid];
+      el.style.background=c[f]!=null?'var(--gold-soft)':'';el.style.fontWeight=c[f]!=null?'700':'';const n=Object.keys(PF.ch).length;const sb=$('#chSave'),ub=$('#chUndo');if(sb){sb.disabled=!n;sb.textContent=`حفظ التعديلات (${n})`}if(ub)ub.disabled=!n};
+    el.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();el.dispatchEvent(new Event('change'));const all=$$('[data-ed]');const k=all.indexOf(el);const nx=all.find((x,i)=>i>k&&x.dataset.ed.split(':')[1]===el.dataset.ed.split(':')[1]);if(nx)nx.focus()}}});
+  const cu=$('#chUndo');if(cu)cu.onclick=()=>{PF.ch={};render()};
+  const cs=$('#chSave');if(cs)cs.onclick=()=>saveQuickEdits();
+  $$('[data-p]').forEach(r=>r.onclick=e=>{if(PF.edit||e.target.closest('[data-card],[data-psel],input'))return;productModal(r.dataset.p)});
+  $$('[data-card]').forEach(b=>b.onclick=e=>{e.stopPropagation();itemCard(b.dataset.card)});
+  const upd=()=>{const bar=$('#pSelBar');if(bar){bar.style.display=sel.size?'':'none';$('#pSelN').textContent=sel.size+' صنف مختار'}};
+  $$('[data-psel]').forEach(c=>{c.onclick=e=>e.stopPropagation();c.onchange=()=>{if(c.checked)sel.add(c.dataset.psel);else sel.delete(c.dataset.psel);upd()}});
+  const pa=$('#pAll');if(pa)pa.onchange=()=>{rows.slice(0,500).forEach(({p})=>{if(pa.checked)sel.add(p.id);else sel.delete(p.id)});$$('[data-psel]').forEach(c=>c.checked=sel.has(c.dataset.psel));upd()};
+  const sp=$('#pSelPO');if(sp)sp.onclick=()=>poFromPids([...sel]);
+  const sclr=$('#pSelC');if(sclr)sclr.onclick=()=>{sel.clear();render()};
 }
+/* حفظ التعديل السريع: الأسعار على الصنف نفسه، الرصيد = تسوية جردية بالفرق، التكلفة = تقييم مخزون */
+async function saveQuickEdits(){const ch=PF.ch;const ids=Object.keys(ch);if(!ids.length)return;const st=PF.store||MAIN;
+  const pr=ids.filter(id=>ch[id].price!=null),qs=ids.filter(id=>ch[id].qty!=null),cs=ids.filter(id=>ch[id].cost!=null);
+  const msg=[pr.length&&`${pr.length} سعر بيع`,qs.length&&`تسوية رصيد ${qs.length} صنف في ${storeName(st)}`,cs.length&&`تقييم تكلفة ${cs.length} صنف`].filter(Boolean).join(' · ');
+  if(!(await confirmBox('هيتحفظ: '+msg+'. متأكد؟','حفظ')))return;
+  const at=new Date().toISOString(),by=S.me.id||'';
+  try{
+    for(const id of pr){const p=G('products',id);await audit('product',id,'سعر البيع',p.price,ch[id].price,p.name);await put('products',id,{...p,price:ch[id].price})}
+    if(qs.length){const lines=qs.map(id=>{const d=rnd3(ch[id].qty-qtyIn(id,st));const ac=avgCost(id);return {pid:id,qty:d,price:rnd2(ac),disc:0,cost:rnd2(ac)}}).filter(l=>Math.abs(l.qty)>0.0001);
+      if(lines.length)await put('invoices',uid(),{type:'adj',no:0,date:today(),storeId:st,lines,discount:0,taxRate:0,paid:0,notes:'تعديل سريع للرصيد من شاشة الأصناف',quick:true,createdAt:at,createdBy:by})}
+    if(cs.length){const lines=cs.map(id=>({pid:id,qty:rnd3(qtyIn(id)+(ch[id].qty!=null?ch[id].qty-qtyIn(id,st):0)),price:0,disc:0,cost:+ch[id].cost}));
+      await put('invoices',uid(),{type:'reval',no:0,date:today(),storeId:MAIN,lines,discount:0,taxRate:0,paid:0,notes:'تعديل سريع للتكلفة من شاشة الأصناف',quick:true,createdAt:new Date(Date.parse(at)+1000).toISOString(),createdBy:by})}
+    PF.ch={};toast('اتحفظت التعديلات ✓');render()}catch(e){toast('مااتحفظش: '+(e.message||''),'err')}}
+const rnd3=n=>Math.round((+n||0)*1000)/1000;
+/* أمر توريد من أصناف مختارة: الكمية المقترحة من النواقص، والسعر من آخر شراء، والمورد لو كلهم من نفس المورد */
+function poFromPids(pids){pids=pids.filter(id=>G('products',id));if(!pids.length){toast('اختار أصناف الأول','err');return}
+  if(pids.length>300){toast('الحد الأقصى 300 صنف في الأمر','err');return}
+  const sh=new Map(shortages().map(x=>[x.p.id,x]));const inv=newInv('porder');
+  inv.lines=pids.map(id=>{const p=G('products',id);const x=sh.get(id);const lb=lastBuy(id);const q=x?x.sug:Math.max(1,Math.ceil((+p.minQty||0)*2-Math.max(0,qtyIn(id))));return {pid:id,qty:q,price:rnd2(lb?lb.unit:(avgCost(id)||+p.cost||0)),disc:0,cost:'',consumer:consOf(p)}}).sort((a,b)=>pname(a.pid).localeCompare(pname(b.pid),'ar'));
+  const vs=[...new Set(pids.map(id=>{const lb=lastBuy(id);return lb?lb.inv.partyId||'':''}))];if(vs.length===1&&vs[0])inv.partyId=vs[0];
+  inv.notes=`أمر توريد من ${pids.length} صنف مختار`;closeModal&&closeModal();PF.sel&&PF.sel.clear();ED={id:null,inv,grp:'purchase'};if(location.hash==='#/purchase')render();else go('purchase')}
 function productModal(id){
   const p=id?G('products',id):{code:'',name:'',barcode:'',unit:'قطعة',group:'',cost:'',price:'',minQty:''};
   const nextCode=String(L('products').reduce((m,x)=>Math.max(m,parseInt(x.code)||0),0)+1);
@@ -2331,20 +2386,32 @@ function shortages(o={}){const days=Math.max(1,+(o.days||SH.days)),cover=Math.ma
     const lb=lastBuy(p.id);const v=lb?lb.inv.partyId||'':'';if(o.vendor!=null&&o.vendor!==''&&(o.vendor==='_'?v!=='':v!==o.vendor))continue;
     out.push({p,q,min,sold,daily,sug:need,vendor:v,lp:lb?lb.unit:(+p.cost||avgCost(p.id))})}
   return out.sort((a,b)=>(a.q/(a.daily||1))-(b.q/(b.daily||1)))}
-function poFromLow(){
-  const draw=()=>{const all=shortages();const byV={};all.forEach(x=>{byV[x.vendor]=(byV[x.vendor]||0)+1});const sel=$('#po_v')?.value??'';
-    modal(`<h2>أمر توريد بالنواقص</h2><p class="small muted" style="margin-top:0">الأصناف اللي <b>اتباعت فعلًا</b> في آخر الفترة دي، ورصيدها تحت حد الطلب أو مايكفيش أسبوع بيع. الكمية المقترحة بتغطي عدد أيام البيع اللي تحدده. الأصناف الراكدة مش داخلة.</p>
-     <div class="grid g2"><label class="f">المبيعات في آخر (يوم)<input class="in n" id="po_d" inputmode="numeric" value="${SH.days}"></label><label class="f">الكمية تكفي (يوم)<input class="in n" id="po_c" inputmode="numeric" value="${SH.cover}"></label></div>
-     <label class="f" style="margin-top:10px">المورد (حسب آخر شراء للصنف)<select class="in" id="po_v">${opts(Object.entries(byV).sort((a,b)=>b[1]-a[1]).map(([v,n])=>[v||'_',`${v?partyName(v):'بدون مورد سابق'} — ${n} صنف`]),sel,`كل الموردين — ${all.length} صنف`)}</select></label>
-     <p class="small muted">يُفضّل أمر لكل مورد. الحد الأقصى 300 صنف في الأمر الواحد.</p>
-     <div class="row" style="margin-top:12px"><button class="btn p" id="po_go" ${all.length?'':'disabled'}>إنشاء أمر التوريد</button><button class="btn" data-close>إلغاء</button></div>`);
+function poFromLow(){const sel=new Set();let q='',vf='',first=true;
+  const draw=()=>{const all=shortages();const byV={};all.forEach(x=>{byV[x.vendor]=(byV[x.vendor]||0)+1});
+    const nq=norm(q);const ws=nq.split(' ').filter(Boolean);
+    const xs=all.filter(x=>(vf===''||(vf==='_'?!x.vendor:x.vendor===vf))&&(!ws.length||ws.every(w=>norm(x.p.name).includes(w))||String(x.p.code||'')===q.trim()));
+    const nSel=all.filter(x=>sel.has(x.p.id)).length;
+    modal(`<h2>📒 كشكول النواقص — أمر توريد</h2><p class="small muted" style="margin-top:0">أصناف <b>اتباعت فعلًا</b> آخر ${SH.days} يوم ورصيدها تحت حد الطلب أو مايكفيش أسبوع بيع. علّم على اللي عاوزه، وعدّل الكمية لو حابب.</p>
+     <div class="row small" style="gap:8px;flex-wrap:wrap;margin-bottom:8px"><input class="in" id="po_q" placeholder="🔍 بحث باسم الصنف أو الكود" value="${esc(q)}" style="flex:1 1 200px" autocomplete="off">
+       <select class="in" id="po_v" style="width:auto">${opts(Object.entries(byV).sort((a,b)=>b[1]-a[1]).map(([v,n])=>[v||'_',`${v?partyName(v):'بدون مورد سابق'} — ${n}`]),vf,`كل الموردين — ${all.length}`)}</select>
+       <label class="row" style="gap:4px">مبيعات آخر<input class="in n" id="po_d" inputmode="numeric" value="${SH.days}" style="width:60px;padding:4px 6px">يوم</label><label class="row" style="gap:4px">تكفي<input class="in n" id="po_c" inputmode="numeric" value="${SH.cover}" style="width:60px;padding:4px 6px">يوم</label></div>
+     <div class="row small" style="gap:8px;margin-bottom:6px"><button class="btn s" id="po_all">اختار اللي ظاهر (${xs.length})</button><button class="btn s" id="po_none">شيل اختيار اللي ظاهر</button><span class="sp"></span><b>${nSel} مختار</b></div>
+     <div class="tw" style="max-height:48vh;overflow:auto"><table class="t"><thead><tr><th style="width:28px"></th><th>الكود</th><th>الصنف</th><th class="n">الرصيد</th><th class="n">حد الطلب</th><th class="n">اتباع</th><th class="n" style="width:90px">الكمية</th><th>آخر مورد</th><th class="n">آخر سعر</th></tr></thead><tbody>
+     ${xs.slice(0,400).map(x=>`<tr><td><input type="checkbox" data-pos="${x.p.id}" ${sel.has(x.p.id)?'checked':''}></td><td class="num">${esc(x.p.code||'')}</td><td>${esc(x.p.name)}</td><td class="n ${x.q<=0?'neg':''}">${fq(x.q)}</td><td class="n">${x.min||''}</td><td class="n">${fq(x.sold)}</td><td><input class="cell n" data-poq="${x.p.id}" inputmode="decimal" value="${PQS[x.p.id]??x.sug}" style="width:70px"></td><td class="small">${esc(x.vendor?partyName(x.vendor):'—')}</td><td class="n">${fmt(x.lp)}</td></tr>`).join('')||'<tr><td colspan="9" class="muted small">مفيش نواقص بالبحث ده</td></tr>'}</tbody></table></div>
+     <div class="row" style="margin-top:12px"><button class="btn p" id="po_go" ${nSel?'':'disabled'}>عمل أمر توريد بالمختار (${nSel})</button><span class="small muted">يُفضّل أمر لكل مورد — اختار المورد من فوق.</span><span class="sp"></span><button class="btn" data-close>إلغاء</button></div>`,true);
+    const qi=$('#po_q');qi.oninput=()=>{q=qi.value;const pos=qi.selectionStart;draw();const n=$('#po_q');n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}};if(q)qi.focus();
+    $('#po_v').onchange=e=>{vf=e.target.value;draw()};
     $('#po_d').onchange=e=>{SH.days=Math.max(1,Math.round(numIn(e.target.value))||90);draw()};$('#po_c').onchange=e=>{SH.cover=Math.max(1,Math.round(numIn(e.target.value))||30);draw()};
-    $('#po_go').onclick=()=>{const v=$('#po_v').value;let list=shortages({vendor:v});if(!list.length){toast('لا توجد أصناف','err');return}
-      if(list.length>300){toast(`تم أخذ أهم 300 صنف من ${list.length} — الأقرب للنفاد أولًا`);list=list.slice(0,300)}
-      const inv=newInv('porder');inv.partyId=v&&v!=='_'?v:'';inv.lines=list.map(x=>({pid:x.p.id,qty:x.sug,price:rnd2(x.lp)||rnd2(avgCost(x.p.id)),disc:0,cost:'',consumer:consOf(x.p)}));
+    $('#po_all').onclick=()=>{xs.forEach(x=>sel.add(x.p.id));draw()};$('#po_none').onclick=()=>{xs.forEach(x=>sel.delete(x.p.id));draw()};
+    $$('[data-pos]').forEach(c=>c.onchange=()=>{if(c.checked)sel.add(c.dataset.pos);else sel.delete(c.dataset.pos);const b=$('#po_go');const n=all.filter(x=>sel.has(x.p.id)).length;b.disabled=!n;b.textContent=`عمل أمر توريد بالمختار (${n})`});
+    $$('[data-poq]').forEach(i=>i.onchange=()=>{PQS[i.dataset.poq]=Math.max(0,numIn(i.value))});
+    $('#po_go').onclick=()=>{let list=all.filter(x=>sel.has(x.p.id));if(!list.length)return;if(list.length>300){toast('الحد الأقصى 300 صنف — اختار مورد أو قلّل الاختيار','err');return}
+      const vs=[...new Set(list.map(x=>x.vendor))];const inv=newInv('porder');inv.partyId=vs.length===1&&vs[0]?vs[0]:(vf&&vf!=='_'?vf:'');
+      inv.lines=list.map(x=>({pid:x.p.id,qty:+(PQS[x.p.id]??x.sug)||x.sug,price:rnd2(x.lp)||rnd2(avgCost(x.p.id)),disc:0,cost:'',consumer:consOf(x.p)})).filter(l=>l.qty>0);
       inv.notes=`نواقص — مبيعات آخر ${SH.days} يوم، تغطية ${SH.cover} يوم`;closeModal();ED={id:null,inv,grp:'purchase'};if(location.hash==='#/purchase')render();else go('purchase')}};
   draw();
 }
+const PQS={};
 let OF='open';
 function vOrders(){
   setTitle('أوامر التوريد وعروض الأسعار');const R={};
