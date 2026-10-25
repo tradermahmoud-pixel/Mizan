@@ -481,6 +481,11 @@ async function sendPorderToOrga(id){const o=G('invoices',id);if(!o||o.type!=='po
     if(r&&r.jobId){toast(r.dup?'الأمر مبعوت بالفعل ومستني أورجا':'اتبعت لأورجا — هيتكتب خلال دقايق','ok');ORGAQ.at=0;await orgaStatus(true);render()}
     else toast('مردّش بنتيجة','err')}
   catch(e){toast(e.message||'فشل الإرسال لأورجا','err')}}
+let ORGA_POLL=null;
+function orgaPoll(){if(ORGA_POLL||!canOrgaWrite())return;const tick=async()=>{ORGA_POLL=null;const before=JSON.stringify(ORGAQ.byPo);await orgaStatus(true);
+  const pend=Object.values(ORGAQ.byPo).some(x=>x.status==='pending'||x.status==='sending');
+  if(JSON.stringify(ORGAQ.byPo)!==before){const osB=$('#orgaSend');if(osB&&window.__mzSetOs&&ED&&ED.id){window.__mzSetOs(ORGAQ.byPo[ED.id])}else if($('[data-ogst]')){render()}}
+  if(pend)ORGA_POLL=setTimeout(tick,10000)};ORGA_POLL=setTimeout(tick,10000)}
 const ROUTEP={prep:'@prep',sret:'sell',pret:'buy',crm:'@crm',accounts:'accounting',sale:'sell',purchase:'buy',lines:'editInv',products:'products',import:'products',orders:'buy',barcode:'products',parties:'parties',cash:'cash',cheques:'cash',reports:'reports',employees:'hr',payroll:'hr',audit:'@',settings:'@',users:'@'};
 function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='crm')return can('crm')||can('crmManage');if(k==='prep'||k==='pick')return can('prep')||can('sell');if(k==='flow')return can('prep')||can('sell')||can('deliveryManage');if(k==='routes')return can('delivery')||can('deliveryManage');if(k==='track')return can('products')||can('sell')||can('buy')||can('reports');if(k==='rets')return can('delivery')||can('deliveryManage')||can('buy')||can('products')||can('prep')||can('sell');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
 const isLocked=d=>!S.isAdmin&&!!settings().lockDate&&!!d&&d<=settings().lockDate;
@@ -884,8 +889,8 @@ function vEditor(type,id){
   const osB=$('#orgaSend');if(osB){const setOs=st=>{if(!st){osB.textContent='⬆ فاتورة شراء في أورجا';osB.disabled=false;osB.classList.remove('d');osB.onclick=()=>sendPorderToOrga(ED.id);return}
     if(st.status==='done'){osB.textContent='✓ في أورجا — شراء #'+st.orderHId;osB.disabled=true;osB.classList.remove('d');osB.onclick=null}
     else if(st.status==='error'){osB.textContent='⚠ فشل في أورجا — إعادة محاولة';osB.disabled=false;osB.classList.add('d');osB.onclick=async()=>{try{await MZ.post('/api/orga/outbox/retry',{jobId:st.id});toast('هيتحاول تاني');ORGAQ.at=0;setTimeout(()=>orgaStatus(true).then(m=>setOs(m[ED.id])),1500)}catch(e){toast(e.message,'err')}}}
-    else{osB.textContent='⏳ مستني أورجا يكتبها…';osB.disabled=true;osB.classList.remove('d');osB.onclick=null}};
-    osB.onclick=()=>sendPorderToOrga(ED.id);orgaStatus().then(m=>setOs(m[ED.id]))}
+    else{osB.textContent='⏳ مستني أورجا يكتبها…';osB.disabled=true;osB.classList.remove('d');osB.onclick=null;orgaPoll()}};
+    window.__mzSetOs=setOs;osB.onclick=()=>sendPorderToOrga(ED.id);orgaStatus().then(m=>setOs(m[ED.id]))}
   const dl=$('#delInv');if(dl)dl.onclick=async()=>{if(!can('editInv')||isLocked(ED.orig.date)){toast('غير مسموح بحذف هذه الفاتورة','err');return}if(window.MZ_FLOW&&!(await MZ_FLOW.beforeDelete({...ED.orig,id:ED.id})))return;if(await confirmBox(`حذف ${T.full} رقم ${inv.no} نهائيًا؟ ستتعدل الأرصدة والأرباح تلقائيًا.`,'حذف',true)){const n=inv.no;await audit('invoice',ED.id,'حذف الفاتورة',`#${n} — ${fmt(invTotals(ED.orig).total)}`,'محذوفة',T.full);const did_=ED.id;await del('invoices',ED.id);if(window.MZ_FLOW)MZ_FLOW.afterDelete(did_).catch(()=>{});ED=null;toast('تم حذف الفاتورة');go('invoices')}};
   const ca=$('#cntAll');if(ca)ca.onclick=()=>{const have=new Set(inv.lines.map(l=>l.pid));L('products').sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})).forEach(p=>{if(!have.has(p.id))inv.lines.push({pid:p.id,qty:Math.max(0,Math.round(qtyIn(p.id,inv.storeId)*1000)/1000),price:Math.round(avgCost(p.id)*100)/100,disc:0,cost:''})});render()};
   const cl=$('#clr');if(cl)cl.onclick=()=>{ED.inv=newInv(inv.type);render()};
@@ -2555,7 +2560,7 @@ function vOrders(){
     orgaStatus().then(m=>{$$('[data-ogst]').forEach(s=>{const st=m[s.dataset.ogst];if(!st)return;const b=$(`[data-oga="${s.dataset.ogst}"]`);
       if(st.status==='done'){s.innerHTML=`<span class="tag ok">✓ أورجا #${st.orderHId}</span>`;if(b)b.remove()}
       else if(st.status==='error'){s.innerHTML='<span class="tag bad">فشل</span>';if(b)b.textContent='↻ إعادة'}
-      else{s.innerHTML='<span class="tag">⏳ مستني أورجا</span>';if(b)b.disabled=true}})});
+      else{s.innerHTML='<span class="tag">⏳ مستني أورجا</span>';if(b)b.disabled=true;orgaPoll()}})});
   }
 }
 
