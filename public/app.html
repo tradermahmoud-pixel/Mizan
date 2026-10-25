@@ -480,13 +480,21 @@ function orgaCodeOf(rec,col){if(!rec)return 0;const direct=+rec.orga;if(direct)r
     return +code}
   return 0}
 async function sendPorderToOrga(id){const o=G('invoices',id);if(!o||o.type!=='porder')return;
-  const party=o.partyId?G('parties',o.partyId):null;const account=orgaCodeOf(party,'parties');
-  if(!account){toast('المورّد «'+esc(party?party.name:'؟')+'» مش موجود في أورجا (ولا بالكود ولا بالاسم). اتأكد إنه متزامن من أورجا.','err');return}
-  const lines=[];
+  const party=o.partyId?G('parties',o.partyId):null;
+  if(!party){toast('اختر المورّد الأول','err');return}
+  let account=orgaCodeOf(party,'parties');
+  if(!account){
+    const typed=window.prompt('مش لاقي كود المورّد «'+(party.name||'')+'» في أورجا.\nاكتب رقم حساب المورّد (كود المورّد) زي ما هو في أورجا:',String(party.code||'').trim());
+    account=Math.trunc(+String(typed||'').trim());
+    if(!(account>0)){toast('لازم رقم كود أورجا صحيح للمورّد','err');return}
+    if(!party.code){put('parties',o.partyId,{...party,code:String(account)}).catch(()=>{})} // نحفظه عشان المرة الجاية
+  }
+  const lines=[];const noCode=[];
   for(const l of (o.lines||[])){const p=G('products',l.pid);const prod=orgaCodeOf(p,'products');const qty=+l.qty||0;if(qty<=0)continue;
-    if(!prod){toast('صنف «'+(p?p.name:'؟')+'» مالوش كود أورجا — مينفعش يتبعت','err');return}
+    if(!prod){noCode.push(p?p.name:'؟');continue}
     const net=rnd4((+l.price||0)*(1-(+l.disc||0)/100));
     lines.push({prod,qty,cost:l.bonus?0:net,consumer:rnd4((l.consumer!=null&&l.consumer!=='')?+l.consumer:consOf(p)),...(l.bonus?{bonus:1}:{})})}
+  if(noCode.length){toast('أصناف مالهاش كود أورجا، سجّل كودها الأول: '+noCode.slice(0,5).join('، ')+(noCode.length>5?'…':''),'err');return}
   if(!lines.length){toast('مفيش سطور صالحة في الأمر','err');return}
   if(!(await confirmBox(`هيتبعت أمر الشراء ده لأورجا كـ«فاتورة شراء مفتوحة» (${lines.length} صنف لـ${esc(party.name)}).<br>المخزون في أورجا هيزيد على طول، وحساب المورّد هيتسجّل لما تراجع وتقفل الفاتورة داخل أورجا.`,'إرسال لأورجا'))) return;
   try{const r=await MZ.post('/api/orga/outbox/add',{poId:id,poNo:o.no,account,store:storeOrga(o.storeId),lines});
