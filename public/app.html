@@ -467,11 +467,17 @@ const rnd4=x=>Math.round(((+x||0)+Number.EPSILON)*1e4)/1e4;
 let ORGAQ={byPo:{},at:0,busy:false};
 async function orgaStatus(force){if(!canOrgaWrite())return ORGAQ.byPo;if(!force&&Date.now()-ORGAQ.at<8000)return ORGAQ.byPo;if(ORGAQ.busy)return ORGAQ.byPo;ORGAQ.busy=true;
   try{const r=await fetch('/api/orga/outbox/status',{credentials:'same-origin',headers:{'X-Mizan':'1'}});if(r.ok){const j=await r.json();ORGAQ.byPo=j.byPo||{};ORGAQ.at=Date.now()}}catch(e){}ORGAQ.busy=false;return ORGAQ.byPo}
+// كود أورجا للطرف/الصنف: مباشر من .orga، وإلا نلاقي سجل متزامن (عنده orga) بنفس الكود أو نفس الاسم
+function orgaCodeOf(rec,col){if(!rec)return 0;const direct=+rec.orga;if(direct)return direct;
+  const list=L(col);const code=String(rec.code||'').trim();
+  if(/^\d+$/.test(code)){const byCode=list.find(x=>+x.orga===+code&&(col!=='parties'||x.kind===rec.kind));if(byCode)return +byCode.orga}
+  const nm=norm(rec.name||'');if(nm){const byName=list.find(x=>+x.orga&&norm(x.name)===nm&&(col!=='parties'||x.kind===rec.kind));if(byName)return +byName.orga}
+  return 0}
 async function sendPorderToOrga(id){const o=G('invoices',id);if(!o||o.type!=='porder')return;
-  const party=o.partyId?G('parties',o.partyId):null;const account=party&&+party.orga;
-  if(!account){toast('المورّد مالوش كود في أورجا — اختر مورّد متزامن من أورجا','err');return}
+  const party=o.partyId?G('parties',o.partyId):null;const account=orgaCodeOf(party,'parties');
+  if(!account){toast('المورّد «'+esc(party?party.name:'؟')+'» مش موجود في أورجا (ولا بالكود ولا بالاسم). اتأكد إنه متزامن من أورجا.','err');return}
   const lines=[];
-  for(const l of (o.lines||[])){const p=G('products',l.pid);const prod=p&&+p.orga;const qty=+l.qty||0;if(qty<=0)continue;
+  for(const l of (o.lines||[])){const p=G('products',l.pid);const prod=orgaCodeOf(p,'products');const qty=+l.qty||0;if(qty<=0)continue;
     if(!prod){toast('صنف «'+(p?p.name:'؟')+'» مالوش كود أورجا — مينفعش يتبعت','err');return}
     const net=rnd4((+l.price||0)*(1-(+l.disc||0)/100));
     lines.push({prod,qty,cost:l.bonus?0:net,consumer:rnd4((l.consumer!=null&&l.consumer!=='')?+l.consumer:consOf(p)),...(l.bonus?{bonus:1}:{})})}
