@@ -93,6 +93,138 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
 
   app.post('/api/orga/ping', agentAuth, async (req, res) => { await touch(req, {}); res.json({ ok: true, at: now() }); });
 
+  /* ==================================================================
+     قايمة انتظار الكتابة: ميزان ← أورجا (فواتير الشراء)
+     - المالك/المدير بيضيف فاتورة شراء للطابور (/outbox/add)
+     - الوكيل بياخد المعلّق (/outbox) ويكتبه في أورجا «مفتوح» ويبلّغ بالنتيجة (/outbox/done)
+     - الواجهة بتجيب الحالة لكل أمر شراء (/outbox/status)
+     مخزّنة في kv (مش في docs) علشان متتزامنش لكل المستخدمين وتسرّب التكلفة.
+     ================================================================== */
+  const OUT_KV = 'orga:outbox';
+  async function canWrite(u) {
+    if (!u) return false; if (u.owner) return true;
+    const { rows } = await pool.query(`SELECT data FROM docs WHERE col='roles' AND id=$1 AND NOT deleted`, [u.id]);
+    const role = rows[0] && rows[0].data && rows[0].data.role;
+    return role === 'full' || role === 'manager';
+  }
+  const writeOnly = async (req, res, next) => { try { (await canWrite(req.user)) ? next() : res.status(403).json({ error: 'الكتابة في أورجا للمالك والمديرين بس' }); } catch (e) { next(e); } };
+  // قراءة/تعديل الطابور داخل transaction (قفل الصف)
+  async function withOut(fn) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(`SELECT v FROM kv WHERE k=$1 FOR UPDATE`, [OUT_KV]);
+      const st = (rows[0] && rows[0].v) || { seq: 0, jobs: {} };
+      if (!isObj(st.jobs)) st.jobs = {};
+      const out = await fn(st);
+      await client.query(`INSERT INTO kv(k,v) VALUES($1,$2) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v`, [OUT_KV, JSON.stringify(st)]);
+      await client.query('COMMIT');
+      return out;
+    } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
+    finally { client.release(); }
+  }
+  const posInt = x => { const n = Math.trunc(+x); return Number.isFinite(n) && n > 0 ? n : 0; };
+  const nn = x => { const n = +x; return Number.isFinite(n) ? n : 0; };
+  function cleanLines(arr) {
+    if (!Array.isArray(arr)) return null;
+    const out = [];
+    for (const l of arr.slice(0, 500)) {
+      if (!isObj(l)) continue;
+      const prod = posInt(l.prod); const qty = nn(l.qty);
+      if (!prod || !(qty > 0)) return null;
+      const o = { prod, qty, cost: Math.max(0, nn(l.cost)), consumer: Math.max(0, nn(l.consumer)) };
+      if (l.bonus) o.bonus = 1;
+      for (const k of ['disc1', 'disc2', 'disc3', 'disc4']) if (nn(l[k])) o[k] = nn(l[k]);
+      if (l.expire && /^\d{4}-\d{2}-\d{2}$/.test(String(l.expire).slice(0, 10))) o.expire = String(l.expire).slice(0, 10);
+      out.push(o);
+    }
+    return out.length ? out : null;
+  }
+
+  // إضافة فاتورة شراء للطابور (المالك/المدير)
+  app.post('/api/orga/outbox/add', auth(false), writeOnly, async (req, res, next) => {
+    try {
+      const b = req.body || {};
+      const account = posInt(b.account);
+      if (!account) return res.status(400).json({ error: 'مفيش كود مورّد في أورجا للطرف ده' });
+      const lines = cleanLines(b.lines);
+      if (!lines) return res.status(400).json({ error: 'سطور الفاتورة غير صالحة (لازم أصناف لها كود أورجا وكمية أكبر من صفر)' });
+      const store = posInt(b.store) || 1;
+      const poId = String(b.poId || '').slice(0, 64);
+      const poNo = String(b.poNo || '').slice(0, 40);
+      const usersId = posInt(b.usersId) || 0;
+      const job = await withOut(st => {
+        // منع تكرار نفس أمر الشراء: لو لسه معلّق/شغال أو اتكتب خلاص في أورجا
+        if (poId) for (const j of Object.values(st.jobs)) if (j.poId === poId && (j.status === 'pending' || j.status === 'sending' || j.status === 'done')) return { dup: j.id, status: j.status, orderHId: j.orderHId || null };
+        const id = 'j' + (++st.seq);
+        st.jobs[id] = { id, poId, poNo, account, store, usersId, lines, mark: '[MZ#' + id + ']', status: 'pending', createdAt: now(), createdBy: req.user.name || req.user.username || '' };
+        return { id };
+      });
+      if (job.dup) return res.json({ ok: true, jobId: job.dup, dup: true, status: job.status, orderHId: job.orderHId });
+      res.json({ ok: true, jobId: job.id });
+    } catch (e) { next(e); }
+  });
+
+  // الوكيل بياخد المعلّق
+  app.post('/api/orga/outbox', agentAuth, async (req, res, next) => {
+    try {
+      await touch(req, {});
+      const jobs = await withOut(st => {
+        const take = [];
+        for (const j of Object.values(st.jobs)) {
+          if (j.status === 'pending' || (j.status === 'sending' && now() - (j.sentAt || 0) > 5 * 60e3)) {
+            j.status = 'sending'; j.sentAt = now();
+            take.push({ id: j.id, account: j.account, store: j.store, usersId: j.usersId, usersName: 'MIZAN', mark: j.mark, lines: j.lines });
+          }
+        }
+        return take;
+      });
+      res.json({ jobs });
+    } catch (e) { next(e); }
+  });
+
+  // الوكيل بيبلّغ بالنتيجة
+  app.post('/api/orga/outbox/done', agentAuth, async (req, res, next) => {
+    try {
+      await touch(req, {});
+      const results = Array.isArray(req.body && req.body.results) ? req.body.results : [];
+      await withOut(st => {
+        for (const r of results) {
+          const j = st.jobs[String(r.jobId)]; if (!j) continue;
+          if (r.ok) { j.status = 'done'; j.orderHId = posInt(r.orderHId) || null; j.accHId = posInt(r.accHId) || null; j.doneAt = now(); delete j.error; }
+          else { j.status = 'error'; j.error = String(r.error || 'خطأ').slice(0, 300); j.doneAt = now(); }
+        }
+        // تنضيف: شيل اللي خلصوا بقالهم أكتر من 7 أيام
+        for (const [id, j] of Object.entries(st.jobs)) if (j.status === 'done' && now() - (j.doneAt || 0) > 7 * 864e5) delete st.jobs[id];
+      });
+      res.json({ ok: true });
+    } catch (e) { next(e); }
+  });
+
+  // الواجهة بتجيب حالة الطابور (المالك/المدير)
+  app.get('/api/orga/outbox/status', auth(false), writeOnly, async (req, res, next) => {
+    try {
+      const { rows } = await pool.query(`SELECT v FROM kv WHERE k=$1`, [OUT_KV]);
+      const jobs = (rows[0] && rows[0].v && rows[0].v.jobs) || {};
+      const byPo = {}; const list = [];
+      for (const j of Object.values(jobs)) {
+        const o = { id: j.id, poId: j.poId, poNo: j.poNo, status: j.status, orderHId: j.orderHId || null, error: j.error || '', createdAt: j.createdAt, createdBy: j.createdBy, doneAt: j.doneAt || 0 };
+        list.push(o); if (j.poId) byPo[j.poId] = o;
+      }
+      list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      res.json({ byPo, list: list.slice(0, 200), enabled: true });
+    } catch (e) { next(e); }
+  });
+
+  // إعادة محاولة فاتورة فشلت
+  app.post('/api/orga/outbox/retry', auth(false), writeOnly, async (req, res, next) => {
+    try {
+      const id = String(req.body && req.body.jobId || '');
+      await withOut(st => { const j = st.jobs[id]; if (j && j.status === 'error') { j.status = 'pending'; delete j.error; delete j.sentAt; } });
+      res.json({ ok: true });
+    } catch (e) { next(e); }
+  });
+
   /* ---- استقبال التغييرات ----
      body: { col, keys:[حقول أورجا], up:{id:doc}, del:[id], agent:{ver,host}, allowMass } */
   app.post('/api/orga/push', agentAuth, async (req, res, next) => {
