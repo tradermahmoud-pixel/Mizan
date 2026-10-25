@@ -469,9 +469,15 @@ async function orgaStatus(force){if(!canOrgaWrite())return ORGAQ.byPo;if(!force&
   try{const r=await fetch('/api/orga/outbox/status',{credentials:'same-origin',headers:{'X-Mizan':'1'}});if(r.ok){const j=await r.json();ORGAQ.byPo=j.byPo||{};ORGAQ.at=Date.now()}}catch(e){}ORGAQ.busy=false;return ORGAQ.byPo}
 // كود أورجا للطرف/الصنف: مباشر من .orga، وإلا نلاقي سجل متزامن (عنده orga) بنفس الكود أو نفس الاسم
 function orgaCodeOf(rec,col){if(!rec)return 0;const direct=+rec.orga;if(direct)return direct;
-  const list=L(col);const code=String(rec.code||'').trim();
-  if(/^\d+$/.test(code)){const byCode=list.find(x=>+x.orga===+code&&(col!=='parties'||x.kind===rec.kind));if(byCode)return +byCode.orga}
-  const nm=norm(rec.name||'');if(nm){const byName=list.find(x=>+x.orga&&norm(x.name)===nm&&(col!=='parties'||x.kind===rec.kind));if(byName)return +byName.orga}
+  const list=L(col);const want=col==='parties'?'vendor':null;const nm=norm(rec.name||'');
+  // سجل متزامن (عليه orga) بنفس الاسم
+  if(nm){const byName=list.find(x=>+x.orga&&norm(x.name)===nm&&(!want||x.kind===want));if(byName)return +byName.orga}
+  const code=String(rec.code||'').trim();
+  if(/^\d+$/.test(code)){
+    // سجل متزامن بنفس الكود
+    const byCode=list.find(x=>+x.orga===+code&&(!want||x.kind===want));if(byCode)return +byCode.orga;
+    // غير كده: كود السجل نفسه هو رقم أورجا (الكود في ميزان = كود أورجا)
+    return +code}
   return 0}
 async function sendPorderToOrga(id){const o=G('invoices',id);if(!o||o.type!=='porder')return;
   const party=o.partyId?G('parties',o.partyId):null;const account=orgaCodeOf(party,'parties');
