@@ -239,6 +239,13 @@ table.t tr.click{cursor:pointer}
 #lt tr.trk-hit td{background:color-mix(in srgb,var(--gold,#c49a4c) 26%,var(--surface))!important;animation:trkf 1.6s ease 2}
 #lt tr.trk-hit td:first-child{box-shadow:inset -4px 0 0 var(--gold,#c49a4c)}
 @keyframes trkf{0%,100%{filter:none}50%{filter:brightness(1.12)}}
+#lt tr.recv-pending{opacity:.45}
+#lt tr.recv-done td:first-child{color:#16a34a}
+#lt tr.recv-diff td{background:color-mix(in srgb,var(--gold,#c49a4c) 14%,transparent)}
+#lt tr.recv-diff td:first-child{color:#c9a227}
+#lt tr.recv-extra td{background:color-mix(in srgb,var(--danger,#dc2626) 10%,transparent)}
+#lt tr.recv-extra td:first-child{color:var(--danger,#dc2626)}
+#lt tr.recv-hit td{animation:trkf 1.4s ease 1}
 .trk-back{margin-bottom:10px}
 </style>
 <link rel="stylesheet" href="/theme.css?v=4">
@@ -846,12 +853,17 @@ function vEditor(type,id){
    </div>
    ${['sret','pret'].includes(inv.type)&&!ED.id?(inv.fromInv&&G('invoices',inv.fromInv)?`<div class="card" style="margin:12px 0 0;padding:10px 14px;border-color:var(--brand)"><div class="row"><span>${ic('ret','style="width:18px;height:18px;vertical-align:-4px"')} مرتجع من ${esc(TYPES[G('invoices',inv.fromInv).type].full)} رقم <b>${esc(G('invoices',inv.fromInv).no)}</b> بتاريخ ${esc(G('invoices',inv.fromInv).date)}</span><span class="sp"></span><button class="btn s" id="retPick">تعديل الأصناف</button><button class="btn s" id="retUnlink">فك الربط</button></div></div>`
      :`<div class="card" style="margin:12px 0 0;padding:10px 14px"><div class="row"><b>${ic('ret','style="width:18px;height:18px;vertical-align:-4px"')} مرتجع برقم الفاتورة:</b><input class="in n" id="retNo" style="width:150px" placeholder="امسح باركود الفاتورة أو اكتب رقمها"><button class="btn s p" id="retLoad">تحميل أصنافها</button><span class="small muted">أو ابحث بالصنف تحت — السعر هيتجاب من آخر ${inv.type==='sret'?'فاتورة بيع للعميل':'فاتورة شراء من المورد'}.</span></div></div>`):''}
-   ${tierInfo(inv)}${histInfo(inv)}<div class="row" style="margin:16px 0 12px;gap:8px"><div class="psearch" style="flex:1 1 320px;margin:0">${ic('search')}<input class="in" id="ps" placeholder="امسح الباركود أو اكتب اسم/كود الصنف ثم Enter" autocomplete="off"><div class="sugg" id="sugg" hidden></div></div>
+   ${tierInfo(inv)}${histInfo(inv)}
+   ${(inv.type==='porder'||inv.type==='purchase')&&inv.lines.length?`<div class="card" id="recvBar" style="margin:12px 0 0;padding:10px 12px;${ED.recv?'border-color:var(--brand)':''}"><div class="row" style="gap:10px;flex-wrap:wrap">
+     <button type="button" class="btn ${ED.recv?'p':''}" id="recvTgl">${ED.recv?'✓ وضع الاستلام شغّال — اضغط للإنهاء':'🔎 وضع الاستلام (طابق فاتورة المورّد)'}</button>
+     ${ED.recv?(()=>{const t=inv.lines.length,done=inv.lines.filter(l=>l._chk).length,diff=inv.lines.filter(l=>l._chk&&(+l.qty||0)!==(+l._oq||0)).length,extra=inv.lines.filter(l=>l._extra).length;return `<span class="tag ok">تم ✓ ${done} / ${t}</span><span class="tag">باقي ${t-done}</span>${diff?`<span class="tag purchase">فرق كمية ${diff}</span>`:''}${extra?`<span class="tag bad">زيادة ${extra}</span>`:''}<span class="sp"></span><div class="seg">${[['all','الكل'],['pending','الباقي'],['diff','فرق كمية'],['extra','زيادة']].map(([k,t2])=>`<button type="button" data-rf="${k}" class="${(ED.recvF||'all')===k?'on':''}">${t2}</button>`).join('')}</div>`})():'<span class="small muted">امسك فاتورة المورّد وامسح الباركود أو اكتب كود/اسم كل صنف — ميزان هيلاقيه في الأمر مهما كان ترتيبه، يعلّم عليه ✓، ويقولك فاضل كام. الباقي غير المعلّم = لسه ماجاش.</span>'}
+   </div></div>`:''}
+   <div class="row" style="margin:16px 0 12px;gap:8px"><div class="psearch" style="flex:1 1 320px;margin:0">${ic('search')}<input class="in" id="ps" placeholder="${ED.recv?'امسح/اكتب صنف من فاتورة المورّد للمطابقة':'امسح الباركود أو اكتب اسم/كود الصنف ثم Enter'}" autocomplete="off"><div class="sugg" id="sugg" hidden></div></div>
      <div class="seg" title="طريقة البحث بالاسم"><button type="button" data-sm="start" class="${SMODE()==='start'?'on':''}">أول الكلمة</button><button type="button" data-sm="any" class="${SMODE()==='any'?'on':''}">جزء من الكلمة</button></div>
      <button type="button" class="btn" id="psWide" title="عرض كل النتايج في شاشة كبيرة — Alt+W">${ic('search')}توسيع البحث</button><button type="button" class="btn ic" id="kbBtn" title="اختصارات الكيبورد — Alt+K" onclick="kbHelp()">⌨️</button></div>
    ${inv.type==='count'&&!ED.id?`<div class="row" style="margin:-4px 0 12px"><button class="btn s" id="cntAll">إضافة كل الأصناف بأرصدتها الدفترية</button><span class="small muted">ثم عدّل عمود "الكمية الفعلية" بما عددته على الرف. الفروقات تُسوّى بمتوسط التكلفة عند الحفظ.</span></div>`:''}
    <div class="tw"><table class="t" id="lt"><thead><tr><th>#</th><th style="min-width:180px">الصنف</th>${inv.type==='count'?'<th class="n">الرصيد الدفتري</th><th>الكمية الفعلية</th>':'<th class="n">المتاح</th><th>الكمية</th>'}<th>${isSale?'سعر الصيدلي':PURT.includes(inv.type)?'سعر الشراء':'السعر'}</th>${PURT.includes(inv.type)?'<th>سعر المستهلك</th><th class="n">التكلفة الحالية</th>':isSale?'<th class="n">سعر المستهلك</th><th class="n" title="خصم الصيدلية من سعر المستهلك">نسبة الخصم</th>':''}${noDisc(inv)?'':'<th>خصم %</th>'}${showC?'<th title="اتركها فارغة للحساب التلقائي بمتوسط التكلفة">التكلفة</th>':''}<th class="n">${inv.type==='count'?'الفرق':'الإجمالي'}</th>${showC?'<th class="n">الربح</th>':''}<th></th></tr></thead>
-   <tbody>${inv.lines.length?inv.lines.map((l,i)=>lineRow(l,i,showC)).join(''):`<tr><td colspan="10"><div class="empty" style="padding:24px"><b>الفاتورة فاضية</b>ابحث عن صنف بالأعلى أو امسح الباركود لإضافته.</div></td></tr>`}</tbody></table></div>
+   <tbody>${inv.lines.length?inv.lines.map((l,i)=>{if(ED.recv&&(inv.type==='porder'||inv.type==='purchase')){const f=ED.recvF||'all',chk=!!l._chk,diff=chk&&(+l.qty||0)!==(+l._oq||0);if(f==='pending'&&chk)return'';if(f==='diff'&&!diff)return'';if(f==='extra'&&!l._extra)return'';}return lineRow(l,i,showC)}).join(''):`<tr><td colspan="10"><div class="empty" style="padding:24px"><b>الفاتورة فاضية</b>ابحث عن صنف بالأعلى أو امسح الباركود لإضافته.</div></td></tr>`}</tbody></table></div>
    <div class="totals">
      <label class="f">ملاحظات<textarea class="in" rows="3" data-h="notes">${esc(inv.notes)}</textarea></label>
      <div class="tbox" id="tbox"></div>
@@ -922,6 +934,8 @@ function vEditor(type,id){
     window.__mzSetOs=setOs;osB.onclick=sendNow;orgaStatus().then(m=>setOs(m[ED.id]))}
   const dl=$('#delInv');if(dl)dl.onclick=async()=>{if(!can('editInv')||isLocked(ED.orig.date)){toast('غير مسموح بحذف هذه الفاتورة','err');return}if(window.MZ_FLOW&&!(await MZ_FLOW.beforeDelete({...ED.orig,id:ED.id})))return;if(await confirmBox(`حذف ${T.full} رقم ${inv.no} نهائيًا؟ ستتعدل الأرصدة والأرباح تلقائيًا.`,'حذف',true)){const n=inv.no;await audit('invoice',ED.id,'حذف الفاتورة',`#${n} — ${fmt(invTotals(ED.orig).total)}`,'محذوفة',T.full);const did_=ED.id;await del('invoices',ED.id);if(window.MZ_FLOW)MZ_FLOW.afterDelete(did_).catch(()=>{});ED=null;toast('تم حذف الفاتورة');go('invoices')}};
   const ca=$('#cntAll');if(ca)ca.onclick=()=>{const have=new Set(inv.lines.map(l=>l.pid));L('products').sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})).forEach(p=>{if(!have.has(p.id))inv.lines.push({pid:p.id,qty:Math.max(0,Math.round(qtyIn(p.id,inv.storeId)*1000)/1000),price:Math.round(avgCost(p.id)*100)/100,disc:0,cost:''})});render()};
+  const rt=$('#recvTgl');if(rt)rt.onclick=()=>{if(!ED.recv){ED.recv=1;ED.recvF='all';inv.lines.forEach(l=>{l._oq=+l.qty||0;delete l._chk;delete l._extra});toast('وضع الاستلام شغّال — امسح/اكتب أصناف فاتورة المورّد بأي ترتيب');}else{ED.recv=0;inv.lines.forEach(l=>{delete l._chk;delete l._oq;delete l._extra})}render();if(ED.recv)setTimeout(()=>{const ps=$('#ps');if(ps)ps.focus()},50)};
+  $$('[data-rf]').forEach(b=>b.onclick=()=>{ED.recvF=b.dataset.rf;render()});
   const cl=$('#clr');if(cl)cl.onclick=()=>{ED.inv=newInv(inv.type);render()};
   const flLock=ED.id&&window.MZ_FLOW?MZ_FLOW.lockMsg({...ED.orig,id:ED.id}):'';if(flLock&&S.isAdmin)$('#view .wrap').insertAdjacentHTML('afterbegin',`<div class="card" style="margin-bottom:12px;padding:10px 14px;border-color:var(--danger)">⚠ ${esc(flLock)} (انت مدير — التعديل متاح بتأكيد)</div>`);
   const lockMsg=S.ro?'':(flLock&&!S.isAdmin)?'عرض فقط — '+flLock:(ED.id&&!can('editInv'))?'عرض فقط — ليس لديك صلاحية تعديل الفواتير المحفوظة':(ED.id&&isLocked(ED.orig.date))?`عرض فقط — الفترة مغلقة حتى ${settings().lockDate}`:'';
@@ -996,7 +1010,10 @@ function wideSearch(q0,inv,isSale){
 function lineRow(l,i,isSale){
   const inv=ED.inv;const p=G('products',l.pid);const auto=avgCost(l.pid);
   const man=l.cost!==''&&l.cost!=null;
-  return `<tr data-row="${i}"><td class="muted">${i+1}</td><td><b>${esc(p?.name||'صنف محذوف')}</b><div class="small muted">${esc(p?.code||'')} ${p?.unit?'· '+esc(p.unit):''}</div></td>
+  const RV=ED.recv&&(inv.type==='porder'||inv.type==='purchase');
+  let cls='',numCell=`${i+1}`;
+  if(RV){const chk=!!l._chk,diff=chk&&(+l.qty||0)!==(+l._oq||0);cls=l._extra?'recv-extra':!chk?'recv-pending':diff?'recv-diff':'recv-done';numCell=chk?(diff?'⚠':'✓'):'○';}
+  return `<tr data-row="${i}" class="${cls}"><td class="muted" ${RV?'style="font-weight:700;font-size:16px;text-align:center"':''}>${numCell}</td><td><b>${esc(p?.name||'صنف محذوف')}</b><div class="small muted">${esc(p?.code||'')} ${p?.unit?'· '+esc(p.unit):''}${RV&&!l._extra&&l._oq!=null?` · <b style="color:var(--brand-ink)">طلب: ${fq(l._oq)}</b>`:''}${RV&&l._extra?' · <b style="color:var(--danger)">زيادة (مش في الأمر)</b>':''}</div></td>
    <td class="n" data-av="${i}">${fq(bookQ(l,i))}</td>
    <td><input class="cell n" data-i="${i}" data-f="qty" inputmode="decimal" value="${l.qty}"></td>
    <td><input class="cell n" data-i="${i}" data-f="price" inputmode="decimal" value="${l.price??0}" ${isSaleT(inv.type)&&!can('editPrice')?'readonly title="تغيير السعر غير مسموح لصلاحيتك"':''}></td>
@@ -1089,6 +1106,12 @@ function retAdd(pid,d){const inv=ED.inv;const o=d.inv;
   const ni=inv.lines.length-1;render();setTimeout(()=>{const q=$(`input[data-i="${ni}"][data-f="qty"]`);if(q){q.focus();q.select();q.classList.add('flash')}},30)}
 function addLine(pid){
   const inv=ED.inv;const p=G('products',pid);const ex=inv.lines.findIndex(l=>l.pid===pid);
+  // وضع الاستلام: المسح بيعلّم على الصنف الموجود ✓ ويروح لكميته (من غير زيادة 1)، والجديد بيتضاف كزيادة
+  if(ED.recv&&(inv.type==='porder'||inv.type==='purchase')){
+    try{navigator.vibrate&&navigator.vibrate(40)}catch(e){}
+    if(ex>=0){inv.lines[ex]._chk=1;ED.lastPid=pid;render();setTimeout(()=>{const q=$(`input[data-i="${ex}"][data-f="qty"]`);if(q){q.focus({preventScroll:true});q.select();const tr=q.closest('tr');if(tr){tr.classList.add('recv-hit');tr.scrollIntoView({block:'center',behavior:'smooth'})}}},40);return}
+    inv.lines.push({pid,qty:1,price:Math.round(avgCost(pid)*100)/100||(+p?.cost||0),disc:0,cost:'',consumer:consOf(p),_chk:1,_extra:1,_oq:0});const ni=inv.lines.length-1;toast('«'+(p?.name||'')+'» مش في الأمر — اتضاف كزيادة','err');render();setTimeout(()=>{const q=$(`input[data-i="${ni}"][data-f="qty"]`);if(q){q.focus({preventScroll:true});q.select()}},40);return;
+  }
   if(['sret','pret'].includes(inv.type)){const src=inv.fromInv&&G('invoices',inv.fromInv);
     if(src){const rem=retRemain(src,pid,ED.id);const cur=inv.lines.filter(l=>l.pid===pid).reduce((a,l)=>a+(+l.qty||0),0);
       if(!(src.lines||[]).some(l=>l.pid===pid)){if(inv.partyId&&dealsOf(pid,inv.type,inv.partyId).some(d=>d.rem>0.0001)){retPick(pid);return}toast(`«${p?.name||''}» مش موجود في ${TYPES[src.type].full} #${src.no}`,'err');return}
