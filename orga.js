@@ -133,6 +133,7 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       const prod = posInt(l.prod); const qty = nn(l.qty);
       if (!prod || !(qty > 0)) return null;
       const o = { prod, qty, cost: Math.max(0, nn(l.cost)), consumer: Math.max(0, nn(l.consumer)) };
+      if (nn(l.price)) o.price = Math.max(0, nn(l.price)); // سعر البيع (للبيع)
       if (l.bonus) o.bonus = 1;
       for (const k of ['disc1', 'disc2', 'disc3', 'disc4']) if (nn(l[k])) o[k] = nn(l[k]);
       if (l.expire && /^\d{4}-\d{2}-\d{2}$/.test(String(l.expire).slice(0, 10))) o.expire = String(l.expire).slice(0, 10);
@@ -153,11 +154,14 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       const poId = String(b.poId || '').slice(0, 64);
       const poNo = String(b.poNo || '').slice(0, 40);
       const usersId = posInt(b.usersId) || 0;
+      const kind = b.kind === 'sale' ? 'sale' : 'purchase';
+      const accType = Number.isFinite(+b.accType) ? +b.accType : undefined;
       const job = await withOut(st => {
-        // منع تكرار نفس أمر الشراء: لو لسه معلّق/شغال أو اتكتب خلاص في أورجا
+        // منع التكرار: لو نفس المستند لسه معلّق/شغال أو اتكتب خلاص في أورجا
         if (poId) for (const j of Object.values(st.jobs)) if (j.poId === poId && (j.status === 'pending' || j.status === 'sending' || j.status === 'done')) return { dup: j.id, status: j.status, orderHId: j.orderHId || null };
         const id = 'j' + (++st.seq);
-        st.jobs[id] = { id, poId, poNo, account, store, usersId, lines, mark: '[MZ#' + id + ']', status: 'pending', createdAt: now(), createdBy: req.user.name || req.user.username || '' };
+        st.jobs[id] = { id, kind, poId, poNo, account, store, usersId, lines, mark: '[MZ#' + id + ']', status: 'pending', createdAt: now(), createdBy: req.user.name || req.user.username || '' };
+        if (accType !== undefined) st.jobs[id].accType = accType;
         return { id };
       });
       if (job.dup) return res.json({ ok: true, jobId: job.dup, dup: true, status: job.status, orderHId: job.orderHId });
@@ -169,12 +173,16 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
   app.post('/api/orga/outbox', agentAuth, async (req, res, next) => {
     try {
       await touch(req, {});
+      // نسخة الوكيل — البيع يتكتب بس من وكيل 1.7.0+ (القديم يكتب الشراء بس)
+      const av = String((req.body && req.body.agent && req.body.agent.ver) || '0').split('.').map(n => +n || 0);
+      const saleOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 7);
       const jobs = await withOut(st => {
         const take = [];
         for (const j of Object.values(st.jobs)) {
+          if (j.kind === 'sale' && !saleOk) continue; // وكيل قديم: سيب فواتير البيع للوكيل الجديد
           if (j.status === 'pending' || (j.status === 'sending' && now() - (j.sentAt || 0) > 5 * 60e3)) {
             j.status = 'sending'; j.sentAt = now();
-            take.push({ id: j.id, account: j.account, store: j.store, usersId: j.usersId, usersName: 'MIZAN', mark: j.mark, lines: j.lines });
+            take.push({ id: j.id, kind: j.kind || 'purchase', account: j.account, store: j.store, usersId: j.usersId, usersName: 'MIZAN', mark: j.mark, lines: j.lines, accType: j.accType });
           }
         }
         return take;
@@ -208,7 +216,7 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       const jobs = (rows[0] && rows[0].v && rows[0].v.jobs) || {};
       const byPo = {}; const list = [];
       for (const j of Object.values(jobs)) {
-        const o = { id: j.id, poId: j.poId, poNo: j.poNo, status: j.status, orderHId: j.orderHId || null, error: j.error || '', createdAt: j.createdAt, createdBy: j.createdBy, doneAt: j.doneAt || 0 };
+        const o = { id: j.id, kind: j.kind || 'purchase', poId: j.poId, poNo: j.poNo, status: j.status, orderHId: j.orderHId || null, error: j.error || '', createdAt: j.createdAt, createdBy: j.createdBy, doneAt: j.doneAt || 0 };
         list.push(o); if (j.poId) byPo[j.poId] = o;
       }
       list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
