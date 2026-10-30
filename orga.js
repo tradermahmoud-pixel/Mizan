@@ -156,11 +156,12 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       const usersId = posInt(b.usersId) || 0;
       const kind = b.kind === 'sale' ? 'sale' : 'purchase';
       const accType = Number.isFinite(+b.accType) ? +b.accType : undefined;
+      const note = String(b.note || '').replace(/[^\x20-\x7e]/g, '').trim().slice(0, 24); // مرجع فاتورة المورّد (يتكتب في NOTS_ بأورجا)
       const job = await withOut(st => {
         // منع التكرار: لو نفس المستند لسه معلّق/شغال أو اتكتب خلاص في أورجا
         if (poId) for (const j of Object.values(st.jobs)) if (j.poId === poId && (j.status === 'pending' || j.status === 'sending' || j.status === 'done')) return { dup: j.id, status: j.status, orderHId: j.orderHId || null };
         const id = 'j' + (++st.seq);
-        st.jobs[id] = { id, kind, poId, poNo, account, store, usersId, lines, mark: '[MZ#' + id + ']', status: 'pending', createdAt: now(), createdBy: req.user.name || req.user.username || '' };
+        st.jobs[id] = { id, kind, poId, poNo, account, store, usersId, lines, mark: '[MZ#' + id + ']' + (note ? ' ' + note : ''), status: 'pending', createdAt: now(), createdBy: req.user.name || req.user.username || '' };
         if (accType !== undefined) st.jobs[id].accType = accType;
         return { id };
       });

@@ -516,6 +516,30 @@ async function sendDocToOrga(id){const o=G('invoices',id);if(!o)return;
     if(r&&r.jobId){toast(r.dup?'مبعوت بالفعل ومستني أورجا':'اتبعت لأورجا — هيتكتب خلال دقايق','ok');ORGAQ.at=0;await orgaStatus(true);render()}
     else toast('مردّش بنتيجة','err')}
   catch(e){toast(e.message||'فشل الإرسال لأورجا','err')}}
+// إرسال مجمّع: كل رقم فاتورة مورّد (الأصناف المعلّمة ✓) → فاتورة شراء منفصلة في أورجا
+async function sendGroupedToOrga(id){
+  if(!ED||ED.id!==id){toast('افتح الأمر الأول','err');return}
+  const inv=ED.inv;if(!inv.partyId){toast('اختر المورّد الأول','err');return}
+  const party=G('parties',inv.partyId)||null;
+  let account=orgaCodeOf(party,'parties','vendor');
+  if(!account){const m=/^oa(\d+)$/.exec(String(inv.partyId));if(m)account=+m[1]}
+  if(!account){const typed=window.prompt('اكتب كود المورّد في أورجا:',String((party&&party.code)||'').trim());account=Math.trunc(+String(typed||'').trim());if(!(account>0)){toast('لازم كود مورّد صحيح','err');return}if(party&&!party.code)put('parties',inv.partyId,{...party,code:String(account)}).catch(()=>{})}
+  const groups={};const noCode=[];
+  for(const l of inv.lines){if(!l._chk)continue;const p=G('products',l.pid);const prod=orgaCodeOf(p,'products');const qty=+l.qty||0;if(qty<=0)continue;
+    if(!prod){noCode.push(p?p.name:'؟');continue}
+    const k=String(l._si||'بدون رقم').trim()||'بدون رقم';const net=rnd4((+l.price||0)*(1-(+l.disc||0)/100));
+    (groups[k]=groups[k]||[]).push({prod,qty,cost:l.bonus?0:net,consumer:rnd4((l.consumer!=null&&l.consumer!=='')?+l.consumer:consOf(p)),...(l.bonus?{bonus:1}:{})})}
+  if(noCode.length){toast('أصناف مالهاش كود أورجا، سجّل كودها الأول: '+noCode.slice(0,5).join('، ')+(noCode.length>5?'…':''),'err');return}
+  const keys=Object.keys(groups);if(!keys.length){toast('مفيش أصناف معلّمة ✓ تتبعت — امسح أصناف فاتورة المورّد الأول','err');return}
+  if(!(await confirmBox(`هيتبعت <b>${keys.length}</b> فاتورة شراء منفصلة لأورجا (زي فواتير المورّد):<br>${keys.map(k=>`«${esc(k)}» — ${groups[k].length} صنف`).join('<br>')}<br><br>كل فاتورة بتزوّد المخزون وحساب المورّد. تمام؟`,'إرسال مجمّع لأورجا'))) return;
+  let ok=0,fail=0;const errs=[];
+  for(const k of keys){const lines=groups[k];
+    try{const r=await MZ.post('/api/orga/outbox/add',{poId:id+'#'+k,poNo:(inv.no||'')+'/'+k,account,store:storeOrga(inv.storeId),lines,kind:'purchase',note:(/^[\x20-\x7e]+$/.test(k)?'inv'+k:'')});
+      if(r&&r.jobId)ok++;else{fail++;errs.push(k)}}
+    catch(e){fail++;errs.push(k)}}
+  ORGAQ.at=0;await orgaStatus(true);
+  toast(`اتبعت ${ok} فاتورة لأورجا${fail?` — فشل ${fail} (${errs.slice(0,3).join('، ')})`:' ✓'}`,fail?'err':'ok');render();
+}
 let ORGA_POLL=null;
 function orgaPoll(){if(ORGA_POLL||!canOrgaWrite())return;const tick=async()=>{ORGA_POLL=null;const before=JSON.stringify(ORGAQ.byPo);await orgaStatus(true);
   const pend=Object.values(ORGAQ.byPo).some(x=>x.status==='pending'||x.status==='sending');
@@ -857,7 +881,13 @@ function vEditor(type,id){
    ${(inv.type==='porder'||inv.type==='purchase')&&inv.lines.length?`<div class="card" id="recvBar" style="margin:12px 0 0;padding:10px 12px;${ED.recv?'border-color:var(--brand)':''}"><div class="row" style="gap:10px;flex-wrap:wrap">
      <button type="button" class="btn ${ED.recv?'p':''}" id="recvTgl">${ED.recv?'✓ وضع الاستلام شغّال — اضغط للإنهاء':'🔎 وضع الاستلام (طابق فاتورة المورّد)'}</button>
      ${ED.recv?(()=>{const t=inv.lines.length,done=inv.lines.filter(l=>l._chk).length,diff=inv.lines.filter(l=>l._chk&&(+l.qty||0)!==(+l._oq||0)).length,extra=inv.lines.filter(l=>l._extra).length;return `<span class="tag ok">تم ✓ ${done} / ${t}</span><span class="tag">باقي ${t-done}</span>${diff?`<span class="tag purchase">فرق كمية ${diff}</span>`:''}${extra?`<span class="tag bad">زيادة ${extra}</span>`:''}<span class="sp"></span><div class="seg">${[['all','الكل'],['pending','الباقي'],['diff','فرق كمية'],['extra','زيادة']].map(([k,t2])=>`<button type="button" data-rf="${k}" class="${(ED.recvF||'all')===k?'on':''}">${t2}</button>`).join('')}</div>`})():'<span class="small muted">امسك فاتورة المورّد وامسح الباركود أو اكتب كود/اسم كل صنف — ميزان هيلاقيه في الأمر مهما كان ترتيبه، يعلّم عليه ✓، ويقولك فاضل كام. الباقي غير المعلّم = لسه ماجاش.</span>'}
-   </div></div>`:''}
+   </div>${ED.recv?(()=>{const g={};inv.lines.forEach(l=>{if(l._chk){const k=String(l._si||'بدون رقم');(g[k]=g[k]||[]).push(l)}});const groups=Object.entries(g);return `<div class="row" style="gap:10px;flex-wrap:wrap;margin-top:10px;border-top:1px dashed var(--line);padding-top:10px">
+     <label class="row" style="gap:6px">رقم فاتورة المورّد الحالية<input class="in" id="recvSi" value="${esc(ED.sinv||'')}" placeholder="مثال: 1 أو رقم فاتورته" style="width:140px"></label>
+     <span class="small muted">امسح أصناف الفاتورة دي، وغيّر الرقم للفاتورة اللي بعدها. كل رقم = فاتورة شراء لوحدها في أورجا.</span>
+     <span class="sp"></span>
+     ${groups.length?`<span class="tag">${groups.length} فاتورة مورّد</span>`:''}
+     ${canOrgaWrite()&&groups.length?`<button type="button" class="btn g" id="recvSend">⬆ إرسال لأورجا (${groups.length} فاتورة منفصلة)</button>`:''}
+   </div>${groups.length?`<div class="small muted" style="margin-top:6px">${groups.map(([k,ls])=>`فاتورة «${esc(k)}»: ${ls.length} صنف`).join(' · ')}</div>`:''}`})():''}</div>`:''}
    <div class="row" style="margin:16px 0 12px;gap:8px"><div class="psearch" style="flex:1 1 320px;margin:0">${ic('search')}<input class="in" id="ps" placeholder="${ED.recv?'امسح/اكتب صنف من فاتورة المورّد للمطابقة':'امسح الباركود أو اكتب اسم/كود الصنف ثم Enter'}" autocomplete="off"><div class="sugg" id="sugg" hidden></div></div>
      <div class="seg" title="طريقة البحث بالاسم"><button type="button" data-sm="start" class="${SMODE()==='start'?'on':''}">أول الكلمة</button><button type="button" data-sm="any" class="${SMODE()==='any'?'on':''}">جزء من الكلمة</button></div>
      <button type="button" class="btn" id="psWide" title="عرض كل النتايج في شاشة كبيرة — Alt+W">${ic('search')}توسيع البحث</button><button type="button" class="btn ic" id="kbBtn" title="اختصارات الكيبورد — Alt+K" onclick="kbHelp()">⌨️</button></div>
@@ -936,6 +966,8 @@ function vEditor(type,id){
   const ca=$('#cntAll');if(ca)ca.onclick=()=>{const have=new Set(inv.lines.map(l=>l.pid));L('products').sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})).forEach(p=>{if(!have.has(p.id))inv.lines.push({pid:p.id,qty:Math.max(0,Math.round(qtyIn(p.id,inv.storeId)*1000)/1000),price:Math.round(avgCost(p.id)*100)/100,disc:0,cost:''})});render()};
   const rt=$('#recvTgl');if(rt)rt.onclick=()=>{if(!ED.recv){ED.recv=1;ED.recvF='all';inv.lines.forEach(l=>{l._oq=+l.qty||0;delete l._chk;delete l._extra});toast('وضع الاستلام شغّال — امسح/اكتب أصناف فاتورة المورّد بأي ترتيب');}else{ED.recv=0;inv.lines.forEach(l=>{delete l._chk;delete l._oq;delete l._extra})}render();if(ED.recv)setTimeout(()=>{const ps=$('#ps');if(ps)ps.focus()},50)};
   $$('[data-rf]').forEach(b=>b.onclick=()=>{ED.recvF=b.dataset.rf;render()});
+  const rsi=$('#recvSi');if(rsi)rsi.oninput=()=>{ED.sinv=rsi.value};
+  const rsn=$('#recvSend');if(rsn)rsn.onclick=()=>sendGroupedToOrga(ED.id);
   const cl=$('#clr');if(cl)cl.onclick=()=>{ED.inv=newInv(inv.type);render()};
   const flLock=ED.id&&window.MZ_FLOW?MZ_FLOW.lockMsg({...ED.orig,id:ED.id}):'';if(flLock&&S.isAdmin)$('#view .wrap').insertAdjacentHTML('afterbegin',`<div class="card" style="margin-bottom:12px;padding:10px 14px;border-color:var(--danger)">⚠ ${esc(flLock)} (انت مدير — التعديل متاح بتأكيد)</div>`);
   const lockMsg=S.ro?'':(flLock&&!S.isAdmin)?'عرض فقط — '+flLock:(ED.id&&!can('editInv'))?'عرض فقط — ليس لديك صلاحية تعديل الفواتير المحفوظة':(ED.id&&isLocked(ED.orig.date))?`عرض فقط — الفترة مغلقة حتى ${settings().lockDate}`:'';
@@ -1013,7 +1045,7 @@ function lineRow(l,i,isSale){
   const RV=ED.recv&&(inv.type==='porder'||inv.type==='purchase');
   let cls='',numCell=`${i+1}`;
   if(RV){const chk=!!l._chk,diff=chk&&(+l.qty||0)!==(+l._oq||0);cls=l._extra?'recv-extra':!chk?'recv-pending':diff?'recv-diff':'recv-done';numCell=chk?(diff?'⚠':'✓'):'○';}
-  return `<tr data-row="${i}" class="${cls}"><td class="muted" ${RV?'style="font-weight:700;font-size:16px;text-align:center"':''}>${numCell}</td><td><b>${esc(p?.name||'صنف محذوف')}</b><div class="small muted">${esc(p?.code||'')} ${p?.unit?'· '+esc(p.unit):''}${RV&&!l._extra&&l._oq!=null?` · <b style="color:var(--brand-ink)">طلب: ${fq(l._oq)}</b>`:''}${RV&&l._extra?' · <b style="color:var(--danger)">زيادة (مش في الأمر)</b>':''}</div></td>
+  return `<tr data-row="${i}" class="${cls}"><td class="muted" ${RV?'style="font-weight:700;font-size:16px;text-align:center"':''}>${numCell}</td><td><b>${esc(p?.name||'صنف محذوف')}</b><div class="small muted">${esc(p?.code||'')} ${p?.unit?'· '+esc(p.unit):''}${RV&&!l._extra&&l._oq!=null?` · <b style="color:var(--brand-ink)">طلب: ${fq(l._oq)}</b>`:''}${RV&&l._extra?' · <b style="color:var(--danger)">زيادة (مش في الأمر)</b>':''}${RV&&l._si?` · <span class="tag" style="padding:0 6px">فاتورة م: ${esc(l._si)}</span>`:''}</div></td>
    <td class="n" data-av="${i}">${fq(bookQ(l,i))}</td>
    <td><input class="cell n" data-i="${i}" data-f="qty" inputmode="decimal" value="${l.qty}"></td>
    <td><input class="cell n" data-i="${i}" data-f="price" inputmode="decimal" value="${l.price??0}" ${isSaleT(inv.type)&&!can('editPrice')?'readonly title="تغيير السعر غير مسموح لصلاحيتك"':''}></td>
@@ -1109,8 +1141,9 @@ function addLine(pid){
   // وضع الاستلام: المسح بيعلّم على الصنف الموجود ✓ ويروح لكميته (من غير زيادة 1)، والجديد بيتضاف كزيادة
   if(ED.recv&&(inv.type==='porder'||inv.type==='purchase')){
     try{navigator.vibrate&&navigator.vibrate(40)}catch(e){}
-    if(ex>=0){inv.lines[ex]._chk=1;ED.lastPid=pid;render();setTimeout(()=>{const q=$(`input[data-i="${ex}"][data-f="qty"]`);if(q){q.focus({preventScroll:true});q.select();const tr=q.closest('tr');if(tr){tr.classList.add('recv-hit');tr.scrollIntoView({block:'center',behavior:'smooth'})}}},40);return}
-    inv.lines.push({pid,qty:1,price:Math.round(avgCost(pid)*100)/100||(+p?.cost||0),disc:0,cost:'',consumer:consOf(p),_chk:1,_extra:1,_oq:0});const ni=inv.lines.length-1;toast('«'+(p?.name||'')+'» مش في الأمر — اتضاف كزيادة','err');render();setTimeout(()=>{const q=$(`input[data-i="${ni}"][data-f="qty"]`);if(q){q.focus({preventScroll:true});q.select()}},40);return;
+    const si=String(ED.sinv||'').trim();
+    if(ex>=0){inv.lines[ex]._chk=1;if(si)inv.lines[ex]._si=si;ED.lastPid=pid;render();setTimeout(()=>{const q=$(`input[data-i="${ex}"][data-f="qty"]`);if(q){q.focus({preventScroll:true});q.select();const tr=q.closest('tr');if(tr){tr.classList.add('recv-hit');tr.scrollIntoView({block:'center',behavior:'smooth'})}}},40);return}
+    inv.lines.push({pid,qty:1,price:Math.round(avgCost(pid)*100)/100||(+p?.cost||0),disc:0,cost:'',consumer:consOf(p),_chk:1,_extra:1,_oq:0,...(si?{_si:si}:{})});const ni=inv.lines.length-1;toast('«'+(p?.name||'')+'» مش في الأمر — اتضاف كزيادة','err');render();setTimeout(()=>{const q=$(`input[data-i="${ni}"][data-f="qty"]`);if(q){q.focus({preventScroll:true});q.select()}},40);return;
   }
   if(['sret','pret'].includes(inv.type)){const src=inv.fromInv&&G('invoices',inv.fromInv);
     if(src){const rem=retRemain(src,pid,ED.id);const cur=inv.lines.filter(l=>l.pid===pid).reduce((a,l)=>a+(+l.qty||0),0);
