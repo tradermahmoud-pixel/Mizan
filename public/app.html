@@ -964,7 +964,7 @@ function vEditor(type,id){
     window.__mzSetOs=setOs;osB.onclick=sendNow;orgaStatus().then(m=>setOs(m[ED.id]))}
   const dl=$('#delInv');if(dl)dl.onclick=async()=>{if(!can('editInv')||isLocked(ED.orig.date)){toast('غير مسموح بحذف هذه الفاتورة','err');return}if(window.MZ_FLOW&&!(await MZ_FLOW.beforeDelete({...ED.orig,id:ED.id})))return;if(await confirmBox(`حذف ${T.full} رقم ${inv.no} نهائيًا؟ ستتعدل الأرصدة والأرباح تلقائيًا.`,'حذف',true)){const n=inv.no;await audit('invoice',ED.id,'حذف الفاتورة',`#${n} — ${fmt(invTotals(ED.orig).total)}`,'محذوفة',T.full);const did_=ED.id;await del('invoices',ED.id);if(window.MZ_FLOW)MZ_FLOW.afterDelete(did_).catch(()=>{});ED=null;toast('تم حذف الفاتورة');go('invoices')}};
   const ca=$('#cntAll');if(ca)ca.onclick=()=>{const have=new Set(inv.lines.map(l=>l.pid));L('products').sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})).forEach(p=>{if(!have.has(p.id))inv.lines.push({pid:p.id,qty:Math.max(0,Math.round(qtyIn(p.id,inv.storeId)*1000)/1000),price:Math.round(avgCost(p.id)*100)/100,disc:0,cost:''})});render()};
-  const rt=$('#recvTgl');if(rt)rt.onclick=()=>{if(!ED.recv){ED.recv=1;ED.recvF='all';inv.lines.forEach(l=>{l._oq=+l.qty||0;delete l._chk;delete l._extra});toast('وضع الاستلام شغّال — امسح/اكتب أصناف فاتورة المورّد بأي ترتيب');}else{ED.recv=0;inv.lines.forEach(l=>{delete l._chk;delete l._oq;delete l._extra})}render();if(ED.recv)setTimeout(()=>{const ps=$('#ps');if(ps)ps.focus()},50)};
+  const rt=$('#recvTgl');if(rt)rt.onclick=()=>{if(!ED.recv){ED.recv=1;ED.recvF='all';ED.recvN=0;inv.lines.forEach(l=>{l._oq=+l.qty||0;delete l._chk;delete l._extra;delete l._seq});toast('وضع الاستلام شغّال — امسح أصناف فاتورة المورّد بالترتيب، وهتترتّب زيها');}else{ED.recv=0;inv.lines.forEach(l=>{delete l._chk;delete l._oq;delete l._extra;delete l._seq})}render();if(ED.recv)setTimeout(()=>{const ps=$('#ps');if(ps)ps.focus()},50)};
   $$('[data-rf]').forEach(b=>b.onclick=()=>{ED.recvF=b.dataset.rf;render()});
   const rsi=$('#recvSi');if(rsi)rsi.oninput=()=>{ED.sinv=rsi.value};
   const rsn=$('#recvSend');if(rsn)rsn.onclick=()=>sendGroupedToOrga(ED.id);
@@ -1136,14 +1136,18 @@ function retAdd(pid,d){const inv=ED.inv;const o=d.inv;
   inv.lines.push({pid,qty:Math.min(1,Math.max(0,d.rem))||1,price:d.price,disc:d.disc,cost:inv.type==='sret'&&x&&!costHidden()?r2c(x.cost):''});
   toast(`من ${TYPES[o.type].full} #${o.no} — ${o.date} — ${partyName(o.partyId)||'نقدي'} (ينفع يرجع ${fq(d.rem)})`);
   const ni=inv.lines.length-1;render();setTimeout(()=>{const q=$(`input[data-i="${ni}"][data-f="qty"]`);if(q){q.focus();q.select();q.classList.add('flash')}},30)}
+// وضع الاستلام: رتّب الأصناف المعلّمة بترتيب المسح (= ترتيب فاتورة المورّد)، والباقي تحت بترتيبه الأصلي
+function recvResort(){const inv=ED.inv;if(!inv)return;inv.lines.sort((a,b)=>{const ca=a._chk?0:1,cb=b._chk?0:1;if(ca!==cb)return ca-cb;if(a._chk&&b._chk)return (a._seq||0)-(b._seq||0);return 0})}
 function addLine(pid){
   const inv=ED.inv;const p=G('products',pid);const ex=inv.lines.findIndex(l=>l.pid===pid);
   // وضع الاستلام: المسح بيعلّم على الصنف الموجود ✓ ويروح لكميته (من غير زيادة 1)، والجديد بيتضاف كزيادة
   if(ED.recv&&(inv.type==='porder'||inv.type==='purchase')){
     try{navigator.vibrate&&navigator.vibrate(40)}catch(e){}
     const si=String(ED.sinv||'').trim();
-    if(ex>=0){inv.lines[ex]._chk=1;if(si)inv.lines[ex]._si=si;ED.lastPid=pid;render();setTimeout(()=>{const q=$(`input[data-i="${ex}"][data-f="qty"]`);if(q){q.focus({preventScroll:true});q.select();const tr=q.closest('tr');if(tr){tr.classList.add('recv-hit');tr.scrollIntoView({block:'center',behavior:'smooth'})}}},40);return}
-    inv.lines.push({pid,qty:1,price:Math.round(avgCost(pid)*100)/100||(+p?.cost||0),disc:0,cost:'',consumer:consOf(p),_chk:1,_extra:1,_oq:0,...(si?{_si:si}:{})});const ni=inv.lines.length-1;toast('«'+(p?.name||'')+'» مش في الأمر — اتضاف كزيادة','err');render();setTimeout(()=>{const q=$(`input[data-i="${ni}"][data-f="qty"]`);if(q){q.focus({preventScroll:true});q.select()}},40);return;
+    if(ex>=0){const l=inv.lines[ex];l._chk=1;if(si)l._si=si;if(!l._seq)l._seq=++ED.recvN;}
+    else{inv.lines.push({pid,qty:1,price:Math.round(avgCost(pid)*100)/100||(+p?.cost||0),disc:0,cost:'',consumer:consOf(p),_chk:1,_extra:1,_oq:0,_seq:++ED.recvN,...(si?{_si:si}:{})});toast('«'+(p?.name||'')+'» مش في الأمر — اتضاف كزيادة','err');}
+    recvResort();ED.lastPid=pid;render();
+    setTimeout(()=>{const ni=inv.lines.findIndex(x=>x.pid===pid);const q=$(`input[data-i="${ni}"][data-f="qty"]`);if(q){q.focus({preventScroll:true});q.select();const tr=q.closest('tr');if(tr){tr.classList.add('recv-hit');tr.scrollIntoView({block:'center',behavior:'smooth'})}}},40);return;
   }
   if(['sret','pret'].includes(inv.type)){const src=inv.fromInv&&G('invoices',inv.fromInv);
     if(src){const rem=retRemain(src,pid,ED.id);const cur=inv.lines.filter(l=>l.pid===pid).reduce((a,l)=>a+(+l.qty||0),0);
