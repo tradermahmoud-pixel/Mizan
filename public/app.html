@@ -931,7 +931,7 @@ function vEditor(type,id){
     if(v!==''&&v<0&&!(f==='qty'&&inv.type==='adj')){v=0;el.value='0';toast('مينفعش رقم بالسالب هنا','err')}
     if(f==='disc'&&v>100){v=100;el.value='100';toast('الخصم أقصى حاجة 100%','err')}
     inv.lines[i][f]=v;if(f==='cost')el.classList.toggle('man',el.value!=='');updRow(i);edTotals()});
-  lt.addEventListener('click',e=>{const b=e.target.closest('[data-rm]');if(b){inv.lines.splice(+b.dataset.rm,1);render()}});
+  lt.addEventListener('click',e=>{const pk=e.target.closest('[data-pack]');if(pk){packCalc(+pk.dataset.pack);return}const b=e.target.closest('[data-rm]');if(b){inv.lines.splice(+b.dataset.rm,1);render()}});
   lt.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.f){e.preventDefault();const all=$$('#lt input[data-f]');const k=all.indexOf(e.target);if(e.target.dataset.f==='qty'||k===all.length-1)$('#ps').focus();else all[k+1]?.focus()}});
   // search
   const ps=$('#ps'),sg=$('#sugg');let hits=[],hi=0;
@@ -1046,7 +1046,7 @@ function lineRow(l,i,isSale){
   const RV=ED.recv&&(inv.type==='porder'||inv.type==='purchase');
   let cls='',numCell=`${i+1}`;
   if(RV){const chk=!!l._chk,diff=chk&&(+l.qty||0)!==(+l._oq||0);cls=l._extra?'recv-extra':!chk?'recv-pending':diff?'recv-diff':'recv-done';numCell=chk?(diff?'⚠':'✓'):'○';}
-  return `<tr data-row="${i}" class="${cls}"><td class="muted" ${RV?'style="font-weight:700;font-size:16px;text-align:center"':''}>${numCell}</td><td><b>${esc(p?.name||'صنف محذوف')}</b><div class="small muted">${esc(p?.code||'')} ${p?.unit?'· '+esc(p.unit):''}${RV&&!l._extra&&l._oq!=null?` · <b style="color:var(--brand-ink)">طلب: ${fq(l._oq)}</b>`:''}${RV&&l._extra?' · <b style="color:var(--danger)">زيادة (مش في الأمر)</b>':''}${RV&&l._si?` · <span class="tag" style="padding:0 6px">فاتورة م: ${esc(l._si)}</span>`:''}</div></td>
+  return `<tr data-row="${i}" class="${cls}"><td class="muted" ${RV?'style="font-weight:700;font-size:16px;text-align:center"':''}>${numCell}</td><td><div class="row" style="gap:6px;align-items:flex-start"><div style="flex:1"><b>${esc(p?.name||'صنف محذوف')}</b><div class="small muted">${esc(p?.code||'')} ${p?.unit?'· '+esc(p.unit):''}${RV&&!l._extra&&l._oq!=null?` · <b style="color:var(--brand-ink)">طلب: ${fq(l._oq)}</b>`:''}${RV&&l._extra?' · <b style="color:var(--danger)">زيادة (مش في الأمر)</b>':''}${RV&&l._si?` · <span class="tag" style="padding:0 6px">فاتورة م: ${esc(l._si)}</span>`:''}${l.bonus?' · <span class="tag ok" style="padding:0 6px">بونص</span>':''}</div>${PURT.includes(inv.type)&&!l.bonus?`<button type="button" class="btn ic s" data-pack="${i}" title="حاسبة العبوة/الكرتونة + بونص + خصم" style="flex:0 0 auto">📦</button>`:''}</div></td>
    <td class="n" data-av="${i}">${fq(bookQ(l,i))}</td>
    <td><input class="cell n" data-i="${i}" data-f="qty" inputmode="decimal" value="${l.qty}"></td>
    <td><input class="cell n" data-i="${i}" data-f="price" inputmode="decimal" value="${l.price??0}" ${isSaleT(inv.type)&&!can('editPrice')?'readonly title="تغيير السعر غير مسموح لصلاحيتك"':''}></td>
@@ -1140,6 +1140,35 @@ function retAdd(pid,d){const inv=ED.inv;const o=d.inv;
 // وضع الاستلام: رتّب الأصناف المعلّمة بترتيب المسح (= ترتيب فاتورة المورّد)، والباقي تحت بترتيبه الأصلي
 function recvResort(){const inv=ED.inv;if(!inv)return;inv.lines.sort((a,b)=>{const ca=a._chk?0:1,cb=b._chk?0:1;if(ca!==cb)return ca-cb;if(a._chk&&b._chk)return (a._seq||0)-(b._seq||0);return 0})}
 function stripRecv(l){const o={pid:l.pid,qty:+l.qty||0,price:+l.price||0,disc:+l.disc||0,cost:(l.cost===''||l.cost==null)?'':+l.cost};if(l.consumer!=null&&l.consumer!=='')o.consumer=+l.consumer;if(l.bonus)o.bonus=true;return o}
+// حاسبة العبوة: تاخد أرقام فاتورة المورّد (عدد العبوات، القطع في العبوة، سعر العبوة، بونص، خصم إضافي) وتحوّلها لسعر القطعة والكمية
+function packCalc(i){
+  const l=ED.inv.lines[i];if(!l)return;const p=G('products',l.pid);
+  modal(`<h2>📦 حاسبة العبوة — ${esc(p?.name||'')}</h2>
+   <p class="small muted" style="margin-top:-6px">اكتب الأرقام زي ما في فاتورة المورّد بالظبط، وميزان يحوّلها لسعر القطعة والكمية لوحده.</p>
+   <div class="row" style="gap:10px;flex-wrap:wrap">
+     <label class="f" style="flex:1 1 120px">عدد العبوات<input class="in n" id="pcN" inputmode="decimal" value="1"></label>
+     <label class="f" style="flex:1 1 120px">القطع في العبوة<input class="in n" id="pcP" inputmode="decimal" value="12"></label>
+   </div>
+   <div class="row" style="gap:6px;flex-wrap:wrap;margin:-2px 0 6px">${[['قطعة',1],['دستة (12)',12],['2 دستة (24)',24],['كرتونة 5د (60)',60],['×6',6],['×4×25 (100)',100]].map(([t,v])=>`<button type="button" class="btn s" data-pp="${v}">${t}</button>`).join('')}</div>
+   <div class="row" style="gap:10px;flex-wrap:wrap">
+     <label class="f" style="flex:1 1 120px">سعر العبوة (زي الفاتورة)<input class="in n" id="pcCP" inputmode="decimal" value="${l.price&&l.qty?rnd2((+l.price||0)*(+l.qty||0)):''}"></label>
+     <label class="f" style="flex:1 1 120px">خصم إضافي %<input class="in n" id="pcD" inputmode="decimal" value="${l.disc||0}"></label>
+     <label class="f" style="flex:1 1 120px">بونص (قطع مجانية)<input class="in n" id="pcB" inputmode="decimal" value="0"></label>
+   </div>
+   <div class="card" id="pcOut" style="padding:10px 12px;margin-top:8px"></div>
+   <div class="row" style="margin-top:12px"><button class="btn p" id="pcApply">تطبيق</button><span class="sp"></span><button class="btn" data-close>إلغاء</button></div>`,true);
+  const calc=()=>{const N=numIn($('#pcN').value),P=numIn($('#pcP').value)||1,CP=numIn($('#pcCP').value),D=numIn($('#pcD').value),B=numIn($('#pcB').value);
+    const pieces=Math.round(N*P*1000)/1000,unit=P?Math.round(CP/P*1e4)/1e4:CP,net=Math.round(unit*(1-D/100)*1e4)/1e4,tot=rnd2(pieces*net);
+    $('#pcOut').innerHTML=`الكمية بالقطعة: <b>${fq(pieces)}</b> · سعر القطعة: <b>${fmt(unit)}</b>${D?` → بعد الخصم <b>${fmt(net)}</b>`:''}${B>0?` · <span class="tag ok">+ ${fq(B)} بونص مجاني</span>`:''}<br>إجمالي السطر: <b>${fmt(tot)}</b>${B>0?` · متوسط التكلفة للقطعة بعد البونص ≈ <b>${fmt(pieces+B>0?tot/(pieces+B):net)}</b>`:''}`;
+    return {pieces,unit:net,B}};
+  ['pcN','pcP','pcCP','pcD','pcB'].forEach(id=>{const e=$('#'+id);if(e)e.oninput=calc});
+  $$('[data-pp]').forEach(b=>b.onclick=()=>{$('#pcP').value=b.dataset.pp;calc()});
+  calc();
+  $('#pcApply').onclick=()=>{const {pieces,unit,B}=calc();if(!(pieces>0)){toast('اكتب عدد العبوات والقطع في العبوة','err');return}
+    l.qty=pieces;l.price=unit;l.disc=0; // الخصم اتطبّق جوه سعر القطعة
+    if(B>0){const bi=ED.inv.lines.findIndex(x=>x.pid===l.pid&&x.bonus);const bl={pid:l.pid,qty:B,price:0,disc:0,cost:'',bonus:true};if(ED.recv){bl._chk=1;if(ED.sinv)bl._si=String(ED.sinv);bl._seq=++ED.recvN}if(bi>=0)ED.inv.lines[bi]=bl;else ED.inv.lines.push(bl)}
+    closeModal();render();toast('اتحسبت: '+fq(pieces)+' قطعة بسعر '+fmt(unit)+(B>0?' + '+fq(B)+' بونص':''),'ok')};
+}
 // تم المراجعة: الأمر يفضل فيه المتراجع (مرتّب بترتيب المورّد)، والباقي (اللي ماجاش) يتنقل لأمر توريد جديد منفصل
 async function recvDone(){
   if(!ED||!ED.id){toast('احفظ الأمر الأول','err');return}
