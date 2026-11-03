@@ -191,6 +191,7 @@ table.t tr.click{cursor:pointer}
 .lab svg{max-width:100%;display:block}
 .lab .lp{font-weight:700}
 .lab .lc{font-size:7pt;color:#333}
+.lab .lloc{font-weight:800;letter-spacing:.3px;border:1.3px solid #000;border-radius:2px;padding:0 1.2mm;margin-bottom:.4mm;line-height:1.3}
 .sheet{display:grid;gap:0;background:#fff}
 .preview{background:var(--surface2);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-wrap:wrap;gap:8px;max-height:60vh;overflow:auto;justify-content:flex-start}
 .due{font-size:12px;font-weight:600}
@@ -432,8 +433,8 @@ function tierInfo(inv){if(!isSaleT(inv.type)||inv.type==='sret')return '';const 
   const sel=ed?`<select class="in" id="tierSel" style="width:auto;padding:4px 8px;font-size:13px" title="تغيير شريحة العميل">${opts(tiers().map(x=>[x.id,`${x.name} (التكلفة + ${fmt(x.markup)}%)`]),t?t.id:'','بدون شريحة — سعر المستهلك')}</select>`:(t?`<span class="tag ok">${esc(t.name)}</span>`:'');
   return `<div class="row small" style="margin-top:8px;gap:8px"><span class="muted">شريحة العميل:</span>${sel}${t?`<span class="muted">السعر = التكلفة + ${fmt(t.markup)}%</span>${+t.days?`<span class="tag purchase">آجل ${t.days} يوم — يستحق ${addDays(inv.date||today(),+t.days)}</span>`:''}`:`<span style="color:var(--gold)">البيع بسعر المستهلك</span>`}</div>`}
 const PIX={v:-1,a:[]};
-function pIndex(){if(PIX.v===(CV.products||0))return PIX.a;PIX.a=L('products').map(p=>({p,n:norm(p.name),c:norm(p.code),b:[String(p.barcode||''),...(p.barcodes||[])].join(' ')}));PIX.v=(CV.products||0);return PIX.a}
-function pSearch(q,lim){q=String(q||'').trim();if(!q)return [];const nq=norm(q);const out=[];for(const x of pIndex()){if(x.n.includes(nq)||x.c.includes(nq)||x.b.includes(q)){out.push(x.p);if(lim&&out.length>=lim)break}}return out}
+function pIndex(){if(PIX.v===(CV.products||0))return PIX.a;PIX.a=L('products').map(p=>({p,n:norm(p.name),c:norm(p.code),b:[String(p.barcode||''),...(p.barcodes||[])].join(' '),l:norm(p.loc||'')}));PIX.v=(CV.products||0);return PIX.a}
+function pSearch(q,lim){q=String(q||'').trim();if(!q)return [];const nq=norm(q);const out=[];for(const x of pIndex()){if(x.n.includes(nq)||x.c.includes(nq)||x.b.includes(q)||(x.l&&x.l.includes(nq))){out.push(x.p);if(lim&&out.length>=lim)break}}return out}
 const BCMAP={'ض':'q','ص':'w','ث':'e','ق':'r','ف':'t','غ':'y','ع':'u','ه':'i','خ':'o','ح':'p','ج':'[','د':']','ش':'a','س':'s','ي':'d','ب':'f','ل':'g','ا':'h','ت':'j','ن':'k','م':'l','ك':';','ط':"'",'ئ':'z','ء':'x','ؤ':'c','ر':'v','ى':'n','ة':'m','و':',','ز':'.','ظ':'/','ذ':'`'};
 const BCSHIFT={'َ':'Q','ً':'W','ُ':'E','ٌ':'R','إ':'Y','‘':'U','÷':'I','×':'O','؛':'P','ِ':'A','ٍ':'S','أ':'H','ـ':'J','،':'K','ْ':'X','آ':'N','’':'M','{':'V','}':'C','؟':'/'};
 const fixBc=v=>String(v||'').normalize('NFKC').replace(/لإ/g,'T').replace(/لأ/g,'G').replace(/لآ/g,'B').replace(/لا/g,'b').replace(/./g,c=>BCSHIFT[c]||c).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/./g,c=>BCMAP[c]||c).replace(/[\u0000-\u001f]/g,'').trim();
@@ -1694,12 +1695,12 @@ function vProducts(){
      <button class="btn s p" id="chSave" ${nch?'':'disabled'}>حفظ التعديلات (${nch})</button><button class="btn s" id="chUndo" ${nch?'':'disabled'}>تراجع</button></div></div>`:''}
    <div class="row small" id="pSelBar" style="margin-bottom:8px;gap:8px;${sel.size?'':'display:none'}"><b id="pSelN">${sel.size} صنف مختار</b>${!S.ro&&can('buy')?'<button class="btn s p" id="pSelPO">أمر توريد بالمختار</button>':''}<button class="btn s" id="pSelC">إلغاء الاختيار</button></div>
    ${list.length?`<div class="tw"><table class="t"><thead><tr><th style="width:28px"><input type="checkbox" id="pAll" title="اختار كل اللي ظاهر"></th><th>الكود</th><th>الصنف</th><th class="hide-m">المجموعة</th><th class="hide-m">الوحدة</th>${sc?'<th class="n">متوسط التكلفة</th>':''}<th class="n">سعر البيع</th><th class="n">الرصيد</th>${sc?'<th class="n">القيمة</th>':''}<th class="n hide-m">حد الطلب</th><th></th></tr></thead><tbody>
-   ${rows.slice(0,500).map(({p,q,ac,v})=>`<tr class="${ed?'':'click'}" data-p="${p.id}"><td><input type="checkbox" data-psel="${p.id}" ${sel.has(p.id)?'checked':''}></td><td class="num">${esc(p.code||'')}</td><td><b>${esc(p.name)}</b>${p.barcode?`<div class="small muted num">${esc(p.barcode)}</div>`:''}</td><td class="hide-m">${esc(p.group||'')}</td><td class="hide-m">${esc(p.unit||'')}</td>${sc?`<td class="n">${cell(p.id,'cost',ac,canC)}</td>`:''}<td class="n">${cell(p.id,'price',+p.price||0,canP)}</td><td class="n">${ed&&canQ?cell(p.id,'qty',q,true):`<span class="${+p.minQty>0&&q<=+p.minQty?'tag bad':''}">${fq(q)}</span>`}</td>${sc?`<td class="n">${fmt(v)}</td>`:''}<td class="n hide-m">${p.minQty||''}</td><td><button class="btn s" data-card="${p.id}">كارت الصنف</button></td></tr>`).join('')}
+   ${rows.slice(0,500).map(({p,q,ac,v})=>`<tr class="${ed?'':'click'}" data-p="${p.id}"><td><input type="checkbox" data-psel="${p.id}" ${sel.has(p.id)?'checked':''}></td><td class="num">${esc(p.code||'')}</td><td><b>${esc(p.name)}</b>${p.loc?` <span class="tag">📍 ${esc(p.loc)}</span>`:''}${p.barcode?`<div class="small muted num">${esc(p.barcode)}</div>`:''}</td><td class="hide-m">${esc(p.group||'')}</td><td class="hide-m">${esc(p.unit||'')}</td>${sc?`<td class="n">${cell(p.id,'cost',ac,canC)}</td>`:''}<td class="n">${cell(p.id,'price',+p.price||0,canP)}</td><td class="n">${ed&&canQ?cell(p.id,'qty',q,true):`<span class="${+p.minQty>0&&q<=+p.minQty?'tag bad':''}">${fq(q)}</span>`}</td>${sc?`<td class="n">${fmt(v)}</td>`:''}<td class="n hide-m">${p.minQty||''}</td><td><button class="btn s" data-card="${p.id}">كارت الصنف</button></td></tr>`).join('')}
    </tbody><tfoot><tr><td colspan="${sc?8:7}">${list.length} صنف${list.length>500?' — بيعرض أول 500 (استخدم البحث أو الفلتر)':''} · ${fq(tq)} قطعة</td>${sc?`<td class="n">${fmt(tv)}</td>`:''}<td colspan="2" class="hide-m"></td></tr></tfoot></table></div>`
    :`<div class="empty card"><b>${S.data.products.size?'لا توجد أصناف مطابقة':'لا توجد أصناف بعد'}</b>أضف صنفًا جديدًا أو ارفع قائمة أصنافك من شيت Excel دفعة واحدة.<div class="row" style="justify-content:center;margin-top:12px"><a class="btn p" href="#/import">استيراد من Excel</a></div></div>`}</div>`;
   $('#np').onclick=()=>productModal(null);
   $('#cntB').onclick=()=>{ED={id:null,inv:newInv('count'),grp:'purchase'};go('purchase')};
-  $('#xp').onclick=()=>xlsxOut('الأصناف_والأرصدة_'+today()+'.xlsx',[['الكود','اسم الصنف','الباركود','المجموعة','الوحدة',...(sc?['متوسط التكلفة']:[]),'سعر البيع','الرصيد',...(sc?['القيمة']:[]),'حد الطلب'],...rows.map(({p,q,ac,v})=>[p.code||'',p.name,p.barcode||'',p.group||'',p.unit||'',...(sc?[+ac.toFixed(2)]:[]),+p.price||0,q,...(sc?[+v.toFixed(2)]:[]),+p.minQty||0])],'الأصناف');
+  $('#xp').onclick=()=>xlsxOut('الأصناف_والأرصدة_'+today()+'.xlsx',[['الكود','اسم الصنف','الباركود','المجموعة','الوحدة','الموقع',...(sc?['متوسط التكلفة']:[]),'سعر البيع','الرصيد',...(sc?['القيمة']:[]),'حد الطلب'],...rows.map(({p,q,ac,v})=>[p.code||'',p.name,p.barcode||'',p.group||'',p.unit||'',p.loc||'',...(sc?[+ac.toFixed(2)]:[]),+p.price||0,q,...(sc?[+v.toFixed(2)]:[]),+p.minQty||0])],'الأصناف');
   $('#pq').onchange=e=>{PF.q=e.target.value.trim();render()};$('#pg').onchange=e=>{PF.group=e.target.value;render()};$('#pst').onchange=e=>{PF.store=e.target.value;render()};$('#plow').onchange=e=>{PF.low=e.target.checked;render()};$('#pss').onchange=e=>{PF.st=e.target.value;render()};
   const lb_=$('#lowB');if(lb_)lb_.onclick=poFromLow;
   const eb=$('#edB');if(eb)eb.onclick=async()=>{if(PF.edit&&Object.keys(PF.ch).length&&!(await confirmBox('فيه تعديلات لسه ماتحفظتش — تقفل من غير حفظ؟','قفل',true)))return;PF.edit=!PF.edit;PF.ch={};render()};
@@ -1750,6 +1751,7 @@ function productModal(id){
    <label class="f">الباركود<input class="in" id="m_bar" value="${esc(p.barcode||'')}" inputmode="numeric"></label>
    <label class="f">المجموعة<input class="in" id="m_grp" list="grpl" value="${esc(p.group||'')}"><datalist id="grpl">${groups.map(g=>`<option value="${esc(g)}">`).join('')}</datalist></label>
    <label class="f">الوحدة<input class="in" id="m_unit" value="${esc(p.unit||'')}"></label>
+   <label class="f">موقع التخزين (الرف)<input class="in" id="m_loc" value="${esc(p.loc||'')}" placeholder="مثال: A-03-2"></label>
    <label class="f">حد الطلب (تنبيه النواقص)<input class="in n" id="m_min" inputmode="decimal" value="${p.minQty??''}"></label>
    <label class="f">سعر الشراء المبدئي<input class="in n" id="m_cost" inputmode="decimal" value="${p.cost??''}"></label>
    <label class="f">سعر المستهلك<input class="in n" id="m_cons" inputmode="decimal" value="${p.consumer??''}"></label>
@@ -1762,7 +1764,7 @@ function productModal(id){
     const name=$('#m_name').value.trim();if(!name){toast('اكتب اسم الصنف','err');return}
     const code=$('#m_code').value.trim(),bar=$('#m_bar').value.trim();
     const dup=L('products').find(x=>x.id!==id&&((code&&String(x.code)===code)||(bar&&String(x.barcode)===bar)));if(dup){toast(`الكود أو الباركود مستخدم في "${dup.name}"`,'err');return}
-    const n={...(p||{}),name,code,barcode:bar,group:$('#m_grp').value.trim(),unit:$('#m_unit').value.trim(),minQty:numIn($('#m_min').value),cost:numIn($('#m_cost').value),price:numIn($('#m_price').value),consumer:numIn($('#m_cons').value),prices:Object.fromEntries($$('[data-pl]').filter(x=>x.value!=='').map(x=>[x.dataset.pl,numIn(x.value)]))};
+    const n={...(p||{}),name,code,barcode:bar,group:$('#m_grp').value.trim(),unit:$('#m_unit').value.trim(),loc:$('#m_loc').value.trim(),minQty:numIn($('#m_min').value),cost:numIn($('#m_cost').value),price:numIn($('#m_price').value),consumer:numIn($('#m_cons').value),prices:Object.fromEntries($$('[data-pl]').filter(x=>x.value!=='').map(x=>[x.dataset.pl,numIn(x.value)]))};
     const pid=id||uid();if(!id)n.createdAt=new Date().toISOString();
     if(id){for(const [f,l] of [['price','سعر البيع'],['cost','سعر الشراء'],['name','الاسم']])await audit('product',id,l,p[f],n[f],p.name)}
     await put('products',pid,n);
@@ -1774,7 +1776,7 @@ function productModal(id){
 }
 function itemCard(pid){
   const p=G('products',pid);const mv=(calc().pmove[pid]||[]).filter(m=>m.inv.type!=='reval').slice().reverse();const s=calc().stock[pid]||{};
-  modal(`<h2>كارت الصنف: ${esc(p?.name)}</h2><div class="row small" style="margin-bottom:10px;gap:18px"><span>الرصيد الحالي <b class="num">${fq(s.qty)}</b></span><span>متوسط التكلفة <b class="num">${fmt(avgCost(pid))}</b></span><span>وارد <b class="num">${fq(s.in)}</b></span><span>منصرف <b class="num">${fq(s.out)}</b></span><span class="sp"></span>${stores().map(st=>`<span class="tag">${esc(st.name)}: ${fq(s.by?.[st.id]||0)}</span>`).join(' ')}</div>
+  modal(`<h2>كارت الصنف: ${esc(p?.name)}</h2><div class="row small" style="margin-bottom:10px;gap:18px">${p?.loc?`<span class="tag">📍 ${esc(p.loc)}</span>`:''}<span>الرصيد الحالي <b class="num">${fq(s.qty)}</b></span><span>متوسط التكلفة <b class="num">${fmt(avgCost(pid))}</b></span><span>وارد <b class="num">${fq(s.in)}</b></span><span>منصرف <b class="num">${fq(s.out)}</b></span><span class="sp"></span>${stores().map(st=>`<span class="tag">${esc(st.name)}: ${fq(s.by?.[st.id]||0)}</span>`).join(' ')}</div>
   <div class="tw" style="max-height:60vh;overflow:auto"><table class="t"><thead><tr><th>التاريخ</th><th>الحركة</th><th>رقم</th><th>الطرف</th><th class="n">وارد</th><th class="n">منصرف</th><th class="n">السعر</th><th class="n">الرصيد بعد</th></tr></thead><tbody>
   ${mv.map(m=>{const inv=m.inv;const cn=inv.type==='count'||inv.type==='adj';const inw=['purchase','open','sret'].includes(inv.type)||(cn&&m.d>0);const tr=inv.type==='transfer';const qq=cn?Math.abs(m.d):m.q;return `<tr class="click" data-go="${inv.id}"><td class="num">${inv.date}</td><td><span class="tag ${inv.type}">${TYPES[inv.type].t}</span></td><td>${inv.no}</td><td>${esc(tr?storeName(inv.storeId)+' ← '+storeName(inv.toStoreId):partyName(inv.partyId)||'—')}</td><td class="n pos">${inw?fq(qq):''}</td><td class="n neg">${!inw&&!tr&&(!cn||m.d<0)?fq(qq):''}</td><td class="n">${fmt(m.unit)}</td><td class="n"><b>${fq(m.bal)}</b></td></tr>`}).join('')||'<tr><td colspan="8" class="muted">لا توجد حركات</td></tr>'}</tbody></table></div>
   <div class="row" style="margin-top:14px"><button class="btn" data-close>إغلاق</button></div>`,true);
@@ -1782,14 +1784,14 @@ function itemCard(pid){
 }
 
 /* ============ EXCEL IMPORT ============ */
-const FIELDS=[['code','الكود',['كود','الكود','كود الصنف','رقم الصنف','code','itemcode','sku','رقم']],['name','اسم الصنف *',['اسم الصنف','الصنف','اسم','الاسم','البيان','name','item','description','product']],['barcode','الباركود',['باركود','الباركود','barcode','ean']],['group','المجموعة',['المجموعه','مجموعه','القسم','الفئه','group','category']],['unit','الوحدة',['الوحده','وحده','unit']],['cost','سعر الشراء / التكلفة',['سعر الشراء','التكلفه','تكلفه','سعر التكلفه','cost','purchaseprice']],['price','سعر البيع',['سعر البيع','السعر','price','saleprice','سعر']],['qty','الكمية',['الكميه','كميه','العدد','الرصيد','qty','quantity']],['minQty','حد الطلب',['حد الطلب','الحد الادني','min','reorder']]];
+const FIELDS=[['code','الكود',['كود','الكود','كود الصنف','رقم الصنف','code','itemcode','sku','رقم']],['name','اسم الصنف *',['اسم الصنف','الصنف','اسم','الاسم','البيان','name','item','description','product']],['barcode','الباركود',['باركود','الباركود','barcode','ean']],['group','المجموعة',['المجموعه','مجموعه','القسم','الفئه','group','category']],['unit','الوحدة',['الوحده','وحده','unit']],['loc','الموقع',['الموقع','موقع','المكان','الرف','location','loc','bin','shelf']],['cost','سعر الشراء / التكلفة',['سعر الشراء','التكلفه','تكلفه','سعر التكلفه','cost','purchaseprice']],['price','سعر البيع',['سعر البيع','السعر','price','saleprice','سعر']],['qty','الكمية',['الكميه','كميه','العدد','الرصيد','qty','quantity']],['minQty','حد الطلب',['حد الطلب','الحد الادني','min','reorder']]];
 let IMP={rows:null,headers:[],map:{},target:'purchase',partyId:'',storeId:MAIN,paid:false,file:'',busy:false,done:0,total:0};
 function autoMap(headers){const m={};const nh=headers.map(h=>norm(h).replace(/\s/g,''));
   for(const [k,,syn] of FIELDS){const ns=syn.map(s=>norm(s).replace(/\s/g,''));let ix=nh.findIndex(h=>ns.includes(h));if(ix<0)ix=nh.findIndex((h,j)=>h&&!Object.values(m).includes(j)&&ns.some(s=>s.length>2&&h.includes(s)));if(ix>=0&&!Object.values(m).includes(ix))m[k]=ix}return m}
 function impRows(){
   const P=L('products');const byCode={},byBar={},byName={};P.forEach(p=>{if(p.code)byCode[String(p.code)]=p;if(p.barcode)byBar[String(p.barcode)]=p;byName[norm(p.name)]=p});
   const g=(r,k)=>IMP.map[k]!=null&&IMP.map[k]!==''?r[IMP.map[k]]:undefined;
-  return IMP.rows.map(r=>{const o={code:String(g(r,'code')??'').trim(),name:String(g(r,'name')??'').trim(),barcode:String(g(r,'barcode')??'').trim(),group:String(g(r,'group')??'').trim(),unit:String(g(r,'unit')??'').trim(),cost:g(r,'cost'),price:g(r,'price'),qty:numIn(g(r,'qty')),minQty:g(r,'minQty')};
+  return IMP.rows.map(r=>{const o={code:String(g(r,'code')??'').trim(),name:String(g(r,'name')??'').trim(),barcode:String(g(r,'barcode')??'').trim(),group:String(g(r,'group')??'').trim(),unit:String(g(r,'unit')??'').trim(),loc:String(g(r,'loc')??'').trim(),cost:g(r,'cost'),price:g(r,'price'),qty:numIn(g(r,'qty')),minQty:g(r,'minQty')};
     const ex=(o.code&&byCode[o.code])||(o.barcode&&byBar[o.barcode])||(o.name&&byName[norm(o.name)]);let st=ex?'تحديث':'جديد',err='';
     if(!o.name&&!ex){st='خطأ';err='بدون اسم'}if(o.qty<0){st='خطأ';err='كمية سالبة'}
     return {...o,ex,st,err}}).filter(r=>r.name||r.code||r.barcode);
@@ -1805,7 +1807,7 @@ function vImport(){
     dr.ondragover=e=>{e.preventDefault();dr.classList.add('over')};dr.ondragleave=()=>dr.classList.remove('over');
     dr.ondrop=e=>{e.preventDefault();dr.classList.remove('over');if(e.dataTransfer.files[0])readFile(e.dataTransfer.files[0])};
     fi.onchange=()=>fi.files[0]&&readFile(fi.files[0]);
-    $('#tpl').onclick=()=>xlsxOut('قالب_استيراد_الأصناف.xlsx',[['الكود','اسم الصنف','الباركود','المجموعة','الوحدة','سعر الشراء','سعر البيع','الكمية','حد الطلب'],['1001','مثال: أرز 1 كجم','6221000000017','بقالة','كيس',28,32,50,10],['1002','مثال: زيت 1 لتر','6221000000024','بقالة','زجاجة',70,78,24,6]],'الأصناف');
+    $('#tpl').onclick=()=>xlsxOut('قالب_استيراد_الأصناف.xlsx',[['الكود','اسم الصنف','الباركود','المجموعة','الوحدة','الموقع','سعر الشراء','سعر البيع','الكمية','حد الطلب'],['1001','مثال: أرز 1 كجم','6221000000017','بقالة','كيس','A-01-1',28,32,50,10],['1002','مثال: زيت 1 لتر','6221000000024','بقالة','زجاجة','A-01-2',70,78,24,6]],'الأصناف');
     return;
   }
   const rows=impRows();const nNew=rows.filter(r=>r.st==='جديد').length,nUp=rows.filter(r=>r.st==='تحديث').length,nErr=rows.filter(r=>r.st==='خطأ').length;
@@ -1848,7 +1850,7 @@ async function doImport(rows){
   let code=L('products').reduce((m,x)=>Math.max(m,parseInt(x.code)||0),0);
   for(const r of rows){
     const id=r.ex?r.ex.id:uid();const base=r.ex?clone(G('products',id)):{createdAt:now,unit:'',group:''};
-    const n={...base};if(r.name)n.name=r.name;if(r.code)n.code=r.code;else if(!n.code)n.code=String(++code);if(r.barcode)n.barcode=r.barcode;if(r.group)n.group=r.group;if(r.unit)n.unit=r.unit;
+    const n={...base};if(r.name)n.name=r.name;if(r.code)n.code=r.code;else if(!n.code)n.code=String(++code);if(r.barcode)n.barcode=r.barcode;if(r.group)n.group=r.group;if(r.unit)n.unit=r.unit;if(r.loc)n.loc=r.loc;
     if(r.cost!=null&&r.cost!=='')n.cost=numIn(r.cost);if(r.price!=null&&r.price!=='')n.price=numIn(r.price);if(r.minQty!=null&&r.minQty!=='')n.minQty=numIn(r.minQty);
     if(n.cost==null)n.cost=0;if(n.price==null)n.price=0;
     items.push(['products',id,n]);if(r.qty>0)lines.push({pid:id,qty:r.qty,price:+n.cost||0,disc:0,cost:''});
@@ -2758,7 +2760,7 @@ function chequeModal(o){
 
 /* ============ BARCODE LABELS ============ */
 const LSIZES={'38x25':{t:'ملصق حراري 38×25 مم',w:38,h:25},'50x25':{t:'ملصق حراري 50×25 مم',w:50,h:25},'58x40':{t:'ملصق حراري 58×40 مم',w:58,h:40},'a4-65':{t:'ورق A4 — 65 ملصق (5×13)',w:38.1,h:21.2,cols:5,rows:13,a4:true},'a4-24':{t:'ورق A4 — 24 ملصق (3×8)',w:70,h:37,cols:3,rows:8,a4:true}};
-let BC={sel:{},size:'38x25',name:true,price:true,code:false,q:''};
+let BC={sel:{},size:'38x25',name:true,price:true,code:false,loc:false,q:''};
 const eanOk=v=>{if(!/^\d{13}$/.test(v))return false;let s=0;for(let i=0;i<12;i++)s+=(+v[i])*(i%2?3:1);return (10-s%10)%10===+v[12]};
 const eanMake=base12=>{let s=0;for(let i=0;i<12;i++)s+=(+base12[i])*(i%2?3:1);return base12+((10-s%10)%10)};
 function bcValue(p){return String(p.barcode||p.code||'').trim()}
@@ -2768,7 +2770,8 @@ function drawBarcodes(root,sz){
 }
 function labelHTML(p,sz){
   const fs=Math.max(6,Math.min(10,sz.h/3.2));
-  return `<div class="lab" style="width:${sz.w}mm;height:${sz.h}mm;font-size:${fs}pt">${BC.name?`<div class="ln">${esc(p.name)}</div>`:''}<svg data-bc="${esc(bcValue(p))}" style="height:${sz.h*(BC.name&&BC.price?0.48:0.62)}mm"></svg>${BC.price?`<div class="lp">${fmt(p.price)} ${esc(settings().currency||'ج.م')}</div>`:''}${BC.code&&p.code?`<div class="lc">كود ${esc(p.code)}</div>`:''}</div>`;
+  const rows=(BC.loc&&p.loc?1:0)+(BC.name?1:0)+(BC.price?1:0)+((BC.code&&p.code)?1:0);
+  return `<div class="lab" style="width:${sz.w}mm;height:${sz.h}mm;font-size:${fs}pt">${BC.loc&&p.loc?`<div class="lloc">${esc(p.loc)}</div>`:''}${BC.name?`<div class="ln">${esc(p.name)}</div>`:''}<svg data-bc="${esc(bcValue(p))}" style="height:${sz.h*(rows>=2?0.46:0.62)}mm"></svg>${BC.price?`<div class="lp">${fmt(p.price)} ${esc(settings().currency||'ج.م')}</div>`:''}${BC.code&&p.code?`<div class="lc">كود ${esc(p.code)}</div>`:''}</div>`;
 }
 function bcLabels(){const out=[];for(const [pid,n] of Object.entries(BC.sel)){const p=G('products',pid);if(!p)continue;for(let i=0;i<Math.min(+n||0,1000);i++)out.push(p)}return out}
 function vBarcode(){
@@ -2777,14 +2780,14 @@ function vBarcode(){
   list.sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true}));
   const labs=bcLabels();const noBar=L('products').filter(p=>!p.barcode).length;
   $('#view').innerHTML=`<div class="wrap"><div class="grid g2" style="align-items:start">
-   <div class="card"><div class="row" style="margin-bottom:10px"><h3 style="margin:0">اختر الأصناف وعدد الملصقات</h3><span class="sp"></span><button class="btn s" id="bAll">كل الأصناف = الرصيد</button><button class="btn s" id="bClr">مسح</button></div>
+   <div class="card"><div class="row" style="margin-bottom:10px"><h3 style="margin:0">اختر الأصناف وعدد الملصقات</h3><span class="sp"></span><button class="btn s" id="bAll">كل الأصناف = الرصيد</button><button class="btn s" id="bShelf" title="ملصق واحد لكل صنف فيه الموقع والكود والباركود — للصقه على حرف الرف">ملصق رف (1 لكل صنف)</button><button class="btn s" id="bClr">مسح</button></div>
      <input class="in" id="bq" placeholder="بحث بالاسم / الكود / الباركود" value="${esc(BC.q)}" style="margin-bottom:10px">
      <div class="tw" style="max-height:52vh;overflow:auto"><table class="t" id="bt"><thead><tr><th>الصنف</th><th>الباركود</th><th class="n">الرصيد</th><th>عدد الملصقات</th></tr></thead><tbody>
      ${list.slice(0,400).map(p=>`<tr><td><b>${esc(p.name)}</b><div class="small muted">${esc(p.code||'')} · ${fmt(p.price)}</div></td><td class="num small">${p.barcode?esc(p.barcode):'<span class="tag bad">بدون</span>'}</td><td class="n">${fq(qtyIn(p.id))}</td><td><input class="cell n" style="min-width:64px" inputmode="numeric" data-bp="${p.id}" value="${BC.sel[p.id]||''}" placeholder="0"></td></tr>`).join('')||'<tr><td colspan="4" class="muted">لا توجد أصناف</td></tr>'}</tbody></table></div>
      ${noBar?`<div class="row" style="margin-top:12px"><span class="small muted" style="flex:1">${noBar} صنف بدون باركود — ممكن أولّد لهم باركود داخلي EAN-13 يبدأ بـ 2 (مخصص للاستخدام داخل المحل).</span><button class="btn s" id="bGen" ${S.ro?'disabled':''}>توليد باركود</button></div>`:''}</div>
    <div class="card"><h3>شكل الملصق</h3>
      <label class="f">المقاس<select class="in" id="bs">${opts(Object.entries(LSIZES).map(([k,v])=>[k,v.t]),BC.size)}</select></label>
-     <div class="row" style="margin:12px 0;gap:16px"><label class="row small" style="gap:6px"><input type="checkbox" id="bn" ${BC.name?'checked':''}>اسم الصنف</label><label class="row small" style="gap:6px"><input type="checkbox" id="bpr" ${BC.price?'checked':''}>السعر</label><label class="row small" style="gap:6px"><input type="checkbox" id="bco" ${BC.code?'checked':''}>الكود</label></div>
+     <div class="row" style="margin:12px 0;gap:16px"><label class="row small" style="gap:6px"><input type="checkbox" id="bn" ${BC.name?'checked':''}>اسم الصنف</label><label class="row small" style="gap:6px"><input type="checkbox" id="bpr" ${BC.price?'checked':''}>السعر</label><label class="row small" style="gap:6px"><input type="checkbox" id="bco" ${BC.code?'checked':''}>الكود</label><label class="row small" style="gap:6px"><input type="checkbox" id="bl" ${BC.loc?'checked':''}>الموقع (الرف)</label></div>
      <div class="preview" id="bprev">${labs.length?labs.slice(0,24).map(p=>labelHTML(p,sz)).join(''):'<p class="muted small" style="margin:auto">اكتب عدد الملصقات قدام الأصناف لتظهر المعاينة هنا.</p>'}</div>
      <div class="row" style="margin-top:12px"><button class="btn p" id="bPrint" ${labs.length?'':'disabled'}>${ic('print')}طباعة ${labs.length} ملصق</button>${labs.length>24?`<span class="small muted">المعاينة لأول 24 ملصق</span>`:''}</div>
      <p class="small muted">للطابعات الحرارية (Zebra / Xprinter) اختر المقاس المطابق للرول، وفي نافذة الطباعة خلّي الهوامش "بدون" والمقياس 100%.</p></div></div></div>`;
@@ -2792,8 +2795,9 @@ function vBarcode(){
   $('#bt').addEventListener('change',e=>{const el=e.target;if(!el.dataset.bp)return;const n=Math.max(0,Math.floor(numIn(el.value)));if(n)BC.sel[el.dataset.bp]=n;else delete BC.sel[el.dataset.bp];render()});
   $('#bq').onchange=e=>{BC.q=e.target.value.trim();render()};
   $('#bAll').onclick=()=>{L('products').forEach(p=>{const q=Math.floor(qtyIn(p.id));if(q>0)BC.sel[p.id]=q});render()};
+  $('#bShelf').onclick=()=>{let l=L('products');if(BC.q)l=pSearch(BC.q);BC.sel={};l.forEach(p=>{BC.sel[p.id]=1});BC.loc=true;BC.name=true;BC.code=true;BC.price=false;toast('ملصق رف واحد لكل صنف — فعّلنا الموقع والكود');render()};
   $('#bClr').onclick=()=>{BC.sel={};render()};
-  $('#bs').onchange=e=>{BC.size=e.target.value;render()};$('#bn').onchange=e=>{BC.name=e.target.checked;render()};$('#bpr').onchange=e=>{BC.price=e.target.checked;render()};$('#bco').onchange=e=>{BC.code=e.target.checked;render()};
+  $('#bs').onchange=e=>{BC.size=e.target.value;render()};$('#bn').onchange=e=>{BC.name=e.target.checked;render()};$('#bpr').onchange=e=>{BC.price=e.target.checked;render()};$('#bco').onchange=e=>{BC.code=e.target.checked;render()};$('#bl').onchange=e=>{BC.loc=e.target.checked;render()};
   const g=$('#bGen');if(g)g.onclick=async()=>{const ps=L('products').filter(p=>!p.barcode);if(!(await confirmBox(`توليد باركود داخلي لـ ${ps.length} صنف؟`,'توليد')))return;
     const used=new Set(L('products').map(p=>String(p.barcode||'')));let seq=1;const items=[];
     for(const p of ps){let v;do{v=eanMake('2'+String(Date.now()%1e5).padStart(5,'0').slice(0,5)+String(seq++).padStart(6,'0'))}while(used.has(v));used.add(v);const n={...G('products',p.id),barcode:v};items.push(['products',p.id,n])}
