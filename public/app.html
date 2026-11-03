@@ -903,7 +903,7 @@ function vEditor(type,id){
      <button class="btn p" id="save" ${S.ro?'disabled':''}>حفظ<span class="hide-m"> (Ctrl+S)</span></button>
      ${!ED.id?`<button class="btn" id="saveNew" ${S.ro?'disabled':''}>حفظ وفاتورة جديدة</button>`:''}
      ${ED.id&&['sale','purchase'].includes(inv.type)&&can(inv.type==='sale'?'sell':'buy')&&!S.ro?`<button class="btn" id="mkRet">${ic('ret')}مرتجع من الفاتورة</button>`:''}
-     ${settings().printOnlyPrep&&!canPrep()&&['sale','sret'].includes(inv.type)?`<span class="small muted" style="align-self:center">${ED.id?(prn(ED.id)&&prn(ED.id).n?'✓ اتطبعت '+prn(ED.id).n+' مرة':'لسه ما اتطبعتش')+' — ':''}الطباعة من شاشة التحضير</span>`:`${!ED.id&&!S.ro?`<button class="btn" id="savePrt">${ic('print')}حفظ وطباعة</button>`:''}<button class="btn" id="prt">${ic('print')}طباعة${ED.id?(prn(ED.id)&&prn(ED.id).n?' (اتطبعت '+prn(ED.id).n+')':''):' (مسودة)'}</button>`}${ED.id?`<button class="btn" id="newB">${ic('plus')}جديد</button>`:''}
+     ${settings().printOnlyPrep&&!canPrep()&&['sale','sret'].includes(inv.type)?`<span class="small muted" style="align-self:center">${ED.id?(prn(ED.id)&&prn(ED.id).n?'✓ اتطبعت '+prn(ED.id).n+' مرة':'لسه ما اتطبعتش')+' — ':''}الطباعة من شاشة التحضير</span>`:`${!ED.id&&!S.ro?`<button class="btn" id="savePrt">${ic('print')}حفظ وطباعة</button>`:''}<button class="btn" id="prt">${ic('print')}طباعة${ED.id?(prn(ED.id)&&prn(ED.id).n?' (اتطبعت '+prn(ED.id).n+')':''):' (مسودة)'}</button><button class="btn" id="prtPdf" title="يطلّع الفاتورة PDF ويفتح المشاركة — للطباعة أو الإرسال من الموبايل">${ic('dl')}PDF / مشاركة</button>`}${ED.id?`<button class="btn" id="newB">${ic('plus')}جديد</button>`:''}
      ${ED.id&&T.doc&&inv.status!=='converted'?`<button class="btn g" id="conv" ${S.ro?'disabled':''}>تحويل إلى ${TYPES[T.to].full}</button>`:''}
      ${ED.id&&['porder','quote'].includes(inv.type)&&canOrgaWrite()&&!S.ro?`<button class="btn g" id="orgaSend">⬆ ${inv.type==='quote'?'فاتورة بيع':'فاتورة شراء'} في أورجا</button>`:''}
      ${ED.id&&T.doc&&inv.status==='converted'&&G('invoices',inv.convertedTo)?`<a class="btn" href="#/inv/${inv.convertedTo}">فتح ${TYPES[T.to].full} #${G('invoices',inv.convertedTo).no}</a>`:''}
@@ -950,6 +950,7 @@ function vEditor(type,id){
   const pr=$('#prt');if(pr)pr.onclick=()=>printInv(ED.id||{...inv,no:'—',draft:true});
   if(ED.id&&window.MZ_FLOW)MZ_FLOW.bindStrip({...(ED.orig||inv),id:ED.id});
   const sp=$('#savePrt');if(sp)sp.onclick=async()=>{const id=await saveInv(false);if(id)printInv(id)};
+  const pf=$('#prtPdf');if(pf)pf.onclick=async()=>{let id=ED.id;if(!id){id=await saveInv(false);if(!id)return}window.invoiceShare?invoiceShare(id):toast('أداة الـPDF لسه بتحمّل، جرّب تاني','err')};
   const nb=$('#newB');if(nb)nb.onclick=()=>{const t=inv.type;ED=null;go(['sret','pret'].includes(t)?t:grpOf(t))};
   const mr=$('#mkRet');if(mr)mr.onclick=()=>startReturn(ED.id);
   const rl=$('#retLoad');if(rl)rl.onclick=()=>loadReturnByNo($('#retNo').value.trim());
@@ -1410,7 +1411,9 @@ function invPrintA5(inv,label){
 }
 const useA5=inv=>(settings().printTpl||'a5x2')==='a5x2'&&['sale','sret','quote','transfer','purchase','pret'].includes(inv.type);
 function invPrintHTML(id,label){
-  const inv=typeof id==='object'?id:G('invoices',id);if(!inv)return;if(useA5(inv))return invPrintA5(typeof id==='object'?inv:{...inv,id},label);const t=invTotals(inv);const s=settings();const T=TYPES[inv.type];
+  const inv=typeof id==='object'?id:G('invoices',id);if(!inv)return;if(useA5(inv))return invPrintA5(typeof id==='object'?inv:{...inv,id},label);return invBodyHTML(inv,label);
+}
+function invBodyHTML(inv,label){const t=invTotals(inv);const s=settings();const T=TYPES[inv.type];
   const p=inv.partyId?G('parties',inv.partyId):null;const tr=p&&isSaleT(inv.type)?tierOf(inv.partyId):null;
   const lines=(inv.lines||[]).filter(l=>l.pid).slice().sort((a,b)=>pname(a.pid).localeCompare(pname(b.pid)));
   const showCons=isSaleT(inv.type);const nd=noDisc(inv);let qty=0;lines.forEach(l=>qty+=+l.qty||0);
@@ -2866,6 +2869,7 @@ init();
 <script src="/notif.js?v=2"></script>
 <script src="/scan.js?v=1"></script>
 <script src="/countloc.js?v=1"></script>
+<script src="/pdfshare.js?v=1"></script>
 <script src="/live.js?v=1"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=9"></script>
