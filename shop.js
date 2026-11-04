@@ -21,6 +21,16 @@ const norm = s => digits(s).toLowerCase().replace(/[ً-ْـ]/g, '').replace(/[أ
 const todayCairo = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const addDays = (d, n) => { const t = new Date(d + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
 const oops = (status, error, extra) => Object.assign(new Error(error), { status, extra });
+// بحث مرن: تحمّل غلطة إملائية واحدة لكل كلمة + مطابقة الحروف بالترتيب
+const near1 = (a, b) => {
+  if (a === b) return true;
+  const la = a.length, lb = b.length; if (Math.abs(la - lb) > 1) return false;
+  let i = 0, j = 0, ed = 0;
+  while (i < la && j < lb) { if (a[i] === b[j]) { i++; j++; } else { if (++ed > 1) return false; if (la > lb) i++; else if (lb > la) j++; else { i++; j++; } } }
+  return ed + (la - i) + (lb - j) <= 1;
+};
+const fuzzyWord = (w, n) => { if (n.includes(w)) return true; if (w.length < 4) return false; for (const t of n.split(' ')) if (near1(w, t)) return true; return false; };
+const subseq = (q, n) => { let i = 0; for (let j = 0; j < n.length && i < q.length; j++) if (n[j] === q[i]) i++; return i === q.length; };
 
 module.exports = function (app, { pool, auth, sessionUser, priceData, reserveNo, hashPw, DEF_TIERS, now }) {
   async function partyOf(db, id) {
@@ -46,12 +56,13 @@ module.exports = function (app, { pool, auth, sessionUser, priceData, reserveNo,
       next();
     } catch (e) { next(e); }
   };
-  // الصنف بيظهر بس لو ليه سعر شريحة ورصيد في المخزن الرئيسي؛ الرصيد نفسه مابيتبعتش للمتصفح
+  // الصنف بيظهر بس لو ليه سعر شريحة ورصيد في المخزن الرئيسي؛ بنبعت المتاح (وحدات كاملة) للعميل علشان ميطلبش أكتر
   const offer = (pd, tier, pid) => {
     const p = pd.prods[pid]; if (!p) return null;
     const price = pd.px.t[tier.id] && pd.px.t[tier.id][pid];
-    if (!(price > 0) || !(pd.stock(pid) > 0.0001)) return null;
-    return { id: pid, name: p.name, consumer: +p.consumer || +p.price || 0, price };
+    const st = pd.stock(pid);
+    if (!(price > 0) || !(st > 0.0001)) return null;
+    return { id: pid, name: p.name, consumer: +p.consumer || +p.price || 0, price, avail: Math.max(0, Math.floor(st)) };
   };
 
   app.get('/api/shop/me', portal, (req, res) => {
@@ -65,7 +76,9 @@ module.exports = function (app, { pool, auth, sessionUser, priceData, reserveNo,
       if (!raw) return res.json({ items: [] });
       const pd = await priceData(pool);
       const q = norm(raw); const words = q.split(' ').filter(Boolean);
+      const qc = q.replace(/ /g, '');
       const exact = String(req.query.exact || '') === '1';
+      const need = Math.max(1, Math.ceil(words.length * 0.7));
       const hits = [];
       for (const c of pd.index()) {
         let score = -1;
@@ -74,6 +87,9 @@ module.exports = function (app, { pool, auth, sessionUser, priceData, reserveNo,
           if (c.n.startsWith(q)) score = 1;
           else if (words.every(w => c.n.includes(w))) score = 2;
           else if (raw.length >= 4 && c.codes.some(b => b.includes(raw))) score = 3;
+          else if (words.length > 1 && words.filter(w => c.n.includes(w)).length >= need) score = 4; // أغلب الكلمات
+          else if (words.every(w => fuzzyWord(w, c.n))) score = 5;                                   // تحمّل غلطة إملائية
+          else if (qc.length >= 4 && subseq(qc, c.n.replace(/ /g, ''))) score = 6;                    // الحروف بالترتيب
         }
         if (score < 0) continue;
         const o = offer(pd, req.tier, c.id);

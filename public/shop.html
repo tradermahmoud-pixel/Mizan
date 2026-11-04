@@ -68,8 +68,13 @@ button,input{font:inherit;color:inherit}
 .sugg .pr{flex:none;text-align:end;display:flex;flex-direction:column;gap:1px}
 .sugg .pr b{font-size:15.5px;color:var(--brand-ink)}
 .sugg .pr .cons{font-size:11.5px;color:var(--muted)}
+.sugg .av{flex:none;font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:3px 9px;white-space:nowrap}
+.sugg .av.low{color:var(--danger);border-color:var(--danger);background:var(--danger-soft)}
 .sugg .plus{flex:none;width:28px;height:28px;border-radius:9px;background:var(--brand-soft);color:var(--brand-ink);
   display:grid;place-items:center;font-size:16px;font-weight:700}
+.av2{display:block;font-size:12px;color:var(--muted);margin-top:3px;font-weight:400}
+.av2 b{color:var(--brand-ink)}
+.av2.low b{color:var(--danger)}
 .none{padding:16px;color:var(--muted);text-align:center}
 
 /* ---------- order table ---------- */
@@ -209,18 +214,18 @@ function paintLines(){
   const inv=INV[cur];const el=$('#tb');
   if(!inv.lines.length){el.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 12.4a1.6 1.6 0 0 0 1.6 1.3h8.4a1.6 1.6 0 0 0 1.6-1.3L22 8H6"/><circle cx="9" cy="21" r="1"/><circle cx="18" cy="21" r="1"/></svg><b>أوردرك لسه فاضي</b>ابدأ بإضافة أول صنف من خانة البحث فوق</div>`;return}
   el.innerHTML=`<table><thead><tr><th>#</th><th>الصنف</th><th class="n">سعر المستهلك</th><th class="n">سعرك</th><th class="n">الكمية</th><th class="n">الإجمالي</th><th></th></tr></thead><tbody>
-  ${inv.lines.map((l,i)=>`<tr class="${l.bad?'bad':''}"><td class="idx num">${i+1}</td><td class="nm">${esc(l.name)}${l.bad?`<span class="why">${esc(l.bad)}</span>`:''}</td>
+  ${inv.lines.map((l,i)=>`<tr class="${l.bad?'bad':''}"><td class="idx num">${i+1}</td><td class="nm">${esc(l.name)}${l.avail!=null?`<span class="av2${l.avail<=5?' low':''}">المتاح <b class="num">${l.avail}</b></span>`:''}${l.bad?`<span class="why">${esc(l.bad)}</span>`:''}</td>
    <td class="n c cons" data-l="سعر المستهلك"><span class="num">${money(l.consumer)}</span></td><td class="n p price" data-l="سعرك"><b class="num">${money(l.price)}</b></td>
    <td class="n q"><div class="qwrap"><button class="step" type="button" data-step="-1" data-i="${i}" aria-label="أنقص">−</button><input class="qty" data-q="${i}" inputmode="numeric" value="${esc(l.qty)}" aria-label="الكمية"><button class="step" type="button" data-step="1" data-i="${i}" aria-label="زوّد">+</button></div></td>
    <td class="n s" data-l="الإجمالي"><span class="num" data-s="${i}">${money(lineTotal(l))}</span></td>
    <td class="rm"><button class="x" data-x="${i}" type="button" aria-label="حذف الصنف">×</button></td></tr>`).join('')}</tbody></table>`;
   const refresh=(i)=>{const l=INV[cur].lines[i];const s=el.querySelector(`[data-s="${i}"]`);if(s)s.textContent=money(lineTotal(l));touched()};
   el.querySelectorAll('[data-q]').forEach(q=>{const i=+q.dataset.q;
-    q.oninput=()=>{const v=String(q.value).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/\D/g,'');q.value=v;const l=INV[cur].lines[i];l.qty=v===''?'':+v;delete l.bad;q.closest('tr').classList.remove('bad');refresh(i)};
+    q.oninput=()=>{const v=String(q.value).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/\D/g,'');const l=INV[cur].lines[i];let nv=v===''?'':+v;if(nv!==''&&l.avail!=null&&nv>l.avail){nv=l.avail;toast('المتاح '+l.avail+' قطعة بس',true)}q.value=nv===''?'':nv;l.qty=nv;delete l.bad;q.closest('tr').classList.remove('bad');refresh(i)};
     q.onfocus=()=>q.select();
     q.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#ps').focus()}}});
   el.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{const i=+b.dataset.i,d=+b.dataset.step;const l=INV[cur].lines[i];
-    l.qty=Math.max(1,(+l.qty||0)+d);delete l.bad;const q=el.querySelector(`[data-q="${i}"]`);if(q)q.value=l.qty;b.closest('tr').classList.remove('bad');refresh(i)});
+    let nv=Math.max(1,(+l.qty||0)+d);if(d>0&&l.avail!=null&&nv>l.avail){nv=l.avail;toast('المتاح '+l.avail+' قطعة بس',true)}l.qty=nv;delete l.bad;const q=el.querySelector(`[data-q="${i}"]`);if(q)q.value=l.qty;b.closest('tr').classList.remove('bad');refresh(i)});
   el.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{INV[cur].lines.splice(+b.dataset.x,1);
     if(!INV[cur].lines.length&&INV.length>1){INV.splice(cur,1);cur=Math.min(cur,INV.length-1);touched();view();return}
     touched();paintLines();paintTabs()})}
@@ -229,10 +234,11 @@ function paintTabs(){document.querySelectorAll('[data-tab]').forEach((b,i)=>{con
 function paintFoot(){const f=$('#foot');const n=filled();f.hidden=!!done||!n.length;$('#fl').textContent=n.length>1?`إجمالي ${n.length} فواتير`:'إجمالي الأوردر';$('#ft').textContent=money(n.reduce((s,i)=>s+invTotal(i),0));const b=$('#save');b.textContent=n.length>1?'حفظ الفواتير':'حفظ الأوردر';b.disabled=busy}
 
 function add(it){
+  if(it.avail!=null&&!(it.avail>=1)){toast('مفيش كمية متاحة من الصنف ده دلوقتي',true);return}
   for(let i=0;i<INV.length;i++){const k=INV[i].lines.findIndex(l=>l.pid===it.id);if(k>=0){if(i!==cur){cur=i;view()}const q=document.querySelector(`[data-q="${k}"]`);if(q){q.focus()}toast('الصنف موجود في الأوردر — عدّل كميته');return}}
   let moved=false;
   if(INV[cur].lines.length>=MAX){let t=INV.findIndex(x=>x.lines.length<MAX);if(t<0){INV.push({lines:[]});t=INV.length-1}cur=t;moved=true}
-  INV[cur].lines.push({pid:it.id,name:it.name,consumer:it.consumer,price:it.price,qty:1});
+  INV[cur].lines.push({pid:it.id,name:it.name,consumer:it.consumer,price:it.price,avail:it.avail,qty:1});
   touched();
   if(moved){view();toast(`الفاتورة كملت ${MAX} أصناف — الصنف نزل في فاتورة ${cur+1}`)}else{const hadTabs=!!document.querySelector('.tabs');if(hadTabs)paintTabs();paintLines();$('#ps').value=''}
   closeSg();const q=document.querySelector(`[data-q="${INV[cur].lines.length-1}"]`);if(q){q.focus()}}
@@ -240,7 +246,7 @@ function add(it){
 function closeSg(){const s=$('#sg');if(s)s.hidden=true;hits=[];at=0}
 function paintSg(){const s=$('#sg');if(!s)return;
   if(!hits.length){s.innerHTML='<div class="none">مفيش صنف متاح بالاسم ده</div>';s.hidden=false;return}
-  s.innerHTML=hits.map((h,i)=>`<button type="button" class="${i===at?'on':''}" data-h="${i}"><span class="nm">${esc(h.name)}</span><span class="pr"><b class="num">${money(h.price)}</b><span class="num cons">مستهلك ${money(h.consumer)}</span></span><span class="plus" aria-hidden="true">＋</span></button>`).join('');
+  s.innerHTML=hits.map((h,i)=>`<button type="button" class="${i===at?'on':''}" data-h="${i}"><span class="nm">${esc(h.name)}</span><span class="pr"><b class="num">${money(h.price)}</b><span class="num cons">مستهلك ${money(h.consumer)}</span></span><span class="av num${h.avail<=5?' low':''}">متاح ${h.avail}</span><span class="plus" aria-hidden="true">＋</span></button>`).join('');
   s.hidden=false;s.querySelectorAll('[data-h]').forEach(b=>b.onmousedown=e=>{e.preventDefault();add(hits[+b.dataset.h])})}
 async function find(q,exact){const n=++seq;const j=await api('/api/shop/search?q='+encodeURIComponent(q)+(exact?'&exact=1':''));return n===seq?j.items:null}
 function bindSearch(){const p=$('#ps');
