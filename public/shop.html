@@ -70,6 +70,8 @@ button,input{font:inherit;color:inherit}
 .sugg .pr .cons{font-size:11.5px;color:var(--muted)}
 .sugg .av{flex:none;font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:3px 9px;white-space:nowrap}
 .sugg .av.low{color:var(--danger);border-color:var(--danger);background:var(--danger-soft)}
+.sugg button.oos .nm{color:var(--muted)}
+.sugg button.oos .plus{background:var(--surface2);color:var(--muted)}
 .sugg .plus{flex:none;width:28px;height:28px;border-radius:9px;background:var(--brand-soft);color:var(--brand-ink);
   display:grid;place-items:center;font-size:16px;font-weight:700}
 .av2{display:block;font-size:12px;color:var(--muted);margin-top:3px;font-weight:400}
@@ -234,7 +236,7 @@ function paintTabs(){document.querySelectorAll('[data-tab]').forEach((b,i)=>{con
 function paintFoot(){const f=$('#foot');const n=filled();f.hidden=!!done||!n.length;$('#fl').textContent=n.length>1?`إجمالي ${n.length} فواتير`:'إجمالي الأوردر';$('#ft').textContent=money(n.reduce((s,i)=>s+invTotal(i),0));const b=$('#save');b.textContent=n.length>1?'حفظ الفواتير':'حفظ الأوردر';b.disabled=busy}
 
 function add(it){
-  if(it.avail!=null&&!(it.avail>=1)){toast('مفيش كمية متاحة من الصنف ده دلوقتي',true);return}
+  if(it.avail!=null&&!(it.avail>=1)){toast('الصنف ده مخزونه خلص دلوقتي — السعر ظاهر للعلم بس',true);return}
   for(let i=0;i<INV.length;i++){const k=INV[i].lines.findIndex(l=>l.pid===it.id);if(k>=0){if(i!==cur){cur=i;view()}const q=document.querySelector(`[data-q="${k}"]`);if(q){q.focus()}toast('الصنف موجود في الأوردر — عدّل كميته');return}}
   let moved=false;
   if(INV[cur].lines.length>=MAX){let t=INV.findIndex(x=>x.lines.length<MAX);if(t<0){INV.push({lines:[]});t=INV.length-1}cur=t;moved=true}
@@ -245,9 +247,10 @@ function add(it){
 
 function closeSg(){const s=$('#sg');if(s)s.hidden=true;hits=[];at=0}
 function paintSg(){const s=$('#sg');if(!s)return;
-  if(!hits.length){s.innerHTML='<div class="none">مفيش صنف متاح بالاسم ده</div>';s.hidden=false;return}
-  s.innerHTML=hits.map((h,i)=>`<button type="button" class="${i===at?'on':''}" data-h="${i}"><span class="nm">${esc(h.name)}</span><span class="pr"><b class="num">${money(h.price)}</b><span class="num cons">مستهلك ${money(h.consumer)}</span></span><span class="av num${h.avail<=5?' low':''}">متاح ${h.avail}</span><span class="plus" aria-hidden="true">＋</span></button>`).join('');
-  s.hidden=false;s.querySelectorAll('[data-h]').forEach(b=>b.onmousedown=e=>{e.preventDefault();add(hits[+b.dataset.h])})}
+  if(!hits.length){s.innerHTML='<div class="none">مفيش صنف بالاسم ده</div>';s.hidden=false;return}
+  s.innerHTML=hits.map((h,i)=>`<button type="button" class="${i===at?'on':''}${h.avail<=0?' oos':''}" data-h="${i}"><span class="nm">${esc(h.name)}</span><span class="pr"><b class="num">${money(h.price)}</b><span class="num cons">مستهلك ${money(h.consumer)}</span></span><span class="av num${h.avail<=5?' low':''}">${h.avail>0?('متاح '+h.avail):'غير متاح'}</span><span class="plus" aria-hidden="true">${h.avail>0?'＋':'•'}</span></button>`).join('');
+  s.hidden=false;s.querySelectorAll('[data-h]').forEach(b=>b.onmousedown=e=>{e.preventDefault();add(hits[+b.dataset.h])});
+  const a=s.querySelector('button.on');if(a)a.scrollIntoView({block:'nearest'})}
 async function find(q,exact){const n=++seq;const j=await api('/api/shop/search?q='+encodeURIComponent(q)+(exact?'&exact=1':''));return n===seq?j.items:null}
 function bindSearch(){const p=$('#ps');
   p.oninput=()=>{const q=p.value.trim();clearTimeout(timer);if(!q){seq++;closeSg();return}timer=setTimeout(async()=>{try{const r=await find(q);if(r&&p.value.trim()===q){hits=r;at=0;lastQ=q;paintSg()}}catch(e){toast(e.message,true)}},180)};

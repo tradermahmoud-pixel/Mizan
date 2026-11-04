@@ -56,13 +56,12 @@ module.exports = function (app, { pool, auth, sessionUser, priceData, reserveNo,
       next();
     } catch (e) { next(e); }
   };
-  // الصنف بيظهر بس لو ليه سعر شريحة ورصيد في المخزن الرئيسي؛ بنبعت المتاح (وحدات كاملة) للعميل علشان ميطلبش أكتر
+  // الصنف بيظهر لو ليه سعر شريحة (حتى لو رصيده صفر — علشان الصيدلي يعرف السعر)؛ المتاح (وحدات كاملة) بيتبعت علشان ميطلبش أكتر، واللي رصيده صفر مش بيتطلب (السيرفر بيرفضه)
   const offer = (pd, tier, pid) => {
     const p = pd.prods[pid]; if (!p) return null;
     const price = pd.px.t[tier.id] && pd.px.t[tier.id][pid];
-    const st = pd.stock(pid);
-    if (!(price > 0) || !(st > 0.0001)) return null;
-    return { id: pid, name: p.name, consumer: +p.consumer || +p.price || 0, price, avail: Math.max(0, Math.floor(st)) };
+    if (!(price > 0)) return null;
+    return { id: pid, name: p.name, consumer: +p.consumer || +p.price || 0, price, avail: Math.max(0, Math.floor(pd.stock(pid))) };
   };
 
   app.get('/api/shop/me', portal, (req, res) => {
@@ -95,7 +94,7 @@ module.exports = function (app, { pool, auth, sessionUser, priceData, reserveNo,
         const o = offer(pd, req.tier, c.id);
         if (o) hits.push([score, o]);
       }
-      hits.sort((a, b) => a[0] - b[0] || a[1].name.localeCompare(b[1].name, 'ar'));
+      hits.sort((a, b) => ((a[1].avail > 0 ? 0 : 1) - (b[1].avail > 0 ? 0 : 1)) || a[0] - b[0] || a[1].name.localeCompare(b[1].name, 'ar'));
       res.json({ items: hits.slice(0, RESULTS).map(h => h[1]) });
     } catch (e) { next(e); }
   });
