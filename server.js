@@ -74,6 +74,7 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS sessions (
       token text PRIMARY KEY, user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at bigint NOT NULL, last_seen bigint NOT NULL);
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS portal_party text;
   `);
   const { rows } = await pool.query('SELECT count(*)::int n FROM users');
   if (rows[0].n === 0) {
@@ -92,7 +93,7 @@ async function sessionUser(req) {
   const t = cookies(req)[COOKIE];
   if (!t || t.length < 20) return null;
   const { rows } = await pool.query(
-    `SELECT u.id,u.username,u.name,u.owner,u.disabled,s.last_seen FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=$1`, [t]);
+    `SELECT u.id,u.username,u.name,u.owner,u.disabled,u.portal_party,s.last_seen FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=$1`, [t]);
   const u = rows[0];
   if (!u || u.disabled) return null;
   if (now() - Number(u.last_seen) > SESSION_DAYS * 864e5) { await pool.query('DELETE FROM sessions WHERE token=$1', [t]); return null; }
@@ -145,6 +146,8 @@ const auth = (needAdmin) => async (req, res, next) => {
   try {
     const u = await sessionUser(req);
     if (!u) return res.status(401).json({ error: 'login' });
+    // حساب الصيدلية ممنوع من كل مسارات البرنامج — مساراته في shop.js بس
+    if (u.portal_party) return res.status(403).json({ error: 'forbidden' });
     req.user = u;
     if (needAdmin && !(await isAdmin(u))) return res.status(403).json({ error: 'forbidden' });
     next();
@@ -228,7 +231,7 @@ app.post('/api/password', auth(false), async (req, res, next) => {
 
 /* users: everyone logged in may see names; admins manage */
 app.get('/api/users', auth(false), async (req, res) => {
-  const { rows } = await pool.query('SELECT id,username,name,owner,disabled,created_at FROM users ORDER BY created_at');
+  const { rows } = await pool.query('SELECT id,username,name,owner,disabled,created_at,portal_party IS NOT NULL AS portal FROM users ORDER BY created_at');
   res.json(rows);
 });
 app.post('/api/users', auth(true), async (req, res, next) => {
@@ -454,14 +457,16 @@ function viewDoc(c, data, view) {
   return data;
 }
 // متوسط التكلفة لكل صنف — نفس حسبة البرنامج بالظبط — ومنه أسعار الشرايح
-let PX = { key: '', px: null };
+let PX = { key: '', px: null, by: {}, prods: {}, idx: null };
 async function tierPrices(db) {
   const k = await db.query(`SELECT COALESCE(max(seq),0)::bigint s FROM docs WHERE col IN ('x_invoices','x_products','settings')`);
   const key = String(k.rows[0].s);
   if (PX.key === key && PX.px) return PX.px;
   const { rows } = await db.query(`SELECT col,id,data FROM docs WHERE col IN ('x_invoices','x_products') AND NOT deleted`);
-  const prods = {}, invs = [];
-  for (const r of rows) { const it = r.data && isObj(r.data.items) ? r.data.items : {}; for (const [id, v] of Object.entries(it)) { if (!isObj(v)) continue; if (r.col === 'x_products') prods[id] = v; else invs.push(v); } }
+  const prods = {}, inv0 = [], invIds = new Set();
+  for (const r of rows) { const it = r.data && isObj(r.data.items) ? r.data.items : {}; for (const [id, v] of Object.entries(it)) { if (!isObj(v)) continue; if (r.col === 'x_products') prods[id] = v; else { inv0.push(v); invIds.add(id); } } }
+  // فاتورة اتبعتت لأورجا ورجعت نسختها، أو اتحذفت من هناك: ماتتحسبش مرتين — زي البرنامج
+  const invs = inv0.filter(v => !(v.type === 'sale' && +v.orgaOut && (v.orgaGone || invIds.has('os' + v.orgaOut))));
   const st = {}; const S = id => st[id] || (st[id] = { qty: 0, value: 0, by: {}, last: +(prods[id] && prods[id].cost) || 0 });
   const cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
   invs.sort((a, b) => cmp(a.date || '', b.date || '') || cmp(a.createdAt || '', b.createdAt || ''));
@@ -489,9 +494,21 @@ async function tierPrices(db) {
   const set = sr.rows[0] && sr.rows[0].data || {}; const tiers = Array.isArray(set.tiers) && set.tiers.length ? set.tiers : DEF_TIERS;
   const r2 = n => Math.round(n * 100) / 100; const t = {};
   for (const tr of tiers) { if (!tr || !tr.id) continue; const m = {}; for (const pid of Object.keys(prods)) { const s = st[pid]; const c = s ? (s.qty > 0.0001 ? s.value / s.qty : s.last) : (+prods[pid].cost || 0); if (c > 0) m[pid] = r2(c * (1 + (+tr.markup || 0) / 100)); } t[tr.id] = m; }
-  PX = { key, px: { v: key, t } }; return PX.px;
+  const by = {}; for (const pid of Object.keys(st)) by[pid] = st[pid].by;
+  PX = { key, px: { v: key, t }, by, prods, idx: null }; return PX.px;
+}
+// لصفحة الصيدلية: أسعار الشرايح + رصيد المخزن الرئيسي + فهرس البحث (بيفضل على السيرفر)
+const normSearch = s => String(s == null ? '' : s).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).toLowerCase().replace(/[\u064B-\u0652\u0640]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim();
+async function priceData(db) {
+  const px = await tierPrices(db); const d = PX;
+  return {
+    px, prods: d.prods,
+    stock: pid => (d.by[pid] && d.by[pid].main) || 0,
+    index: () => d.idx || (d.idx = Object.entries(d.prods).map(([id, p]) => ({ id, n: normSearch(p.name), codes: [p.code, p.barcode, ...(Array.isArray(p.barcodes) ? p.barcodes : [])].filter(x => x != null && x !== '').map(String) }))),
+  };
 }
 const PX_COLS = new Set(['x_invoices', 'x_products', 'settings']);
+require('./shop')(app, { pool, auth, sessionUser, priceData, reserveNo, hashPw, DEF_TIERS, now });
 
 /* ---------------- AI assistant (OpenAI-compatible providers, key stays on the server) ---------------- */
 const AI_PRESETS = {
@@ -634,7 +651,7 @@ app.post('/api/ai/chat', auth(false), async (req, res, next) => {
 app.get('/api/backup', auth(true), async (req, res, next) => {
   try {
     const docs = await pool.query('SELECT col,id,data FROM docs WHERE NOT deleted ORDER BY col,id');
-    const users = await pool.query('SELECT id,username,name,pass,owner,disabled,created_at FROM users');
+    const users = await pool.query('SELECT id,username,name,pass,owner,disabled,created_at,portal_party FROM users');
     const body = JSON.stringify({ app: 'mizan', version: 1, at: new Date().toISOString(), users: users.rows, docs: docs.rows.map(r => [r.col, r.id, r.data]) });
     const gz = zlib.gzipSync(body);
     const name = `mizan-backup-${new Date().toISOString().slice(0, 10)}.json.gz`;
@@ -666,9 +683,9 @@ app.post('/api/restore', auth(true), express.raw({ type: '*/*', limit: '120mb' }
     if (Array.isArray(b.users) && b.users.length) {
       for (const u of b.users) {
         if (u.id === req.user.id) continue; // keep the restoring owner's own login
-        await client.query(`INSERT INTO users(id,username,name,pass,owner,disabled,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)
-          ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username,name=EXCLUDED.name,pass=EXCLUDED.pass,disabled=EXCLUDED.disabled`,
-          [u.id, u.username, u.name, u.pass, false, !!u.disabled, Number(u.created_at) || now()]).catch(() => {});
+        await client.query(`INSERT INTO users(id,username,name,pass,owner,disabled,created_at,portal_party) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+          ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username,name=EXCLUDED.name,pass=EXCLUDED.pass,disabled=EXCLUDED.disabled,portal_party=EXCLUDED.portal_party`,
+          [u.id, u.username, u.name, u.pass, false, !!u.disabled, Number(u.created_at) || now(), u.portal_party || null]).catch(() => {});
       }
     }
     await client.query('COMMIT');
@@ -683,8 +700,18 @@ app.get(['/', '/index.html'], async (req, res, next) => {
   try {
     const u = await sessionUser(req);
     if (!u) return res.redirect('/login');
+    if (u.portal_party) return res.redirect('/shop');
     res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(PUB, 'app.html'));
+  } catch (e) { next(e); }
+});
+app.get('/shop', async (req, res, next) => {
+  try {
+    const u = await sessionUser(req);
+    if (!u) return res.redirect('/login');
+    if (!u.portal_party) return res.redirect('/');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(PUB, 'shop.html'));
   } catch (e) { next(e); }
 });
 app.use(express.static(PUB, { index: false, maxAge: '1h', setHeaders: (res, f) => { if (/\.(js|html|css)$/.test(f) && !f.includes(`${path.sep}vendor${path.sep}`)) res.setHeader('Cache-Control', 'no-cache'); } }));

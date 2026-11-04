@@ -13,7 +13,7 @@ async function cfg(db) {
   const [st, sf, us, rl] = await Promise.all([
     db.query(`SELECT data FROM docs WHERE col='settings' AND id='main' AND NOT deleted`),
     db.query(`SELECT id, data FROM docs WHERE col='safes' AND NOT deleted`),
-    db.query(`SELECT id, name, username, owner, disabled FROM users`),
+    db.query(`SELECT id, name, username, owner, disabled FROM users WHERE portal_party IS NULL`),
     db.query(`SELECT id, data FROM docs WHERE col='roles' AND NOT deleted`),
   ]);
   const s = (st.rows[0] && st.rows[0].data) || {};
