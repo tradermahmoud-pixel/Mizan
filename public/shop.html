@@ -174,6 +174,7 @@ const money=n=>(+n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFr
 const rid=()=>{const a=new Uint8Array(16);crypto.getRandomValues(a);return [...a].map(x=>x.toString(16).padStart(2,'0')).join('')};
 let ME=null,MAX=10,INV=[{lines:[]}],cur=0,KEY=rid(),busy=false,done=null;
 let hits=[],at=0,lastQ='',timer=null,seq=0;
+const qcache=new Map(); // كاش نتائج البحث (TTL قصير) علشان الكتابة والمسح بسرعة
 
 async function api(url,opts){
   let r;try{r=await fetch(url,Object.assign({credentials:'same-origin'},opts||{}))}catch(e){throw Object.assign(new Error('السيرفر مش بيرد — استنى دقيقة وحاول تاني'),{net:1})}
@@ -255,9 +256,9 @@ function paintSg(){const s=$('#sg');if(!s)return;
   s.innerHTML=hits.map((h,i)=>`<button type="button" class="${i===at?'on':''}${h.avail<=0?' oos':''}" data-h="${i}"><span class="nm">${esc(h.name)}</span><span class="pr"><b class="num">${money(h.price)}</b><span class="num cons">مستهلك ${money(h.consumer)}</span></span><span class="av num${h.avail<=5?' low':''}">${h.avail>0?('متاح '+h.avail):'غير متاح'}</span><span class="plus" aria-hidden="true">${h.avail>0?'＋':'•'}</span></button>`).join('');
   s.hidden=false;s.querySelectorAll('[data-h]').forEach(b=>b.onmousedown=e=>{e.preventDefault();add(hits[+b.dataset.h])});
   const a=s.querySelector('button.on');if(a)a.scrollIntoView({block:'nearest'})}
-async function find(q,exact){const n=++seq;const j=await api('/api/shop/search?q='+encodeURIComponent(q)+(exact?'&exact=1':''));return n===seq?j.items:null}
+async function find(q,exact){const ck=(exact?'!':'')+q;const c=qcache.get(ck);if(c&&Date.now()-c.at<8000)return c.items;const n=++seq;const j=await api('/api/shop/search?q='+encodeURIComponent(q)+(exact?'&exact=1':''));qcache.set(ck,{items:j.items,at:Date.now()});if(qcache.size>240)qcache.delete(qcache.keys().next().value);return n===seq?j.items:null}
 function bindSearch(){const p=$('#ps');
-  p.oninput=()=>{const q=p.value.trim();clearTimeout(timer);if(!q){seq++;closeSg();return}timer=setTimeout(async()=>{try{const r=await find(q);if(r&&p.value.trim()===q){hits=r;at=0;lastQ=q;paintSg()}}catch(e){toast(e.message,true)}},180)};
+  p.oninput=()=>{const q=p.value.trim();clearTimeout(timer);if(!q){seq++;closeSg();return}timer=setTimeout(async()=>{try{const r=await find(q);if(r&&p.value.trim()===q){hits=r;at=0;lastQ=q;paintSg()}}catch(e){toast(e.message,true)}},110)};
   p.onkeydown=async e=>{
     if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(!hits.length)return;e.preventDefault();at=(at+(e.key==='ArrowDown'?1:-1)+hits.length)%hits.length;paintSg();return}
     if(e.key==='Escape'){closeSg();return}
@@ -279,10 +280,10 @@ async function save(){
   busy=true;paintFoot();$('#save').textContent='جارٍ الحفظ…';
   try{
     const j=await api('/api/shop/invoices',{method:'POST',headers:H,body:JSON.stringify({key:KEY,invoices:list.map(i=>({lines:i.lines.map(l=>({pid:l.pid,qty:+l.qty,price:l.price}))}))})});
-    done=j.invoices;clearDraft();INV=[{lines:[]}];cur=0;KEY=rid();view();
+    done=j.invoices;clearDraft();qcache.clear();INV=[{lines:[]}];cur=0;KEY=rid();view();
   }catch(e){
-    const b=e.body||{};let moved=false;
-    (b.gone||[]).forEach(x=>{mark(x.pid,'الكمية دي مش متاحة — قللها أو احذف الصنف');moved=true});
+    const b=e.body||{};let moved=false;qcache.clear();
+    (b.gone||[]).forEach(x=>{INV.forEach(i=>i.lines.forEach(l=>{if(l.pid===x.pid){if(x.avail!=null)l.avail=x.avail;if(x.avail>0){if(+l.qty>x.avail)l.qty=x.avail;l.bad='المتاح دلوقتي '+x.avail+' بس — ظبطناها لك'}else{l.bad='خلص دلوقتي — احذفه من الأوردر'}}}));moved=true});
     (b.changed||[]).forEach(x=>{INV.forEach(i=>i.lines.forEach(l=>{if(l.pid===x.pid){l.price=x.price;l.consumer=x.consumer;l.bad='السعر اتغير — راجعه'}}));moved=true});
     if(moved){const t=INV.findIndex(i=>i.lines.some(l=>l.bad));if(t>=0)cur=t;KEY=rid();saveDraft();view()}
     toast(e.message,true)

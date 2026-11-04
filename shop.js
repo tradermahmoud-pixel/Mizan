@@ -21,6 +21,8 @@ const norm = s => digits(s).toLowerCase().replace(/[ً-ْـ]/g, '').replace(/[أ
 const todayCairo = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const addDays = (d, n) => { const t = new Date(d + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
 const oops = (status, error, extra) => Object.assign(new Error(error), { status, extra });
+// كاش بسيط للبحث (أسعار/رصيد/فهرس) — ثانية واحدة — علشان الكتابة السريعة ماتضربش قاعدة البيانات كل حرف. الحفظ بيستخدم بيانات لحظية مش الكاش ده
+let searchPD = { at: 0, pd: null };
 // بحث مرن: تحمّل غلطة إملائية واحدة لكل كلمة + مطابقة الحروف بالترتيب
 const near1 = (a, b) => {
   if (a === b) return true;
@@ -73,7 +75,9 @@ module.exports = function (app, { pool, auth, sessionUser, priceData, reserveNo,
       if (!req.tier) return res.json({ items: [] });
       const raw = digits(req.query.q).trim().slice(0, 80);
       if (!raw) return res.json({ items: [] });
-      const pd = await priceData(pool);
+      const t0 = Date.now();
+      let pd = (searchPD.pd && t0 - searchPD.at < 1000) ? searchPD.pd : null;
+      if (!pd) { pd = await priceData(pool); searchPD = { at: t0, pd }; }
       const q = norm(raw); const words = q.split(' ').filter(Boolean);
       const qc = q.replace(/ /g, '');
       const exact = String(req.query.exact || '') === '1';
@@ -133,7 +137,8 @@ module.exports = function (app, { pool, auth, sessionUser, priceData, reserveNo,
       for (const [pid, q] of Object.entries(wanted)) {
         const name = (pd.prods[pid] && pd.prods[pid].name) || '';
         const o = offer(pd, tier, pid);
-        if (!o || pd.stock(pid) + 0.0001 < q) { gone.set(pid, { pid, name }); continue; }
+        if (!o) { gone.set(pid, { pid, name, avail: 0 }); continue; }
+        if (pd.stock(pid) + 0.0001 < q) { gone.set(pid, { pid, name, avail: Math.max(0, Math.floor(pd.stock(pid))) }); continue; }
         // الكود اللي بيوصل من المتصفح مابيحددش السعر — لو اختلف بنبلّغه يراجع
         for (const inv of list) for (const l of inv.lines) if (l.pid === pid && Math.abs((+l.price || 0) - o.price) > 0.004) changed.set(pid, { pid, name, price: o.price, consumer: o.consumer });
       }
