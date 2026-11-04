@@ -123,6 +123,63 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
     } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
     finally { client.release(); }
   }
+
+  /* ---- علامة الربط على مستند ميزان نفسه (بتتزامن لكل الأجهزة) ----
+     orgaJob/orgaAt/orgaBy = اتبعت لأورجا · orgaOut = رقمه في أورجا (INVOICES_H_ID / ORDER_H_ID) · orgaErr = فشل
+     orgaGone = اتحذف من أورجا بعد ما اتكتب. السيرفر بس اللي بيكتب الحقول دي (server.js بيحميها من تعديل الأجهزة). */
+  const MZ_ID = /^[A-Za-z0-9_-]{4,64}$/;
+  async function markInv(id, patch) {
+    id = String(id || '');
+    if (!MZ_ID.test(id) || IDRX.invoices.test(id)) return null; // مستند ميزان بس — مش سجل جاي من أورجا
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const f = await client.query(`SELECT id FROM docs WHERE col='x_invoices' AND NOT deleted AND jsonb_typeof(data->'items'->$1::text)='object' LIMIT 1`, [id]);
+      if (!f.rows[0]) { await client.query('ROLLBACK'); return null; }
+      const cid = f.rows[0].id;
+      const cur = await client.query(`SELECT data FROM docs WHERE col='x_invoices' AND id=$1 AND NOT deleted FOR UPDATE`, [cid]);
+      const data = cur.rows[0] && cur.rows[0].data;
+      const it = data && isObj(data.items) ? data.items[id] : null;
+      if (!isObj(it)) { await client.query('ROLLBACK'); return null; }
+      const nv = { ...it }; let ch = false;
+      for (const [k, v] of Object.entries(patch)) {
+        if (v == null) { if (k in nv) { delete nv[k]; ch = true; } }
+        else if (nv[k] !== v) { nv[k] = v; ch = true; }
+      }
+      if (ch) await client.query(`UPDATE docs SET data=$2,seq=nextval('doc_seq'),updated_at=$3,updated_by='orga-out' WHERE col='x_invoices' AND id=$1`,
+        [cid, JSON.stringify({ ...data, items: { ...data.items, [id]: nv }, u: now() }), now()]);
+      await client.query('COMMIT');
+      return nv;
+    } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
+    finally { client.release(); }
+  }
+  const markSafe = (id, patch) => markInv(id, patch).catch(e => { console.error('orga mark', id, e.message); return null; });
+  // كل مستندات ميزان اللي ليها رقم في أورجا (لاكتشاف الحذف من أورجا)
+  async function linkedDocs(extraWhere = '', params = []) {
+    const { rows } = await pool.query(`SELECT e.k AS id, e.v->>'orgaOut' AS n, e.v->>'orgaOutAt' AS oat, (e.v ? 'orgaGone') AS gone, e.v->>'type' AS t
+      FROM docs d, jsonb_each(CASE WHEN jsonb_typeof(d.data->'items')='object' THEN d.data->'items' ELSE '{}'::jsonb END) e(k,v)
+      WHERE d.col='x_invoices' AND NOT d.deleted AND jsonb_typeof(e.v)='object' AND e.v ? 'orgaOut' AND e.v->>'type' IN ('sale','quote') ${extraWhere}`, params);
+    return rows.filter(r => !IDRX.invoices.test(r.id));
+  }
+  // تعليم الفواتير القديمة (اللي اتبعتت قبل التحديث ده) من الطابور — مرة واحدة
+  let backfilled = false;
+  async function backfillMarks() {
+    if (backfilled) return; backfilled = true;
+    try {
+      const flag = await pool.query(`SELECT 1 FROM kv WHERE k='orga:outmark:v1'`);
+      if (flag.rows.length) return; // اتعملت قبل كده
+      const { rows } = await pool.query(`SELECT v FROM kv WHERE k=$1`, [OUT_KV]);
+      const jobs = (rows[0] && rows[0].v && rows[0].v.jobs) || {};
+      for (const j of Object.values(jobs)) {
+        if (!j.poId || j.poId.includes('#')) continue;
+        const p = { orgaJob: j.id, orgaAt: j.createdAt || now(), orgaBy: j.createdBy || '' };
+        if (j.status === 'done' && j.orderHId) Object.assign(p, { orgaOut: +j.orderHId, orgaOutAt: j.doneAt || now() });
+        if (j.status === 'error') p.orgaErr = String(j.error || 'خطأ').slice(0, 120);
+        await markSafe(j.poId, p);
+      }
+      await pool.query(`INSERT INTO kv(k,v) VALUES('orga:outmark:v1',$1) ON CONFLICT (k) DO NOTHING`, [JSON.stringify({ at: now() })]);
+    } catch (e) { backfilled = false; console.error('orga backfill', e.message); }
+  }
   const posInt = x => { const n = Math.trunc(+x); return Number.isFinite(n) && n > 0 ? n : 0; };
   const nn = x => { const n = +x; return Number.isFinite(n) ? n : 0; };
   function cleanLines(arr) {
@@ -142,12 +199,19 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
     return out.length ? out : null;
   }
 
-  // إضافة فاتورة شراء للطابور (المالك/المدير)
+  // فاتورة ميزان (للتأكد قبل الإرسال ومنع التكرار)
+  async function getInv(id) {
+    id = String(id || '');
+    if (!MZ_ID.test(id) || IDRX.invoices.test(id)) return null;
+    const { rows } = await pool.query(`SELECT data->'items'->$1::text v FROM docs WHERE col='x_invoices' AND NOT deleted AND jsonb_typeof(data->'items'->$1::text)='object' LIMIT 1`, [id]);
+    return rows[0] ? rows[0].v : null;
+  }
+  // إضافة فاتورة للطابور (المالك/المدير): أمر توريد → شراء، عرض سعر أو فاتورة بيع من ميزان → بيع
   app.post('/api/orga/outbox/add', auth(false), writeOnly, async (req, res, next) => {
     try {
       const b = req.body || {};
       const account = posInt(b.account);
-      if (!account) return res.status(400).json({ error: 'مفيش كود مورّد في أورجا للطرف ده' });
+      if (!account) return res.status(400).json({ error: 'مفيش كود أورجا للطرف ده (العميل/المورّد)' });
       const lines = cleanLines(b.lines);
       if (!lines) return res.status(400).json({ error: 'سطور الفاتورة غير صالحة (لازم أصناف لها كود أورجا وكمية أكبر من صفر)' });
       const store = posInt(b.store) || 1;
@@ -155,17 +219,34 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       const poNo = String(b.poNo || '').slice(0, 40);
       const usersId = posInt(b.usersId) || 0;
       const kind = b.kind === 'sale' ? 'sale' : 'purchase';
+      const src = kind === 'purchase' ? 'porder' : (b.src === 'sale' ? 'sale' : 'quote');
       const accType = Number.isFinite(+b.accType) ? +b.accType : undefined;
       const note = String(b.note || '').replace(/[^\x20-\x7e]/g, '').trim().slice(0, 24); // مرجع فاتورة المورّد (يتكتب في NOTS_ بأورجا)
+      // المستند نفسه في ميزان (لو مش جزء من استلام مجمّع)
+      const whole = poId && !poId.includes('#');
+      const inv = whole ? await getInv(poId) : null;
+      if (src === 'sale') {
+        if (!poId || IDRX.invoices.test(poId)) return res.status(400).json({ error: 'الفاتورة دي جاية من أورجا أصلًا — مش محتاجة تتبعت' });
+        if (!inv) return res.status(409).json({ error: 'الفاتورة لسه ما وصلتش للسيرفر — استنى ثانيتين وجرّب تاني' });
+        if (inv.type !== 'sale') return res.status(400).json({ error: 'ده مش فاتورة بيع' });
+        if (inv.orgaUser != null || inv.orga != null) return res.status(400).json({ error: 'الفاتورة دي جاية من أورجا أصلًا — مش محتاجة تتبعت' });
+      }
+      const gone = !!(inv && inv.orgaGone);
+      // اتكتبت في أورجا قبل كده (حتى لو الطابور اتنضف بعد 7 أيام)
+      if (inv && +inv.orgaOut && !gone) return res.json({ ok: true, jobId: inv.orgaJob || '', dup: true, status: 'done', orderHId: +inv.orgaOut });
+      const by = req.user.name || req.user.username || '';
       const job = await withOut(st => {
-        // منع التكرار: لو نفس المستند لسه معلّق/شغال أو اتكتب خلاص في أورجا
-        if (poId) for (const j of Object.values(st.jobs)) if (j.poId === poId && (j.status === 'pending' || j.status === 'sending' || j.status === 'done')) return { dup: j.id, status: j.status, orderHId: j.orderHId || null };
+        // منع التكرار: لو نفس المستند لسه معلّق/شغال أو اتكتب خلاص في أورجا (إلا لو اتحذف من أورجا بعدها)
+        if (poId) for (const j of Object.values(st.jobs)) if (j.poId === poId && (j.status === 'pending' || j.status === 'sending' || (j.status === 'done' && !gone))) return { dup: j.id, status: j.status, orderHId: j.orderHId || null };
+        // محاولات فاشلة قديمة لنفس المستند ملهاش لازمة بعد الإرسال الجديد
+        if (poId) for (const [k, j] of Object.entries(st.jobs)) if (j.poId === poId && j.status === 'error') delete st.jobs[k];
         const id = 'j' + (++st.seq);
-        st.jobs[id] = { id, kind, poId, poNo, account, store, usersId, lines, mark: '[MZ#' + id + ']' + (note ? ' ' + note : ''), status: 'pending', createdAt: now(), createdBy: req.user.name || req.user.username || '' };
+        st.jobs[id] = { id, kind, src, poId, poNo, account, store, usersId, lines, mark: '[MZ#' + id + ']' + (note ? ' ' + note : ''), status: 'pending', createdAt: now(), createdBy: by };
         if (accType !== undefined) st.jobs[id].accType = accType;
         return { id };
       });
       if (job.dup) return res.json({ ok: true, jobId: job.dup, dup: true, status: job.status, orderHId: job.orderHId });
+      if (whole) await markSafe(poId, { orgaJob: job.id, orgaAt: now(), orgaBy: by, orgaErr: null, orgaGone: null, orgaOut: null, orgaOutAt: null });
       res.json({ ok: true, jobId: job.id });
     } catch (e) { next(e); }
   });
@@ -197,15 +278,20 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
     try {
       await touch(req, {});
       const results = Array.isArray(req.body && req.body.results) ? req.body.results : [];
+      const marks = [];
       await withOut(st => {
         for (const r of results) {
           const j = st.jobs[String(r.jobId)]; if (!j) continue;
           if (r.ok) { j.status = 'done'; j.orderHId = posInt(r.orderHId) || null; j.accHId = posInt(r.accHId) || null; j.doneAt = now(); delete j.error; }
           else { j.status = 'error'; j.error = String(r.error || 'خطأ').slice(0, 300); j.doneAt = now(); }
+          if (j.poId && !j.poId.includes('#')) marks.push([j.poId, r.ok
+            ? { orgaJob: j.id, orgaOut: j.orderHId, orgaOutAt: now(), orgaErr: null, orgaGone: null }
+            : { orgaJob: j.id, orgaErr: j.error.slice(0, 120) }]);
         }
-        // تنضيف: شيل اللي خلصوا بقالهم أكتر من 7 أيام
+        // تنضيف: شيل اللي خلصوا بقالهم أكتر من 7 أيام (الربط نفسه بيفضل متسجّل على المستند)
         for (const [id, j] of Object.entries(st.jobs)) if (j.status === 'done' && now() - (j.doneAt || 0) > 7 * 864e5) delete st.jobs[id];
       });
+      for (const [id, p] of marks) await markSafe(id, p);
       res.json({ ok: true });
     } catch (e) { next(e); }
   });
@@ -213,11 +299,12 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
   // الواجهة بتجيب حالة الطابور (المالك/المدير)
   app.get('/api/orga/outbox/status', auth(false), writeOnly, async (req, res, next) => {
     try {
+      backfillMarks().catch(() => {});
       const { rows } = await pool.query(`SELECT v FROM kv WHERE k=$1`, [OUT_KV]);
       const jobs = (rows[0] && rows[0].v && rows[0].v.jobs) || {};
       const byPo = {}; const list = [];
       for (const j of Object.values(jobs)) {
-        const o = { id: j.id, kind: j.kind || 'purchase', poId: j.poId, poNo: j.poNo, status: j.status, orderHId: j.orderHId || null, error: j.error || '', createdAt: j.createdAt, createdBy: j.createdBy, doneAt: j.doneAt || 0 };
+        const o = { id: j.id, kind: j.kind || 'purchase', src: j.src || (j.kind === 'sale' ? 'quote' : 'porder'), poId: j.poId, poNo: j.poNo, status: j.status, orderHId: j.orderHId || null, error: j.error || '', createdAt: j.createdAt, createdBy: j.createdBy, doneAt: j.doneAt || 0 };
         list.push(o); if (j.poId) byPo[j.poId] = o;
       }
       list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -229,8 +316,28 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
   app.post('/api/orga/outbox/retry', auth(false), writeOnly, async (req, res, next) => {
     try {
       const id = String(req.body && req.body.jobId || '');
-      await withOut(st => { const j = st.jobs[id]; if (j && j.status === 'error') { j.status = 'pending'; delete j.error; delete j.sentAt; } });
-      res.json({ ok: true });
+      const po = await withOut(st => { const j = st.jobs[id]; if (j && j.status === 'error') { j.status = 'pending'; delete j.error; delete j.sentAt; return j.poId; } return null; });
+      if (po && !po.includes('#')) await markSafe(po, { orgaErr: null });
+      res.json({ ok: true, retried: !!po });
+    } catch (e) { next(e); }
+  });
+
+  // إلغاء إرسال لسه ماتاخدش (مثلًا جهاز أورجا مقفول وعاوز تعدّل الفاتورة)
+  app.post('/api/orga/outbox/cancel', auth(false), writeOnly, async (req, res, next) => {
+    try {
+      const poId = String(req.body && req.body.poId || '').slice(0, 64);
+      if (!poId) return res.status(400).json({ error: 'bad poId' });
+      const r = await withOut(st => {
+        const js = Object.values(st.jobs).filter(j => j.poId === poId);
+        if (js.some(j => j.status === 'sending')) return 'busy';
+        if (js.some(j => j.status === 'done')) return 'done';
+        let n = 0; for (const j of js) if (j.status === 'pending' || j.status === 'error') { delete st.jobs[j.id]; n++; }
+        return n;
+      });
+      if (r === 'busy') return res.status(409).json({ error: 'جهاز أورجا بدأ يكتبها دلوقتي — استنى النتيجة' });
+      if (r === 'done') return res.status(409).json({ error: 'اتكتبت في أورجا خلاص — لو عاوز تلغيها احذفها من أورجا' });
+      if (!poId.includes('#')) await markSafe(poId, { orgaJob: null, orgaAt: null, orgaBy: null, orgaErr: null });
+      res.json({ ok: true, removed: r });
     } catch (e) { next(e); }
   });
 
@@ -308,6 +415,11 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       }
       if (cashEv.length) await notify.emit(client, cashEv, null);
       await client.query('COMMIT');
+      // فاتورة بيع اتبعتت من ميزان واتحذفت من أورجا → تتعلّم «اتحذفت من أورجا» (وميزان مايحسبهاش)
+      if (col === 'invoices') {
+        const gone = del.filter(id => /^os\d+$/.test(id)).map(id => id.slice(2));
+        if (gone.length) { try { for (const r of await linkedDocs(`AND e.v->>'orgaOut' = ANY($1::text[])`, [gone])) if (!r.gone) await markSafe(r.id, { orgaGone: now() }); } catch (e) { console.error('orga gone', e.message); } }
+      }
       const c = await getCfg(); const stats = c.stats || {}; const s0 = stats[col] || {};
       stats[col] = { at: now(), written: (s0.written || 0) + st.written, deleted: (s0.deleted || 0) + st.deleted, kept: st.kept };
       await touch(req, { stats, lastErr: '' });
@@ -325,6 +437,17 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       if (!b.ids.every(id => typeof id === 'string' && IDRX[b.col].test(id))) return res.status(400).json({ error: 'bad id' });
       await pool.query(`INSERT INTO kv(k,v) VALUES($1,$2) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v`, ['orga:manifest:' + b.col, JSON.stringify({ at: now(), ids: b.ids })]);
       await touch(req, {}); res.json({ ok: true, n: b.ids.length });
+      // المراجعة اليومية: أي فاتورة متصدّرة نسختها اختفت من أورجا (أو رجعت) — بعد ما يعدّي وقت كفاية على كتابتها
+      if (b.col === 'invoices' && b.ids.length) {
+        try {
+          const has = new Set(b.ids);
+          for (const r of await linkedDocs()) {
+            const inOrga = has.has('os' + r.n);
+            if (!inOrga && !r.gone && now() - (+r.oat || 0) > 30 * 60e3) await markSafe(r.id, { orgaGone: now() });
+            else if (inOrga && r.gone) await markSafe(r.id, { orgaGone: null });
+          }
+        } catch (e) { console.error('orga manifest marks', e.message); }
+      }
     } catch (e) { next(e); }
   });
 
@@ -360,7 +483,8 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
         let n = 0; left[col] = new Set();
         for (const r of rows) {
           const items = isObj(r.data && r.data.items) ? { ...r.data.items } : {}; let ch = false;
-          for (const [id, v] of Object.entries(items)) { if (!isObj(v)) continue; if (keep[col].has(id) || (col === 'invoices' && /^ov\d+$/.test(id))) { // ov = تقييم المخزون من أورجا وقت النقلة
+          for (const [id, v] of Object.entries(items)) { if (!isObj(v)) continue; if (keep[col].has(id) || (col === 'invoices' && /^ov\d+$/.test(id)) // ov = تقييم المخزون من أورجا وقت النقلة
+            || (col === 'invoices' && v.type === 'sale' && +v.orgaOut && keep.invoices.has('os' + v.orgaOut))) { // فاتورة بيع من ميزان اتكتبت في أورجا ونسختها موجودة هناك
             left[col].add(id); continue; } items[id] = null; ch = true; n++; }
           if (ch) await write('x_' + col, r.id, { ...r.data, items, u: now() });
         }

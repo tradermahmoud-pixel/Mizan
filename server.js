@@ -340,6 +340,15 @@ app.post('/api/write', auth(false), async (req, res, next) => {
             const ids = o.op === 'update' ? Object.keys(ni) : [...new Set([...Object.keys(bi), ...Object.keys(ni)])];
             await guardInvoices(client, req.user, ids.map(id => [id, bi[id], isObj(ni[id]) ? ni[id] : null]), gctx);
           }
+          // ربط أورجا (اتبعتت/رقمها في أورجا/…) السيرفر بس اللي بيكتبه — الأجهزة مابتقدرش تغيّره ولا تمسحه بنسخة قديمة
+          for (const [id, nv] of Object.entries(ni)) {
+            if (!isObj(nv)) continue; const ov = bi[id];
+            // فاتورة بيع اتبعتت لأورجا (أو بتتبعت): محتواها من أورجا — مفيش تعديل عليها من ميزان
+            if (isObj(ov) && ov.type === 'sale' && ((+ov.orgaOut && !ov.orgaGone) || (ov.orgaJob && !+ov.orgaOut && !ov.orgaErr)) && invSig(nv) !== invSig(ov))
+              throw Object.assign(new Error(`فاتورة البيع #${ov.no || ''} اتبعتت لأورجا — أي تعديل يتعمل في أورجا وهيوصل ميزان لوحده`), { status: 409 });
+            for (const k of ORGA_LINK) { if (isObj(ov) && ov[k] != null) nv[k] = ov[k]; else delete nv[k]; }
+            delete nv.orgaLive;
+          }
           if (view.costHidden) for (const [id, nv] of Object.entries(ni)) {
             const ov = bi[id];
             if ((isObj(nv) && PUR_TYPES.has(nv.type)) || (isObj(ov) && PUR_TYPES.has(ov.type))) throw Object.assign(new Error('ليس لديك صلاحية فواتير الشراء والجرد'), { status: 403 });
@@ -420,6 +429,7 @@ async function numberNewInvoices(db, items, base, chunkId, ctx) {
    أسعار فواتير الشراء والجرد والتسويات، تكلفة الأصناف، التكلفة اليدوية في سطور البيع، وسجل التعديلات.
    أسعار الشرايح (التكلفة + النسبة) بتتحسب على السيرفر وبتوصله كأسعار بيع جاهزة. */
 const PUR_TYPES = new Set(['purchase', 'pret', 'open', 'porder', 'adj', 'count', 'reval']);
+const ORGA_LINK = ['orgaJob', 'orgaAt', 'orgaBy', 'orgaOut', 'orgaOutAt', 'orgaErr', 'orgaGone'];
 const DOC_TYPES = new Set(['porder', 'quote']);
 const DEF_TIERS = [{ id: 't_cash', name: 'صيدلي نقدي', markup: 7, days: 0 }, { id: 't_vip', name: 'كبار العملاء', markup: 3, days: 0 }, { id: 't_credit', name: 'آجل 15 يوم', markup: 10, days: 15 }];
 async function viewOf(user, db) {
