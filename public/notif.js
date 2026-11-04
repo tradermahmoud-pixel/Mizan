@@ -54,10 +54,10 @@
     document.removeEventListener('pointerdown', once);
   });
 
-  let titleT = null; const baseTitle = document.title;
+  let titleT = null, titleT_msg = ''; const baseTitle = document.title;
   function flashTitle(on) {
     clearInterval(titleT); if (!on) { document.title = baseTitle; return; }
-    let k = 0; titleT = setInterval(() => { document.title = (k++ % 2) ? '💰 استلام نقدية!' : baseTitle; }, 900);
+    let k = 0; titleT = setInterval(() => { document.title = (k++ % 2) ? (titleT_msg || '💰 استلام نقدية!') : baseTitle; }, 900);
   }
 
   const pending = () => [...N.all.values()].filter(n => n && N.me && Array.isArray(n.to) && n.to.includes(N.me) && !(n.seen && n.seen[N.me]) && Date.now() - (n.at || 0) < 7 * 864e5).sort((a, b) => a.at - b.at);
@@ -69,7 +69,12 @@
     const n = list[0];
     if (box && N.shown === n.id) { const c = box.querySelector('.cnt'); if (c) c.textContent = list.length > 1 ? `فيه ${list.length - 1} تنبيه تاني` : ''; return; }
     N.shown = n.id; ensureCss();
-    const rows = [
+    const isShop = n.kind === 'shop'; const invs = isShop && Array.isArray(n.invs) ? n.invs : [];
+    const rows = isShop ? [
+      ['الصيدلية', esc(n.party || n.by || '—')],
+      [invs.length > 1 ? 'الفواتير' : 'رقم الفاتورة', '<span class="num">' + esc(n.no) + '</span>'],
+      ['الوقت', esc(tm(n.at))],
+    ] : [
       ['استلمها', esc(n.by || '—')],
       ['الخزينة', esc(n.safeName || n.safe)],
       ['العملية', esc(n.what || '')],
@@ -80,18 +85,19 @@
       n.src === 'orga' ? ['المصدر', 'أورجا'] : null,
     ].filter(Boolean);
     const html = `<div class="box" role="alertdialog" aria-live="assertive">
-      <div class="hd"><div class="ic">🔔</div><div><b>${n.test ? 'تجربة — ' : ''}استلام نقدية في ${esc(n.safeName || 'الخزينة')}</b><span>تنبيه فوري لكل عملية استلام فلوس</span></div></div>
+      <div class="hd"><div class="ic">🔔</div><div><b>${isShop ? 'فاتورة صيدلية جديدة' : (n.test ? 'تجربة — ' : '') + 'استلام نقدية في ' + esc(n.safeName || 'الخزينة')}</b><span>${isShop ? 'مستنية تبعتها لأورجا وتطبعها' : 'تنبيه فوري لكل عملية استلام فلوس'}</span></div></div>
       <div class="amt">${money(n.amount)} <small>ج.م</small></div>
       <table><tbody>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</tbody></table>
-      <div class="ft"><button class="ok" id="mzNok">تمام، شفتها ✓</button>${n.ref && !n.test ? '<button class="lnk" id="mzNgo">افتح العملية</button>' : ''}<span class="sp"></span><span class="cnt">${list.length > 1 ? `فيه ${list.length - 1} تنبيه تاني` : ''}</span></div></div>`;
+      <div class="ft"><button class="ok" id="mzNok">تمام، شفتها ✓</button>${isShop ? invs.map(x => `<button class="lnk" data-inv="${esc(x.id)}">افتح #${esc(x.no)}</button>`).join('') : n.ref && !n.test ? '<button class="lnk" id="mzNgo">افتح العملية</button>' : ''}<span class="sp"></span><span class="cnt">${list.length > 1 ? `فيه ${list.length - 1} تنبيه تاني` : ''}</span></div></div>`;
     let el = box; if (!el) { el = document.createElement('div'); el.id = 'mzN'; document.body.appendChild(el); }
     el.innerHTML = html;
     el.querySelector('#mzNok').onclick = () => seen(n.id);
+    el.querySelectorAll('[data-inv]').forEach(b => { b.onclick = () => { seen(n.id); location.hash = '#/inv/' + b.dataset.inv; }; });
     const go = el.querySelector('#mzNgo');
     if (go) go.onclick = () => { seen(n.id); location.hash = n.ref.c === 'invoices' ? '#/sale/' + n.ref.id : '#/cash'; };
     if (!N.told.has(n.id)) {
-      N.told.add(n.id); chime(); flashTitle(true);
-      try { if (document.hidden && window.Notification && Notification.permission === 'granted') new Notification('💰 استلام نقدية — ' + money(n.amount) + ' ج.م', { body: `${n.by || ''} • ${n.safeName || ''}${n.party ? ' • ' + n.party : ''}`, tag: n.id, requireInteraction: true }); } catch (e) {}
+      N.told.add(n.id); chime(); titleT_msg = isShop ? '🧾 فاتورة صيدلية!' : ''; flashTitle(true);
+      try { if (document.hidden && window.Notification && Notification.permission === 'granted') new Notification((isShop ? '🧾 فاتورة صيدلية — ' : '💰 استلام نقدية — ') + money(n.amount) + ' ج.م', { body: isShop ? `${n.party || ''} • #${n.no}` : `${n.by || ''} • ${n.safeName || ''}${n.party ? ' • ' + n.party : ''}`, tag: n.id, requireInteraction: true }); } catch (e) {}
     }
   }
   async function seen(id) {

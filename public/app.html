@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon.svg">
-<script src="/shim.js?v=4"></script>
+<script src="/shim.js?v=5"></script>
 <script src="/vendor/barcode/polyfill.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -469,7 +469,7 @@ const storeName=id=>stores().find(s=>s.id===(id||MAIN))?.name||'—';
 const pname=id=>G('products',id)?.name||'صنف محذوف';
 const partyName=id=>G('parties',id)?.name||'';
 const empName=id=>G('employees',id)?.name||'';
-const whoName=id=>{if(!id)return '';if(id===S.me.id)return S.me.name||'أنت';const su=window.MZ&&MZ.users&&MZ.users.find(u=>u.id===id);return su?su.name:(S.names[id]||'مستخدم')};
+const whoName=id=>{if(!id)return '';if(id===S.me.id)return S.me.name||'أنت';const su=window.MZ&&(MZ.allUsers||MZ.users||[]).find(u=>u.id===id);return su?su.name:(S.names[id]||'مستخدم')};
 
 /* ============ permissions ============ */
 const PERMS=[['sell','البيع والمرتجعات وعروض الأسعار'],['buy','الشراء وأوامر التوريد والتحويلات'],['editPrice','تغيير سعر البيع في الفاتورة'],['editInv','تعديل وحذف الفواتير المحفوظة وشبكة الحركات'],['seeCost','رؤية التكلفة والأرباح'],['products','الأصناف والأسعار والاستيراد والباركود'],['parties','العملاء والموردون وكشوف الحساب'],['cash','الخزينة والشيكات'],['reports','التقارير ولوحة الأرقام'],['hr','الموظفون والرواتب وتعديل الحضور'],['accounting','المحاسبة: شجرة الحسابات والقيود والقوائم المالية'],['crm','CRM الصيدليات: متابعة الصيدليات المتوزعة عليه'],['crmManage','CRM الصيدليات: التوزيع وإدارة الفريق وكل البيانات'],['prep','التحضير والطباعة: طباعة فواتير السيلز وتسجيل التحضير'],['delivery','التوصيل: مندوب بيشوف خط سيره ويسجّل التسليم'],['deliveryManage','التوصيل: عمل خطوط السير وتتبّع المناديب']];
@@ -1990,7 +1990,9 @@ function partyModal(id,kind,after){
    <label class="f">الاسم *<input class="in" id="q_n" value="${esc(p.name)}"></label><label class="f">التليفون<input class="in" id="q_p" inputmode="tel" value="${esc(p.phone||'')}"></label>
    <label class="f">العنوان<input class="in" id="q_a" value="${esc(p.address||'')}"></label>${kind==='customer'?`<label class="f">شريحة الأسعار<select class="in" id="q_tr">${opts(tiers().map(t=>[t.id,`${t.name} (التكلفة + ${t.markup}%)`]),p.tier||'','بدون شريحة — سعر المستهلك')}</select></label>`:''}<label class="f">رصيد افتتاحي (${kind==='customer'?'عليه لنا':'له علينا'})<input class="in n" id="q_o" inputmode="decimal" value="${p.openBalance||0}"></label></div>
    ${id&&window.MZ_DLV?`<div class="row small" style="margin-top:10px;gap:8px">📍 اللوكيشن: ${p.loc&&p.loc.lat?`<b>محدد</b> <a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${p.loc.lat},${p.loc.lng}">فتح في الخريطة</a>`:'<span class="muted">مش محدد</span>'}<button class="btn s" type="button" id="q_loc">${p.loc&&p.loc.lat?'تغيير':'تحديد'}</button></div>`:''}
+   ${id&&kind==='customer'&&S.isAdmin&&window.MZ_SHOP?'<div id="q_shop" class="card" style="margin-top:12px;padding:12px"></div>':''}
    <div class="row" style="margin-top:18px"><button class="btn p" id="q_s" ${S.ro?'disabled':''}>حفظ</button><button class="btn" data-close>إلغاء</button></div>`);
+  {const qs=$('#q_shop');if(qs)MZ_SHOP.card(qs,id,p)}
   {const ql=$('#q_loc');if(ql)ql.onclick=()=>MZ_DLV.locModal(id,()=>partyModal(id,kind,after))}
   $('#q_s').onclick=async()=>{const name=$('#q_n').value.trim();if(!name){toast('اكتب الاسم','err');return}const nid=id||uid();
     const n={...p,kind,name,tier:($('#q_tr')||{}).value||'',phone:$('#q_p').value.trim(),address:$('#q_a').value.trim(),openBalance:numIn($('#q_o').value)};if(id)await audit('party',id,'الرصيد الافتتاحي',p.openBalance,n.openBalance,p.name);
@@ -2983,7 +2985,8 @@ init();
 <script src="/delivery.js?v=7"></script>
 <script src="/flow.js?v=2"></script>
 <script src="/orgalink.js?v=2"></script>
-<script src="/notif.js?v=2"></script>
+<script src="/notif.js?v=3"></script>
+<script src="/shopadmin.js?v=1"></script>
 <script src="/scan.js?v=1"></script>
 <script src="/countloc.js?v=1"></script>
 <script src="/pdfshare.js?v=1"></script>

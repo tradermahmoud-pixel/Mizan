@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>فاتورة جديدة — ميزان</title>
+<link rel="icon" href="/icon.svg">
+<link rel="stylesheet" href="/theme.css?v=4">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--display);min-height:100dvh;padding-bottom:96px}
+button,input{font:inherit;color:inherit}
+.top{background:var(--side);color:var(--side-ink);display:flex;align-items:center;gap:12px;padding:12px 16px}
+.top b{font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.top .sp{flex:1}
+.top button{background:transparent;border:1px solid var(--side-muted);color:var(--side-ink);border-radius:9px;padding:6px 12px;cursor:pointer;flex:none}
+.wrap{max-width:900px;margin:0 auto;padding:16px}
+.tabs{display:flex;gap:8px;overflow-x:auto;padding-bottom:10px}
+.tab{flex:none;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 14px;cursor:pointer}
+.tab.on{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:700}
+.tab .num,.num{font-variant-numeric:tabular-nums;direction:ltr;unicode-bidi:isolate}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh1)}
+.find{position:relative;margin-bottom:12px}
+.find input{width:100%;background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:13px 14px;outline:0}
+.find input:focus{border-color:var(--brand)}
+.sugg{position:absolute;inset-inline:0;top:calc(100% + 6px);z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh2);max-height:340px;overflow:auto}
+.sugg button{display:flex;width:100%;gap:12px;align-items:center;text-align:start;background:none;border:0;border-bottom:1px solid var(--line2);padding:10px 14px;cursor:pointer}
+.sugg button:last-child{border-bottom:0}
+.sugg button.on,.sugg button:hover{background:var(--brand-soft)}
+.sugg .nm{flex:1;min-width:0;font-weight:600}
+.sugg .pr{flex:none;text-align:end;font-size:13px;color:var(--muted)}
+.sugg .pr b{display:block;font-size:15px;color:var(--brand-ink)}
+.none{padding:14px;color:var(--muted);text-align:center}
+table{width:100%;border-collapse:collapse}
+th{background:var(--surface2);color:var(--muted);font-size:13px;font-weight:600;text-align:start;padding:9px 10px;border-bottom:1px solid var(--line)}
+td{padding:8px 10px;border-bottom:1px solid var(--line2);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+th.n,td.n{text-align:end}
+td.idx{color:var(--muted);width:32px}
+tr.bad td{background:var(--danger-soft)}
+tr.bad .why{display:block;color:var(--danger);font-size:12px;font-weight:600}
+.qty{width:76px;text-align:center;background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:7px 4px;direction:ltr}
+.x{background:none;border:0;color:var(--danger);cursor:pointer;font-size:18px;line-height:1;padding:6px 8px}
+.empty{padding:34px 16px;text-align:center;color:var(--muted)}
+.foot{position:fixed;inset-inline:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -6px 20px rgba(10,36,32,.08);padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
+.foot>div{max-width:868px;margin:0 auto;display:flex;align-items:center;gap:12px}
+.foot .t{flex:1;min-width:0;font-size:13px;color:var(--muted)}
+.foot .t b{display:block;font-size:20px;color:var(--ink);text-align:right}
+.btn{border:0;border-radius:10px;background:var(--brand);color:#fff;font-weight:700;padding:12px 26px;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.o{background:var(--surface);color:var(--ink);border:1px solid var(--line)}
+.toast{position:fixed;top:14px;inset-inline:16px;margin:auto;max-width:520px;z-index:60;background:var(--side);color:var(--side-ink);border-radius:12px;padding:11px 14px;text-align:center;box-shadow:var(--sh2)}
+.toast.err{background:var(--danger);color:#fff}
+.ov{position:fixed;inset:0;z-index:50;background:rgba(6,24,20,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.dlg{width:min(440px,100%);background:var(--surface);border-radius:var(--r-l);padding:20px;box-shadow:var(--sh3)}
+.dlg h2{margin:0 0 8px;font-size:18px}
+.dlg p{margin:0 0 16px;color:var(--muted)}
+.dlg .row{display:flex;gap:8px;justify-content:flex-end}
+.done{padding:26px 18px;text-align:center}
+.done h2{margin:0 0 6px;color:var(--ok)}
+.done ul{list-style:none;margin:16px 0;padding:0;text-align:start}
+.done li{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line2)}
+.msg{padding:40px 18px;text-align:center}
+@media(max-width:640px){
+  thead{display:none}
+  table,tbody,tr,td{display:block;width:100%}
+  tr{display:grid;grid-template-columns:1fr auto auto;gap:4px 12px;padding:12px;border-bottom:1px solid var(--line2);align-items:center}
+  tr:last-child{border-bottom:0}
+  td{padding:0;border:0}
+  td.idx{display:none}
+  td.nm{grid-column:1/3;font-weight:700}
+  td.rm{grid-column:3;grid-row:1;text-align:end}
+  td.c,td.p,td.s{text-align:start}
+  td.c::before,td.p::before,td.s::before{content:attr(data-l);display:block;font-size:12px;color:var(--muted)}
+  td.q{grid-column:3;grid-row:2/4;text-align:end}
+  td.c{grid-column:1;grid-row:2}td.p{grid-column:2;grid-row:2}td.s{grid-column:1/3;grid-row:3;font-weight:700}
+}
+</style>
+</head>
+<body>
+<header class="top"><b id="who">ميزان</b><span class="sp"></span><button id="out" type="button">خروج</button></header>
+<div class="wrap" id="view"><div class="msg">جارٍ التحميل…</div></div>
+<div class="foot" id="foot" hidden><div><div class="t"><span id="fl"></span><b class="num" id="ft">0</b></div><button class="btn" id="save" type="button">حفظ</button></div></div>
+<script src="/vendor/barcode/polyfill.js"></script>
+<script>
+(function(){'use strict';
+const H={'Content-Type':'application/json','X-Mizan':'1'};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>(+n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const rid=()=>{const a=new Uint8Array(16);crypto.getRandomValues(a);return [...a].map(x=>x.toString(16).padStart(2,'0')).join('')};
+let ME=null,MAX=10,INV=[{lines:[]}],cur=0,KEY=rid(),busy=false,done=null;
+let hits=[],at=0,lastQ='',timer=null,seq=0;
+
+async function api(url,opts){
+  let r;try{r=await fetch(url,Object.assign({credentials:'same-origin'},opts||{}))}catch(e){throw Object.assign(new Error('السيرفر مش بيرد — استنى دقيقة وحاول تاني'),{net:1})}
+  if(r.status===401){location.href='/login';throw new Error('login')}
+  if(r.status>=502&&r.status<=504)throw Object.assign(new Error('السيرفر بيصحى — استنى دقيقة وحاول تاني'),{net:1});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw Object.assign(new Error(j.error||'حصلت مشكلة — حاول تاني'),{body:j});
+  return j}
+let toastT=null;function toast(m,bad){let t=$('#toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.className='toast'+(bad?' err':'');t.textContent=m;t.setAttribute('role','alert');clearTimeout(toastT);toastT=setTimeout(()=>t.remove(),bad?5000:2800)}
+
+/* المسودة بتفضل لو الصفحة اتقفلت أو النت قطع */
+const DK=()=>'mz.shop.'+(ME&&ME.name||'');
+function saveDraft(){try{localStorage.setItem(DK(),JSON.stringify({INV,cur}))}catch(e){}}
+function loadDraft(){try{const d=JSON.parse(localStorage.getItem(DK())||'null');if(d&&Array.isArray(d.INV)&&d.INV.length){INV=d.INV;cur=Math.min(+d.cur||0,INV.length-1)}}catch(e){}}
+function clearDraft(){try{localStorage.removeItem(DK())}catch(e){}}
+function touched(){KEY=rid();saveDraft();paintFoot()}
+
+const lineTotal=l=>(+l.qty||0)*(+l.price||0);
+const invTotal=i=>i.lines.reduce((s,l)=>s+lineTotal(l),0);
+const filled=()=>INV.filter(i=>i.lines.length);
+
+function view(){
+  if(done)return viewDone();
+  const inv=INV[cur];
+  $('#view').innerHTML=`${INV.length>1?`<div class="tabs" role="tablist">${INV.map((x,i)=>`<button class="tab ${i===cur?'on':''}" data-tab="${i}" role="tab" type="button">فاتورة ${i+1} · <span class="num">${x.lines.length}/${MAX}</span></button>`).join('')}</div>`:''}
+  <div class="find"><input id="ps" placeholder="اكتب اسم الصنف أو امسح الباركود" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="بحث عن صنف"><div class="sugg" id="sg" hidden></div></div>
+  <div class="card" id="tb"></div>`;
+  $('#view').querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{cur=+b.dataset.tab;saveDraft();view();$('#ps').focus()});
+  paintLines();bindSearch();paintFoot()}
+function paintLines(){
+  const inv=INV[cur];const el=$('#tb');
+  if(!inv.lines.length){el.innerHTML='<div class="empty">ضيف أول صنف من خانة البحث</div>';return}
+  el.innerHTML=`<table><thead><tr><th>#</th><th>الصنف</th><th class="n">سعر المستهلك</th><th class="n">سعرك</th><th class="n">الكمية</th><th class="n">الإجمالي</th><th></th></tr></thead><tbody>
+  ${inv.lines.map((l,i)=>`<tr class="${l.bad?'bad':''}"><td class="idx num">${i+1}</td><td class="nm">${esc(l.name)}${l.bad?`<span class="why">${esc(l.bad)}</span>`:''}</td>
+   <td class="n c" data-l="سعر المستهلك"><span class="num">${money(l.consumer)}</span></td><td class="n p" data-l="سعرك"><span class="num">${money(l.price)}</span></td>
+   <td class="n q"><input class="qty" data-q="${i}" inputmode="numeric" value="${esc(l.qty)}" aria-label="الكمية"></td>
+   <td class="n s" data-l="الإجمالي"><span class="num" data-s="${i}">${money(lineTotal(l))}</span></td>
+   <td class="rm"><button class="x" data-x="${i}" type="button" aria-label="حذف الصنف">×</button></td></tr>`).join('')}</tbody></table>`;
+  el.querySelectorAll('[data-q]').forEach(q=>{const i=+q.dataset.q;
+    q.oninput=()=>{const v=String(q.value).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/\D/g,'');q.value=v;const l=INV[cur].lines[i];l.qty=v===''?'':+v;delete l.bad;el.querySelector(`[data-s="${i}"]`).textContent=money(lineTotal(l));touched()};
+    q.onfocus=()=>q.select();
+    q.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#ps').focus()}}});
+  el.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{INV[cur].lines.splice(+b.dataset.x,1);
+    if(!INV[cur].lines.length&&INV.length>1){INV.splice(cur,1);cur=Math.min(cur,INV.length-1);touched();view();return}
+    touched();paintLines();paintTabs()})}
+function paintTabs(){document.querySelectorAll('[data-tab]').forEach((b,i)=>{const s=b.querySelector('.num');if(s&&INV[i])s.textContent=INV[i].lines.length+'/'+MAX})}
+function paintFoot(){const f=$('#foot');const n=filled();f.hidden=!!done||!n.length;$('#fl').textContent=n.length>1?`إجمالي ${n.length} فواتير`:'إجمالي الفاتورة';$('#ft').textContent=money(n.reduce((s,i)=>s+invTotal(i),0));const b=$('#save');b.textContent=n.length>1?'حفظ الفواتير':'حفظ';b.disabled=busy}
+
+function add(it){
+  for(let i=0;i<INV.length;i++){const k=INV[i].lines.findIndex(l=>l.pid===it.id);if(k>=0){if(i!==cur){cur=i;view()}const q=document.querySelector(`[data-q="${k}"]`);if(q){q.focus()}toast('الصنف موجود في الفاتورة — عدّل كميته');return}}
+  let moved=false;
+  if(INV[cur].lines.length>=MAX){let t=INV.findIndex(x=>x.lines.length<MAX);if(t<0){INV.push({lines:[]});t=INV.length-1}cur=t;moved=true}
+  INV[cur].lines.push({pid:it.id,name:it.name,consumer:it.consumer,price:it.price,qty:1});
+  touched();
+  if(moved){view();toast(`الفاتورة كملت ${MAX} أصناف — الصنف نزل في فاتورة ${cur+1}`)}else{const hadTabs=!!document.querySelector('.tabs');if(hadTabs)paintTabs();paintLines();$('#ps').value=''}
+  closeSg();const q=document.querySelector(`[data-q="${INV[cur].lines.length-1}"]`);if(q){q.focus()}}
+
+function closeSg(){const s=$('#sg');if(s)s.hidden=true;hits=[];at=0}
+function paintSg(){const s=$('#sg');if(!s)return;
+  if(!hits.length){s.innerHTML='<div class="none">مفيش صنف متاح بالاسم ده</div>';s.hidden=false;return}
+  s.innerHTML=hits.map((h,i)=>`<button type="button" class="${i===at?'on':''}" data-h="${i}"><span class="nm">${esc(h.name)}</span><span class="pr">مستهلك <span class="num">${money(h.consumer)}</span><b class="num">${money(h.price)}</b></span></button>`).join('');
+  s.hidden=false;s.querySelectorAll('[data-h]').forEach(b=>b.onmousedown=e=>{e.preventDefault();add(hits[+b.dataset.h])})}
+async function find(q,exact){const n=++seq;const j=await api('/api/shop/search?q='+encodeURIComponent(q)+(exact?'&exact=1':''));return n===seq?j.items:null}
+function bindSearch(){const p=$('#ps');
+  p.oninput=()=>{const q=p.value.trim();clearTimeout(timer);if(!q){seq++;closeSg();return}timer=setTimeout(async()=>{try{const r=await find(q);if(r&&p.value.trim()===q){hits=r;at=0;lastQ=q;paintSg()}}catch(e){toast(e.message,true)}},180)};
+  p.onkeydown=async e=>{
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(!hits.length)return;e.preventDefault();at=(at+(e.key==='ArrowDown'?1:-1)+hits.length)%hits.length;paintSg();return}
+    if(e.key==='Escape'){closeSg();return}
+    if(e.key!=='Enter')return;e.preventDefault();const q=p.value.trim();if(!q)return;clearTimeout(timer);
+    if(hits.length&&lastQ===q){add(hits[at]);return}
+    try{const ex=await find(q,true);if(ex&&ex.length===1){add(ex[0]);return}const r=await find(q);if(r){hits=r;at=0;lastQ=q;if(r.length===1)add(r[0]);else paintSg()}}catch(err){toast(err.message,true)}};
+  p.onblur=()=>setTimeout(closeSg,150)}
+
+function ask(n,total){return new Promise(res=>{const d=document.createElement('div');d.className='ov';
+  d.innerHTML=`<div class="dlg" role="dialog" aria-modal="true"><h2>تأكيد الحفظ</h2><p>${n>1?`هيتحفظ ${n} فواتير`:'هتتحفظ الفاتورة'} بإجمالي <b class="num">${money(total)}</b>، ومش هتقدر تعدلها بعد الحفظ.</p><div class="row"><button class="btn o" id="dNo" type="button">رجوع</button><button class="btn" id="dOk" type="button">تأكيد الحفظ</button></div></div>`;
+  document.body.appendChild(d);const end=v=>{d.remove();res(v)};d.querySelector('#dNo').onclick=()=>end(false);d.querySelector('#dOk').onclick=()=>end(true);d.querySelector('#dOk').focus()})}
+
+function mark(pid,msg){INV.forEach(i=>i.lines.forEach(l=>{if(l.pid===pid)l.bad=msg}))}
+async function save(){
+  if(busy)return;const list=filled();if(!list.length)return;
+  const badQ=list.find(i=>i.lines.some(l=>!(+l.qty>=1)));
+  if(badQ){cur=INV.indexOf(badQ);view();toast('اكتب كمية لكل صنف',true);return}
+  if(!(await ask(list.length,list.reduce((s,i)=>s+invTotal(i),0))))return;
+  busy=true;paintFoot();$('#save').textContent='جارٍ الحفظ…';
+  try{
+    const j=await api('/api/shop/invoices',{method:'POST',headers:H,body:JSON.stringify({key:KEY,invoices:list.map(i=>({lines:i.lines.map(l=>({pid:l.pid,qty:+l.qty,price:l.price}))}))})});
+    done=j.invoices;clearDraft();INV=[{lines:[]}];cur=0;KEY=rid();view();
+  }catch(e){
+    const b=e.body||{};let moved=false;
+    (b.gone||[]).forEach(x=>{mark(x.pid,'الكمية دي مش متاحة — قللها أو احذف الصنف');moved=true});
+    (b.changed||[]).forEach(x=>{INV.forEach(i=>i.lines.forEach(l=>{if(l.pid===x.pid){l.price=x.price;l.consumer=x.consumer;l.bad='السعر اتغير — راجعه'}}));moved=true});
+    if(moved){const t=INV.findIndex(i=>i.lines.some(l=>l.bad));if(t>=0)cur=t;KEY=rid();saveDraft();view()}
+    toast(e.message,true)
+  }finally{busy=false;paintFoot()}}
+
+function viewDone(){const s=done.reduce((a,x)=>a+x.total,0);
+  $('#view').innerHTML=`<div class="card done"><h2>تم الحفظ ✓</h2><p style="margin:0;color:var(--muted)">الشركة هتراجع ${done.length>1?'الفواتير':'الفاتورة'} وتجهزها لك.</p>
+  <ul>${done.map(x=>`<li><span>فاتورة رقم <b class="num">${esc(x.no)}</b> · ${esc(x.lines)} صنف</span><b class="num">${money(x.total)}</b></li>`).join('')}${done.length>1?`<li><b>الإجمالي</b><b class="num">${money(s)}</b></li>`:''}</ul>
+  <button class="btn" id="again" type="button">فاتورة جديدة</button></div>`;
+  $('#again').onclick=()=>{done=null;view();$('#ps').focus()};paintFoot()}
+
+$('#out').onclick=async()=>{try{await fetch('/api/logout',{method:'POST',credentials:'same-origin',headers:H})}catch(e){}location.href='/login'};
+$('#save').onclick=save;
+(async function boot(){
+  try{ME=await api('/api/shop/me')}catch(e){$('#view').innerHTML=`<div class="card msg"><p>${esc(e.message)}</p><button class="btn" type="button" onclick="location.reload()">حاول تاني</button></div>`;return}
+  MAX=ME.maxLines||10;$('#who').textContent=ME.name;
+  if(!ME.ready){$('#view').innerHTML='<div class="card msg"><b>حسابك لسه مش جاهز للشراء</b><p style="color:var(--muted)">كلم الشركة علشان تحدد لك شريحة الأسعار.</p></div>';return}
+  loadDraft();view();$('#ps').focus();
+  const s=document.createElement('script');s.src='/scan.js?v=1';document.body.appendChild(s);
+})();
+})();
+</script>
+</body>
+</html>
