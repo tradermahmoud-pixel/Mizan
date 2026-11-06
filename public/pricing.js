@@ -69,7 +69,7 @@
         <button class="btn" id="prXls" ${list.length ? '' : 'disabled'}>📊 تصدير Excel</button>
         ${canOrgaWrite() && !S.ro ? `<button class="btn s" id="prTest" ${list.length ? '' : 'disabled'}>🧪 جرّب أول 3</button><button class="btn g" id="prSend" ${list.length ? '' : 'disabled'}>⬆ إرسال الكل لأورجا</button><button class="btn s" id="prStat">حالة الإرسال</button>` : ''}
       </div>
-      <div class="tw"><table class="t"><thead><tr><th>الكود</th><th>الصنف</th><th class="n">التكلفة</th><th class="n">${PR.base === 'cost' ? 'التكلفة' : 'الجمهور'}</th>${TIERS.map(t => `<th class="n">${t.label}</th>`).join('')}</tr></thead><tbody id="prBody">
+      <div class="tw"><table class="t"><thead><tr><th>الكود</th><th>الصنف</th><th class="n">التكلفة</th><th class="n">سعر الجمهور</th>${TIERS.map(t => `<th class="n">${t.label}</th>`).join('')}</tr></thead><tbody id="prBody">
         ${list.length ? list.slice(0, 500).map(p => prRow(p)).join('') : `<tr><td colspan="${4 + TIERS.length}"><div class="empty" style="padding:30px"><b>اختر فاتورة شراء الأول</b>هتظهر أصنافها هنا للتسعير</div></td></tr>`}
       </tbody></table></div>
       ${list.length > 500 ? `<p class="small muted">بيظهر أول 500 صنف — التصدير بيشمل الكل.</p>` : ''}
@@ -135,9 +135,9 @@
   }
 
   function prRow(p) {
-    const base = baseOf(p), cost = avgCost(p.id) || +p.cost || 0;
+    const cost = avgCost(p.id) || +p.cost || 0, cons = consOf(p) || +p.price || 0;
     return `<tr><td class="num">${esc(p.code || '')}</td><td><b>${esc(p.name)}</b></td>
-      <td class="n num">${fmt(cost)}</td><td class="n num">${fmt(base)}</td>
+      <td class="n num">${fmt(cost)}</td><td class="n num">${fmt(cons)}</td>
       ${TIERS.map(t => `<td class="n num" data-pc="${p.id}:${t.n}"><b>${fmt(tierPrice(p, t.n))}</b></td>`).join('')}</tr>`;
   }
   function repaint() {
@@ -146,8 +146,8 @@
 
   function exportXls() {
     const list = chosenProds(); if (!list.length) { toast('مفيش أصناف', 'err'); return; }
-    const head = ['كود أورجا', 'الصنف', 'التكلفة', PR.base === 'cost' ? 'التكلفة (أساس)' : 'سعر الجمهور', ...TIERS.map(t => t.label + ' (' + t.col + ')')];
-    const rows = list.map(p => [p.code || p.orga || '', p.name, +(avgCost(p.id) || +p.cost || 0).toFixed(2), +baseOf(p).toFixed(2), ...TIERS.map(t => tierPrice(p, t.n))]);
+    const head = ['كود أورجا', 'الصنف', 'التكلفة', 'سعر الجمهور', ...TIERS.map(t => t.label + ' (' + t.col + ')')];
+    const rows = list.map(p => [p.code || p.orga || '', p.name, +(avgCost(p.id) || +p.cost || 0).toFixed(2), +(consOf(p) || +p.price || 0).toFixed(2), ...TIERS.map(t => tierPrice(p, t.n))]);
     xlsxOut('تسعير_الشرائح_' + today() + '.xlsx', [head, ...rows], 'التسعير');
     toast('اتصدّر ملف التسعير', 'ok');
   }
