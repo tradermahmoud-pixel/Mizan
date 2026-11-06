@@ -396,7 +396,7 @@ async function putMany(items,onp){
 }
 const LC={};
 const L=c=>{const k=LC[c];if(k&&k.v===(CV[c]||0))return k.a.slice();let a=[...S.data[c].entries()].map(([id,v])=>({id,...v}));if(c==='invoices')a=orgaMergeList(a);LC[c]={v:(CV[c]||0),a};return a.slice()};
-const G=(c,id)=>{if(!id)return undefined;const v=S.data[c].get(id);return c==='invoices'&&v&&v.type==='sale'&&+v.orgaOut?orgaView(v):v};
+const G=(c,id)=>{if(!id)return undefined;const v=S.data[c].get(id);return c==='invoices'&&orgaTracked(v)?orgaView(v):v};
 const GR=id=>id?S.data.invoices.get(id):undefined; // الفاتورة زي ما هي متسجّلة في ميزان (من غير محتوى أورجا)
 /* ===== فاتورة بيع من ميزان اتصدرت لأورجا =====
    أول ما نسختها في أورجا (os<رقم>) توصل بالمزامنة، الحسابات والتقارير بتاخد محتواها من أورجا (الأصناف/الكميات/الأسعار/الخصم/
@@ -404,19 +404,22 @@ const GR=id=>id?S.data.invoices.get(id):undefined; // الفاتورة زي ما
    (الطباعة والتحضير والتوصيل والمرتجعات مربوطين بيها). لو اتحذفت من أورجا بعد كده → ماتتحسبش (ميزان = أورجا). */
 const ORGA_TAKE=['lines','discount','taxRate','paid','partyId','storeId','date'];
 const fromOrgaInv=v=>!!v&&(v.orgaUser!=null||v.orga!=null);
-const orgaCopy=v=>v&&v.type==='sale'&&+v.orgaOut&&!v.orgaGone?S.data.invoices.get('os'+v.orgaOut)||null:null;
+const ORGA_SWAP=new Set(['sale','purchase']); // مصدر بيحرّك المخزون → نبدّله بنسخة أورجا عشان ما يتحسبش مرتين
+const orgaMir=t=>(t==='purchase'||t==='porder')?'opu':'os'; // بادئة نسخة أورجا: شراء→opu، بيع→os
+const orgaTracked=v=>!!v&&ORGA_SWAP.has(v.type)&&+v.orgaOut; // فاتورة ميزان (بيع/شراء) اتصدرت وليها نسخة أورجا
+const orgaCopy=v=>orgaTracked(v)&&!v.orgaGone?S.data.invoices.get(orgaMir(v.type)+v.orgaOut)||null:null;
 function orgaView(v){const o=orgaCopy(v);if(!o)return v;const m={...v,orgaLive:+v.orgaOut};
   for(const k of ORGA_TAKE){const x=o[k];if(x!=null&&x!=='')m[k]=k==='lines'?clone(x):x;else if(k==='paid'||k==='discount'||k==='taxRate')m[k]=0}return m}
 function orgaMergeList(a){
-  if(!a.some(x=>x.type==='sale'&&(+x.orgaOut||x.orgaGone)))return a;
-  const hide=new Set();for(const x of a)if(x.type==='sale'&&+x.orgaOut&&!x.orgaGone&&S.data.invoices.has('os'+x.orgaOut))hide.add('os'+x.orgaOut);
-  const out=[];for(const x of a){if(hide.has(x.id))continue;if(x.type==='sale'&&x.orgaGone&&+x.orgaOut)continue; // اتحذفت من أورجا = ملغية
-    out.push(x.type==='sale'&&+x.orgaOut?orgaView(x):x)}
+  if(!a.some(x=>ORGA_SWAP.has(x.type)&&(+x.orgaOut||x.orgaGone)))return a;
+  const hide=new Set();for(const x of a)if(orgaTracked(x)&&!x.orgaGone&&S.data.invoices.has(orgaMir(x.type)+x.orgaOut))hide.add(orgaMir(x.type)+x.orgaOut);
+  const out=[];for(const x of a){if(hide.has(x.id))continue;if(ORGA_SWAP.has(x.type)&&x.orgaGone&&+x.orgaOut)continue; // اتحذفت من أورجا = ملغية
+    out.push(orgaTracked(x)?orgaView(x):x)}
   return out}
 // حالة الإرسال لأورجا من علامة المستند نفسه (بتوصل لكل الأجهزة)
 function orgaMarkSt(v){if(!v||!v.orgaJob&&!+v.orgaOut)return null;
   if(v.orgaGone)return {status:'gone',orderHId:+v.orgaOut||null,id:v.orgaJob};
-  if(+v.orgaOut)return {status:'done',orderHId:+v.orgaOut,id:v.orgaJob,synced:!!S.data.invoices.get('os'+v.orgaOut)};
+  if(+v.orgaOut)return {status:'done',orderHId:+v.orgaOut,id:v.orgaJob,synced:!!S.data.invoices.get(orgaMir(v.type)+v.orgaOut)};
   if(v.orgaErr)return {status:'error',error:v.orgaErr,id:v.orgaJob};
   return {status:'pending',id:v.orgaJob}}
 // فاتورة بيع اتبعتت (أو مستنية) — التعديل والحذف من أورجا بس
@@ -523,7 +526,7 @@ async function orgaCashAcc(ask){let v=+(settings().orgaCashAcc)||0;if(!v){try{v=
 async function waitWrites(ms=8000){const t=Date.now();while(Object.values(FL).some(Boolean)&&Date.now()-t<ms)await new Promise(r=>setTimeout(r,120))}
 // موحّد: أمر توريد → فاتورة شراء، عرض سعر أو فاتورة بيع عادية → فاتورة بيع (مفتوحة) في أورجا
 async function sendDocToOrga(id,opt={}){const o=GR(id);if(!o)return false;
-  const isSale=o.type==='quote'||o.type==='sale'; if(!isSale&&o.type!=='porder')return false;
+  const isSale=o.type==='quote'||o.type==='sale'; if(!isSale&&o.type!=='porder'&&o.type!=='purchase')return false;
   const q=!!opt.quiet; sendDocToOrga.err=''; const fail=m=>{sendDocToOrga.err=m;if(!q)toast(m,'err');return false};
   if(fromOrgaInv(o))return fail('الفاتورة دي جاية من أورجا أصلًا — مش محتاجة تتبعت');
   {const st=orgaMarkSt(o);if(st&&st.status==='done')return fail('اتبعتت قبل كده — في أورجا #'+st.orderHId);if(st&&st.status==='pending')return fail('اتبعتت ومستنية أورجا يكتبها')}
@@ -540,7 +543,7 @@ async function sendDocToOrga(id,opt={}){const o=GR(id);if(!o)return false;
       if(!(account>0))return fail('لازم رقم كود أورجا صحيح لـ'+K.pw);
       if(party&&!party.code){put('parties',o.partyId,{...party,code:String(account)}).catch(()=>{})}}}
   // خصم الفاتورة كلها (مش خصم السطر) بيتوزّع على أسعار الأصناف بالنسبة — علشان إجمالي أورجا يطلع زي ميزان
-  const tt=invTotals(o);const hd=isSale&&(+o.discount||0)>0.0001&&tt.sub>0;const f=hd?tt.after/tt.sub:1;
+  const tt=invTotals(o);const hd=(isSale||o.type==='purchase')&&(+o.discount||0)>0.0001&&tt.sub>0;const f=hd?tt.after/tt.sub:1;
   const lines=[];const noCode=[];
   for(const l of (o.lines||[])){const p=G('products',l.pid);const prod=orgaCodeOf(p,'products');const qty=+l.qty||0;if(qty<=0)continue;
     if(!prod){noCode.push(p?p.name:'؟');continue}
@@ -554,10 +557,11 @@ async function sendDocToOrga(id,opt={}){const o=GR(id);if(!o)return false;
   if(!q){const W=[];
     if(hd)W.push(`خصم الفاتورة (${fmt(o.discount)}) هيتوزّع على أسعار الأصناف`);
     if(isSale&&(+o.taxRate||0)>0)W.push(`الضريبة (${fmt(o.taxRate)}%) مش بتتبعت — ضيفها في أورجا لو محتاجها`);
-    if(o.type==='sale'&&(+o.paid||0)>0.009)W.push(`المدفوع (${fmt(o.paid)}) مش بيتبعت مع الفاتورة — سجّل التحصيل في أورجا`);
-    const after=o.type==='sale'?'<br>أول ما نسخة أورجا توصل ميزان، الفاتورة دي هتتحسب من أورجا (مش هتتحسب مرتين)، وأي تعديل عليها بعد كده يتعمل في أورجا.':'';
-    if(!(await confirmHtml(`هيتبعت ${o.type==='sale'?'فاتورة البيع #'+esc(o.no):'ده'} لأورجا كـ«${K.word} مفتوحة» (${lines.length} صنف — ${esc(pName)}${isSale?' — '+fmt(tt.after):''}).<br>${K.eff}${after}${W.length?'<br><br>⚠ '+W.join('<br>⚠ '):''}`,'إرسال لأورجا'))) return false;}
-  const body={poId:id,poNo:o.no,account,store:storeOrga(o.storeId),lines,kind:K.kind,src:o.type==='sale'?'sale':undefined};
+    if((o.type==='sale'||o.type==='purchase')&&(+o.paid||0)>0.009)W.push(`المدفوع (${fmt(o.paid)}) مش بيتبعت مع الفاتورة — سجّل ${o.type==='purchase'?'الدفع للمورّد':'التحصيل'} في أورجا`);
+    const swap=o.type==='sale'||o.type==='purchase';
+    const after=swap?'<br>أول ما نسخة أورجا توصل ميزان، الفاتورة دي هتتحسب من أورجا (مش هتتحسب مرتين)، وأي تعديل عليها بعد كده يتعمل في أورجا.':'';
+    if(!(await confirmHtml(`هيتبعت ${swap?'الفاتورة #'+esc(o.no):'ده'} لأورجا كـ«${K.word} مفتوحة» (${lines.length} صنف — ${esc(pName)}${isSale?' — '+fmt(tt.after):''}).<br>${K.eff}${after}${W.length?'<br><br>⚠ '+W.join('<br>⚠ '):''}`,'إرسال لأورجا'))) return false;}
+  const body={poId:id,poNo:o.no,account,store:storeOrga(o.storeId),lines,kind:K.kind,src:o.type==='sale'?'sale':o.type==='purchase'?'purchase':undefined};
   if(isSale&&party&&party.priceLevel!=null)body.accType=+party.priceLevel;
   try{const r=await MZ.post('/api/orga/outbox/add',body);
     if(r&&r.jobId!=null){if(!q)toast(r.dup?(r.status==='done'?'اتبعتت قبل كده — في أورجا #'+r.orderHId:'مبعوتة بالفعل ومستنية أورجا'):'اتبعتت لأورجا — هتتكتب خلال ثواني/دقايق','ok');ORGAQ.at=0;if(!q){await orgaStatus(true);orgaPoll();render()}return true}
@@ -983,12 +987,12 @@ function vEditor(type,id){
      <div class="tbox" id="tbox"></div>
    </div>
    <div class="stickybar">
-     <button class="btn p" id="save" ${S.ro||(ED.id&&inv.type==='sale'&&orgaLocked(GR(ED.id)))?'disabled title="الفاتورة اتبعتت لأورجا — التعديل من أورجا"':''}>حفظ<span class="hide-m"> (Ctrl+S)</span></button>
+     <button class="btn p" id="save" ${S.ro||(ED.id&&(inv.type==='sale'||inv.type==='purchase')&&orgaLocked(GR(ED.id)))?'disabled title="الفاتورة اتبعتت لأورجا — التعديل من أورجا"':''}>حفظ<span class="hide-m"> (Ctrl+S)</span></button>
      ${!ED.id?`<button class="btn" id="saveNew" ${S.ro?'disabled':''}>حفظ وفاتورة جديدة</button>`:''}
      ${ED.id&&['sale','purchase'].includes(inv.type)&&can(inv.type==='sale'?'sell':'buy')&&!S.ro?`<button class="btn" id="mkRet">${ic('ret')}مرتجع من الفاتورة</button>`:''}
      ${settings().printOnlyPrep&&!canPrep()&&['sale','sret'].includes(inv.type)?`<span class="small muted" style="align-self:center">${ED.id?(prn(ED.id)&&prn(ED.id).n?'✓ اتطبعت '+prn(ED.id).n+' مرة':'لسه ما اتطبعتش')+' — ':''}الطباعة من شاشة التحضير</span>`:`${!ED.id&&!S.ro?`<button class="btn" id="savePrt">${ic('print')}حفظ وطباعة</button>`:''}<button class="btn" id="prt">${ic('print')}طباعة${ED.id?(prn(ED.id)&&prn(ED.id).n?' (اتطبعت '+prn(ED.id).n+')':''):' (مسودة)'}</button><button class="btn" id="prtPdf" title="يطلّع الفاتورة PDF ويفتح المشاركة — للطباعة أو الإرسال من الموبايل">${ic('dl')}PDF / مشاركة</button>`}${ED.id?`<button class="btn" id="newB">${ic('plus')}جديد</button>`:''}
      ${ED.id&&T.doc&&inv.status!=='converted'&&!orgaLocked(GR(ED.id))?`<button class="btn g" id="conv" ${S.ro?'disabled':''}>تحويل إلى ${TYPES[T.to].full}</button>`:''}
-     ${['porder','quote','sale'].includes(inv.type)&&(ED.id||inv.type==='sale')&&canOrgaWrite()&&!S.ro&&!fromOrgaInv(ED.id?GR(ED.id):inv)?`<button class="btn g" id="orgaSend">⬆ ${inv.type==='sale'?(ED.id?'إرسال لأورجا':'حفظ وإرسال لأورجا'):inv.type==='quote'?'فاتورة بيع في أورجا':'فاتورة شراء في أورجا'}</button>`:''}${inv.type==='sale'&&canOrgaWrite()?`<a class="btn" href="#/reports/orga_sales" title="كل فواتير البيع من ميزان: اتبعتت لأورجا ولا لسه">📋 المُصدَّر لأورجا</a>`:''}
+     ${['porder','quote','sale','purchase'].includes(inv.type)&&(ED.id||inv.type==='sale')&&canOrgaWrite()&&!S.ro&&!fromOrgaInv(ED.id?GR(ED.id):inv)?`<button class="btn g" id="orgaSend">⬆ ${inv.type==='sale'?(ED.id?'إرسال لأورجا':'حفظ وإرسال لأورجا'):inv.type==='quote'?'فاتورة بيع في أورجا':'فاتورة شراء في أورجا'}</button>`:''}${inv.type==='sale'&&canOrgaWrite()?`<a class="btn" href="#/reports/orga_sales" title="كل فواتير البيع من ميزان: اتبعتت لأورجا ولا لسه">📋 المُصدَّر لأورجا</a>`:''}
      ${ED.id&&T.doc&&inv.status==='converted'&&G('invoices',inv.convertedTo)?`<a class="btn" href="#/inv/${inv.convertedTo}">فتح ${TYPES[T.to].full} #${G('invoices',inv.convertedTo).no}</a>`:''}
      <span class="sp"></span>
      ${ED.id?`<button class="btn d" id="delInv" ${S.ro?'disabled':''}>حذف الفاتورة</button>`:`<button class="btn" id="clr">تفريغ</button>`}
@@ -1041,7 +1045,7 @@ function vEditor(type,id){
   const ru=$('#retUnlink');if(ru)ru.onclick=()=>{delete inv.fromInv;render()};
   const rpk=$('#retPick');if(rpk)rpk.onclick=()=>{const o=G('invoices',inv.fromInv);if(o)pickReturnLines(o)};
   const cv=$('#conv');if(cv)cv.onclick=()=>convertDoc(ED.id);
-  const osB=$('#orgaSend');if(osB){const isP=inv.type==='porder';const base=inv.type==='sale'?(ED.id?'⬆ إرسال لأورجا':'⬆ حفظ وإرسال لأورجا'):'⬆ '+(isP?'فاتورة شراء':'فاتورة بيع')+' في أورجا';
+  const osB=$('#orgaSend');if(osB){const isP=inv.type==='porder'||inv.type==='purchase';const base=inv.type==='sale'?(ED.id?'⬆ إرسال لأورجا':'⬆ حفظ وإرسال لأورجا'):'⬆ '+(isP?'فاتورة شراء':'فاتورة بيع')+' في أورجا';
     // الحالة: اللي في الطابور لو لسه بيتبعت، وإلا علامة المستند نفسه (بتوصل لكل الأجهزة)، وإلا الطابور
     const stOf=m=>{const q=ED&&ED.id&&m[ED.id];if(q&&(q.status==='pending'||q.status==='sending'))return q;return (ED&&ED.id&&orgaMarkSt(GR(ED.id)))||q||null};
     const setOs=st=>{if(!st||st.status==='gone'){osB.textContent=st?'⬆ إرسال لأورجا تاني':base;osB.disabled=false;osB.classList.remove('d');osB.onclick=()=>sendNow();return}
@@ -1053,7 +1057,7 @@ function vEditor(type,id){
     window.__mzSetOs=m=>setOs(stOf(m||ORGAQ.byPo));osB.onclick=sendNow;setOs(stOf(ORGAQ.byPo));orgaStatus().then(m=>setOs(stOf(m)))}
   $$('[data-ocancel]').forEach(b=>b.onclick=async()=>{if(!(await confirmBox('إلغاء إرسال الفاتورة دي لأورجا؟ (لو جهاز أورجا لسه ماكتبهاش)','إلغاء الإرسال')))return;
     try{await MZ.post('/api/orga/outbox/cancel',{poId:b.dataset.ocancel});toast('اتلغى الإرسال — تقدر تعدّل الفاتورة وتبعتها تاني','ok');ORGAQ.at=0;await orgaStatus(true);setTimeout(render,1200)}catch(e){toast(e.message||'مقدرتش ألغي','err')}});
-  const dl=$('#delInv');if(dl)dl.onclick=async()=>{if(ED.orig&&ED.orig.type==='sale'&&orgaLocked(GR(ED.id))){const st=orgaMarkSt(GR(ED.id));toast(st.status==='done'?`الفاتورة دي في أورجا (بيع #${st.orderHId}) — لو عاوز تلغيها احذفها من أورجا، وميزان هيشيلها لوحده`:'الفاتورة اتبعتت ومستنية أورجا — استنى لما تتكتب','err');return}if(!can('editInv')||isLocked(ED.orig.date)){toast('غير مسموح بحذف هذه الفاتورة','err');return}if(window.MZ_FLOW&&!(await MZ_FLOW.beforeDelete({...ED.orig,id:ED.id})))return;if(await confirmBox(`حذف ${T.full} رقم ${inv.no} نهائيًا؟ ستتعدل الأرصدة والأرباح تلقائيًا.`,'حذف',true)){const n=inv.no;await audit('invoice',ED.id,'حذف الفاتورة',`#${n} — ${fmt(invTotals(ED.orig).total)}`,'محذوفة',T.full);const did_=ED.id;await del('invoices',ED.id);if(window.MZ_FLOW)MZ_FLOW.afterDelete(did_).catch(()=>{});ED=null;toast('تم حذف الفاتورة');go('invoices')}};
+  const dl=$('#delInv');if(dl)dl.onclick=async()=>{if(ED.orig&&(ED.orig.type==='sale'||ED.orig.type==='purchase')&&orgaLocked(GR(ED.id))){const st=orgaMarkSt(GR(ED.id));toast(st.status==='done'?`الفاتورة دي في أورجا (${ED.orig.type==='purchase'?'شراء':'بيع'} #${st.orderHId}) — لو عاوز تلغيها احذفها من أورجا، وميزان هيشيلها لوحده`:'الفاتورة اتبعتت ومستنية أورجا — استنى لما تتكتب','err');return}if(!can('editInv')||isLocked(ED.orig.date)){toast('غير مسموح بحذف هذه الفاتورة','err');return}if(window.MZ_FLOW&&!(await MZ_FLOW.beforeDelete({...ED.orig,id:ED.id})))return;if(await confirmBox(`حذف ${T.full} رقم ${inv.no} نهائيًا؟ ستتعدل الأرصدة والأرباح تلقائيًا.`,'حذف',true)){const n=inv.no;await audit('invoice',ED.id,'حذف الفاتورة',`#${n} — ${fmt(invTotals(ED.orig).total)}`,'محذوفة',T.full);const did_=ED.id;await del('invoices',ED.id);if(window.MZ_FLOW)MZ_FLOW.afterDelete(did_).catch(()=>{});ED=null;toast('تم حذف الفاتورة');go('invoices')}};
   const ca=$('#cntAll');if(ca)ca.onclick=()=>{const have=new Set(inv.lines.map(l=>l.pid));L('products').sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})).forEach(p=>{if(!have.has(p.id))inv.lines.push({pid:p.id,qty:Math.max(0,Math.round(qtyIn(p.id,inv.storeId)*1000)/1000),price:Math.round(avgCost(p.id)*100)/100,disc:0,cost:''})});render()};
   const rt=$('#recvTgl');if(rt)rt.onclick=()=>{if(!ED.recv){ED.recv=1;ED.recvF='all';ED.recvN=0;inv.lines.forEach(l=>{l._oq=+l.qty||0;delete l._chk;delete l._extra;delete l._seq});toast('وضع الاستلام شغّال — امسح أصناف فاتورة المورّد بالترتيب، وهتترتّب زيها');}else{ED.recv=0;inv.lines.forEach(l=>{delete l._chk;delete l._oq;delete l._extra;delete l._seq})}render();if(ED.recv)setTimeout(()=>{const ps=$('#ps');if(ps)ps.focus()},50)};
   $$('[data-rf]').forEach(b=>b.onclick=()=>{ED.recvF=b.dataset.rf;render()});

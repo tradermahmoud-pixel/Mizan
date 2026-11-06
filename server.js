@@ -347,8 +347,8 @@ app.post('/api/write', auth(false), async (req, res, next) => {
           for (const [id, nv] of Object.entries(ni)) {
             if (!isObj(nv)) continue; const ov = bi[id];
             // فاتورة بيع اتبعتت لأورجا (أو بتتبعت): محتواها من أورجا — مفيش تعديل عليها من ميزان
-            if (isObj(ov) && ov.type === 'sale' && ((+ov.orgaOut && !ov.orgaGone) || (ov.orgaJob && !+ov.orgaOut && !ov.orgaErr)) && invSig(nv) !== invSig(ov))
-              throw Object.assign(new Error(`فاتورة البيع #${ov.no || ''} اتبعتت لأورجا — أي تعديل يتعمل في أورجا وهيوصل ميزان لوحده`), { status: 409 });
+            if (isObj(ov) && (ov.type === 'sale' || ov.type === 'purchase') && ((+ov.orgaOut && !ov.orgaGone) || (ov.orgaJob && !+ov.orgaOut && !ov.orgaErr)) && invSig(nv) !== invSig(ov))
+              throw Object.assign(new Error(`فاتورة ${ov.type === 'purchase' ? 'الشراء' : 'البيع'} #${ov.no || ''} اتبعتت لأورجا — أي تعديل يتعمل في أورجا وهيوصل ميزان لوحده`), { status: 409 });
             for (const k of ORGA_LINK) { if (isObj(ov) && ov[k] != null) nv[k] = ov[k]; else delete nv[k]; }
             delete nv.orgaLive;
           }
@@ -466,7 +466,7 @@ async function tierPrices(db) {
   const prods = {}, inv0 = [], invIds = new Set();
   for (const r of rows) { const it = r.data && isObj(r.data.items) ? r.data.items : {}; for (const [id, v] of Object.entries(it)) { if (!isObj(v)) continue; if (r.col === 'x_products') prods[id] = v; else { inv0.push(v); invIds.add(id); } } }
   // فاتورة اتبعتت لأورجا ورجعت نسختها، أو اتحذفت من هناك: ماتتحسبش مرتين — زي البرنامج
-  const invs = inv0.filter(v => !(v.type === 'sale' && +v.orgaOut && (v.orgaGone || invIds.has('os' + v.orgaOut))));
+  const invs = inv0.filter(v => !((v.type === 'sale' && +v.orgaOut && (v.orgaGone || invIds.has('os' + v.orgaOut))) || (v.type === 'purchase' && +v.orgaOut && (v.orgaGone || invIds.has('opu' + v.orgaOut)))));
   const st = {}; const S = id => st[id] || (st[id] = { qty: 0, value: 0, by: {}, last: +(prods[id] && prods[id].cost) || 0 });
   const cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
   invs.sort((a, b) => cmp(a.date || '', b.date || '') || cmp(a.createdAt || '', b.createdAt || ''));

@@ -158,7 +158,7 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
   async function linkedDocs(extraWhere = '', params = []) {
     const { rows } = await pool.query(`SELECT e.k AS id, e.v->>'orgaOut' AS n, e.v->>'orgaOutAt' AS oat, (e.v ? 'orgaGone') AS gone, e.v->>'type' AS t
       FROM docs d, jsonb_each(CASE WHEN jsonb_typeof(d.data->'items')='object' THEN d.data->'items' ELSE '{}'::jsonb END) e(k,v)
-      WHERE d.col='x_invoices' AND NOT d.deleted AND jsonb_typeof(e.v)='object' AND e.v ? 'orgaOut' AND e.v->>'type' IN ('sale','quote') ${extraWhere}`, params);
+      WHERE d.col='x_invoices' AND NOT d.deleted AND jsonb_typeof(e.v)='object' AND e.v ? 'orgaOut' AND e.v->>'type' IN ('sale','quote','purchase') ${extraWhere}`, params);
     return rows.filter(r => !IDRX.invoices.test(r.id));
   }
   // تعليم الفواتير القديمة (اللي اتبعتت قبل التحديث ده) من الطابور — مرة واحدة
@@ -219,16 +219,16 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       const poNo = String(b.poNo || '').slice(0, 40);
       const usersId = posInt(b.usersId) || 0;
       const kind = b.kind === 'sale' ? 'sale' : 'purchase';
-      const src = kind === 'purchase' ? 'porder' : (b.src === 'sale' ? 'sale' : 'quote');
+      const src = kind === 'purchase' ? (b.src === 'purchase' ? 'purchase' : 'porder') : (b.src === 'sale' ? 'sale' : 'quote');
       const accType = Number.isFinite(+b.accType) ? +b.accType : undefined;
       const note = String(b.note || '').replace(/[^\x20-\x7e]/g, '').trim().slice(0, 24); // مرجع فاتورة المورّد (يتكتب في NOTS_ بأورجا)
       // المستند نفسه في ميزان (لو مش جزء من استلام مجمّع)
       const whole = poId && !poId.includes('#');
       const inv = whole ? await getInv(poId) : null;
-      if (src === 'sale') {
+      if (src === 'sale' || src === 'purchase') {
         if (!poId || IDRX.invoices.test(poId)) return res.status(400).json({ error: 'الفاتورة دي جاية من أورجا أصلًا — مش محتاجة تتبعت' });
         if (!inv) return res.status(409).json({ error: 'الفاتورة لسه ما وصلتش للسيرفر — استنى ثانيتين وجرّب تاني' });
-        if (inv.type !== 'sale') return res.status(400).json({ error: 'ده مش فاتورة بيع' });
+        if (inv.type !== src) return res.status(400).json({ error: src === 'purchase' ? 'ده مش فاتورة شراء' : 'ده مش فاتورة بيع' });
         if (inv.orgaUser != null || inv.orga != null) return res.status(400).json({ error: 'الفاتورة دي جاية من أورجا أصلًا — مش محتاجة تتبعت' });
       }
       const gone = !!(inv && inv.orgaGone);
@@ -442,7 +442,7 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
         try {
           const has = new Set(b.ids);
           for (const r of await linkedDocs()) {
-            const inOrga = has.has('os' + r.n);
+            const inOrga = has.has((r.t === 'purchase' ? 'opu' : 'os') + r.n);
             if (!inOrga && !r.gone && now() - (+r.oat || 0) > 30 * 60e3) await markSafe(r.id, { orgaGone: now() });
             else if (inOrga && r.gone) await markSafe(r.id, { orgaGone: null });
           }
@@ -484,7 +484,8 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
         for (const r of rows) {
           const items = isObj(r.data && r.data.items) ? { ...r.data.items } : {}; let ch = false;
           for (const [id, v] of Object.entries(items)) { if (!isObj(v)) continue; if (keep[col].has(id) || (col === 'invoices' && /^ov\d+$/.test(id)) // ov = تقييم المخزون من أورجا وقت النقلة
-            || (col === 'invoices' && v.type === 'sale' && +v.orgaOut && keep.invoices.has('os' + v.orgaOut))) { // فاتورة بيع من ميزان اتكتبت في أورجا ونسختها موجودة هناك
+            || (col === 'invoices' && v.type === 'sale' && +v.orgaOut && keep.invoices.has('os' + v.orgaOut)) // فاتورة بيع من ميزان اتكتبت في أورجا ونسختها موجودة هناك
+            || (col === 'invoices' && v.type === 'purchase' && +v.orgaOut && keep.invoices.has('opu' + v.orgaOut))) { // فاتورة شراء من ميزان اتكتبت في أورجا
             left[col].add(id); continue; } items[id] = null; ch = true; n++; }
           if (ch) await write('x_' + col, r.id, { ...r.data, items, u: now() });
         }
