@@ -67,12 +67,13 @@
       <div class="row" style="gap:10px;margin-bottom:10px;align-items:center">
         <b>${list.length}</b><span class="muted">صنف للتسعير</span><span style="flex:1"></span>
         <button class="btn" id="prXls" ${list.length ? '' : 'disabled'}>📊 تصدير Excel</button>
+        ${canOrgaWrite() && !S.ro ? `<button class="btn s" id="prTest" ${list.length ? '' : 'disabled'}>🧪 جرّب أول 3</button><button class="btn g" id="prSend" ${list.length ? '' : 'disabled'}>⬆ إرسال الكل لأورجا</button><button class="btn s" id="prStat">حالة الإرسال</button>` : ''}
       </div>
       <div class="tw"><table class="t"><thead><tr><th>الكود</th><th>الصنف</th><th class="n">التكلفة</th><th class="n">${PR.base === 'cost' ? 'التكلفة' : 'الجمهور'}</th>${TIERS.map(t => `<th class="n">${t.label}</th>`).join('')}</tr></thead><tbody id="prBody">
         ${list.length ? list.slice(0, 500).map(p => prRow(p)).join('') : `<tr><td colspan="${4 + TIERS.length}"><div class="empty" style="padding:30px"><b>اختر فاتورة شراء الأول</b>هتظهر أصنافها هنا للتسعير</div></td></tr>`}
       </tbody></table></div>
       ${list.length > 500 ? `<p class="small muted">بيظهر أول 500 صنف — التصدير بيشمل الكل.</p>` : ''}
-      <p class="small muted" style="margin-top:10px">⬆ إرسال الأسعار مباشرة لأورجا هيتفعّل في الخطوة الجاية (تحديث بسيط للوكيل). دلوقتي راجع الأرقام وصدّرها Excel.</p>
+      <p class="small muted" style="margin-top:10px">الإرسال بيكتب أسعار الشرائح اللي عبّيتها بس (الفاضية مش بتتغير) في أورجا مباشرة. ابدأ بـ«🧪 جرّب أول 3» وتأكد في أورجا إن السعر دخل الشريحة الصح، وبعدين «إرسال الكل». محتاج وكيل إصدار 1.8.0+.</p>
     </div>`;
 
     // تفاعل
@@ -87,7 +88,51 @@
     if (no) no.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
     $$('[data-disc]').forEach(inp => inp.oninput = () => { PR.disc[+inp.dataset.disc] = inp.value; repaint(); });
     const xb = $('#prXls'); if (xb) xb.onclick = exportXls;
+    const tb = $('#prTest'); if (tb) tb.onclick = () => sendOrga(3);
+    const sb = $('#prSend'); if (sb) sb.onclick = () => sendOrga(0);
+    const stb = $('#prStat'); if (stb) stb.onclick = showStatus;
   };
+
+  function buildItems(limit) {
+    const items = [];
+    for (const p of chosenProds()) {
+      if (!(+p.orga > 0)) continue; // لازم كود أورجا (صنف متزامن من أورجا)
+      const prices = {};
+      for (const t of TIERS) if (String(PR.disc[t.n]).trim() !== '') prices[t.col] = tierPrice(p, t.n);
+      if (Object.keys(prices).length) items.push({ prod: +p.orga, prices });
+      if (limit && items.length >= limit) break;
+    }
+    return items;
+  }
+  async function sendOrga(limit) {
+    const tiers = TIERS.filter(t => String(PR.disc[t.n]).trim() !== '');
+    if (!tiers.length) { toast('اكتب نسبة شريحة واحدة على الأقل', 'err'); return; }
+    const items = buildItems(limit);
+    if (!items.length) { toast('مفيش أصناف بكود أورجا', 'err'); return; }
+    const names = tiers.map(t => t.label).join('، ');
+    const msg = limit
+      ? `تجربة: هيتبعت أول <b>${items.length}</b> صنف لأورجا (الشرائح: ${names}).<br>بعد دقيقة افحص صنف منهم في أورجا وتأكد إن السعر دخل الشريحة الصح قبل ما تبعت الكل.`
+      : `هيتكتب أسعار <b>${items.length}</b> صنف في أورجا — الشرائح: ${names}.<br>ده بيحدّث الأسعار دي مباشرة في جدول أصناف أورجا. متأكد؟`;
+    if (!(await confirmHtml(msg, limit ? 'جرّب' : 'إرسال الكل', !limit))) return;
+    try {
+      const r = await MZ.post('/api/orga/prices/add', { items });
+      toast(`اتضاف ${r.queued} صنف لطابور الأسعار — هيتكتبوا في أورجا خلال دقيقة`, 'ok');
+      setTimeout(showStatus, 1800);
+    } catch (e) { toast(e.message || 'مقدرتش أبعت', 'err'); }
+  }
+  async function showStatus() {
+    let j = {}; try { const r = await fetch('/api/orga/prices/status', { credentials: 'same-origin', headers: { 'X-Mizan': '1' } }); if (r.ok) j = await r.json(); } catch (e) {}
+    const c = j.counts || {};
+    modal(`<h2>حالة إرسال الأسعار لأورجا</h2>
+      <div class="row" style="gap:12px;flex-wrap:wrap;margin:10px 0">
+        <span class="tag">⏳ في الطابور: ${(c.pending || 0) + (c.sending || 0)}</span>
+        <span class="tag ok">✓ اتكتبت: ${c.done || 0}</span>
+        ${c.error ? `<span class="tag bad">✗ فشلت: ${c.error}</span>` : ''}
+      </div>
+      ${(j.errors && j.errors.length) ? `<div class="small muted" style="margin-bottom:4px">أمثلة أخطاء:</div><ul class="small" style="margin:0">${j.errors.map(e => `<li>صنف ${esc(e.prod)}: ${esc(e.error)}</li>`).join('')}</ul>` : ''}
+      <div class="row" style="margin-top:16px"><button class="btn" id="stRef">تحديث</button><span class="sp"></span><button class="btn" data-close>تمام</button></div>`, true);
+    const rf = $('#stRef'); if (rf) rf.onclick = () => { closeModal(); showStatus(); };
+  }
 
   function prRow(p) {
     const base = baseOf(p), cost = avgCost(p.id) || +p.cost || 0;

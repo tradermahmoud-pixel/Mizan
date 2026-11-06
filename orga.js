@@ -251,6 +251,45 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
     } catch (e) { next(e); }
   });
 
+  // تحديث أسعار الشرائح في أورجا: المالك/المدير بيضيف أصناف للطابور (كل صنف PRICE_1..5)
+  app.post('/api/orga/prices/add', auth(false), writeOnly, async (req, res, next) => {
+    try {
+      await touch(req, {});
+      const items = Array.isArray(req.body && req.body.items) ? req.body.items.slice(0, 5000) : [];
+      const by = (req.user && (req.user.name || req.user.id)) || '';
+      let queued = 0;
+      await withOut(st => {
+        if (!isObj(st.prices)) st.prices = {};
+        st.seq = st.seq || 0;
+        for (const it of items) {
+          const prod = posInt(it && it.prod); if (!prod) continue;
+          const prices = {};
+          if (isObj(it.prices)) for (const k of Object.keys(it.prices)) {
+            if (/^PRICE_[1-5]$/.test(k)) { const v = +it.prices[k]; if (isFinite(v) && v >= 0) prices[k] = Math.round(v * 10000) / 10000; }
+          }
+          if (!Object.keys(prices).length) continue;
+          const id = String(++st.seq);
+          st.prices[id] = { id, prod, prices, status: 'pending', createdAt: now(), createdBy: by };
+          queued++;
+        }
+      });
+      res.json({ queued });
+    } catch (e) { next(e); }
+  });
+
+  // حالة طابور الأسعار (المالك/المدير)
+  app.get('/api/orga/prices/status', auth(false), writeOnly, async (req, res, next) => {
+    try {
+      const { rows } = await pool.query(`SELECT v FROM kv WHERE k=$1`, [OUT_KV]);
+      const st = (rows[0] && rows[0].v) || {};
+      const ps = isObj(st.prices) ? Object.values(st.prices) : [];
+      const counts = { pending: 0, sending: 0, done: 0, error: 0 };
+      const errors = [];
+      for (const j of ps) { counts[j.status] = (counts[j.status] || 0) + 1; if (j.status === 'error' && errors.length < 10) errors.push({ prod: j.prod, error: j.error }); }
+      res.json({ total: ps.length, counts, errors });
+    } catch (e) { next(e); }
+  });
+
   // الوكيل بياخد المعلّق
   app.post('/api/orga/outbox', agentAuth, async (req, res, next) => {
     try {
@@ -258,7 +297,8 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       // نسخة الوكيل — البيع يتكتب بس من وكيل 1.7.0+ (القديم يكتب الشراء بس)
       const av = String((req.body && req.body.agent && req.body.agent.ver) || '0').split('.').map(n => +n || 0);
       const saleOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 7);
-      const jobs = await withOut(st => {
+      const priceOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 8); // تحديث الأسعار من وكيل 1.8.0+
+      const out = await withOut(st => {
         const take = [];
         for (const j of Object.values(st.jobs)) {
           if (j.kind === 'sale' && !saleOk) continue; // وكيل قديم: سيب فواتير البيع للوكيل الجديد
@@ -267,9 +307,19 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
             take.push({ id: j.id, kind: j.kind || 'purchase', account: j.account, store: j.store, usersId: j.usersId, usersName: 'MIZAN', mark: j.mark, lines: j.lines, accType: j.accType });
           }
         }
-        return take;
+        const prices = [];
+        if (priceOk && isObj(st.prices)) {
+          for (const j of Object.values(st.prices)) {
+            if (j.status === 'pending' || (j.status === 'sending' && now() - (j.sentAt || 0) > 5 * 60e3)) {
+              j.status = 'sending'; j.sentAt = now();
+              prices.push({ id: j.id, prod: j.prod, prices: j.prices });
+              if (prices.length >= 150) break; // دفعة في كل مرة
+            }
+          }
+        }
+        return { jobs: take, prices };
       });
-      res.json({ jobs });
+      res.json({ jobs: out.jobs, prices: out.prices });
     } catch (e) { next(e); }
   });
 
@@ -278,6 +328,7 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
     try {
       await touch(req, {});
       const results = Array.isArray(req.body && req.body.results) ? req.body.results : [];
+      const priceDone = Array.isArray(req.body && req.body.priceDone) ? req.body.priceDone : [];
       const marks = [];
       await withOut(st => {
         for (const r of results) {
@@ -288,8 +339,14 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
             ? { orgaJob: j.id, orgaOut: j.orderHId, orgaOutAt: now(), orgaErr: null, orgaGone: null }
             : { orgaJob: j.id, orgaErr: j.error.slice(0, 120) }]);
         }
+        if (isObj(st.prices)) for (const r of priceDone) {
+          const j = st.prices[String(r.id)]; if (!j) continue;
+          if (r.ok) { j.status = 'done'; j.doneAt = now(); delete j.error; }
+          else { j.status = 'error'; j.error = String(r.error || 'خطأ').slice(0, 200); j.doneAt = now(); }
+        }
         // تنضيف: شيل اللي خلصوا بقالهم أكتر من 7 أيام (الربط نفسه بيفضل متسجّل على المستند)
         for (const [id, j] of Object.entries(st.jobs)) if (j.status === 'done' && now() - (j.doneAt || 0) > 7 * 864e5) delete st.jobs[id];
+        if (isObj(st.prices)) for (const [id, j] of Object.entries(st.prices)) if (j.status === 'done' && now() - (j.doneAt || 0) > 2 * 864e5) delete st.prices[id];
       });
       for (const [id, p] of marks) await markSafe(id, p);
       res.json({ ok: true });
