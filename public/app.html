@@ -629,7 +629,7 @@ function orgaPoll(){if(ORGA_POLL||!canOrgaWrite())return;const tick=async()=>{OR
   const pend=Object.values(ORGAQ.byPo).some(x=>x.status==='pending'||x.status==='sending');
   if(JSON.stringify(ORGAQ.byPo)!==before){const osB=$('#orgaSend');if(osB&&window.__mzSetOs&&ED&&ED.id){window.__mzSetOs(ORGAQ.byPo)}else if($('[data-ogst]')||route().a[0]==='orga_sales'){render()}}
   if(pend)ORGA_POLL=setTimeout(tick,10000)};ORGA_POLL=setTimeout(tick,10000)}
-const ROUTEP={prep:'@prep',sret:'sell',pret:'buy',crm:'@crm',accounts:'accounting',sale:'sell',purchase:'buy',lines:'editInv',products:'products',import:'products',orders:'buy',barcode:'products',countloc:'buy',parties:'parties',cash:'cash',cheques:'cash',reports:'reports',employees:'hr',payroll:'hr',audit:'@',settings:'@',users:'@'};
+const ROUTEP={prep:'@prep',sret:'sell',pret:'buy',crm:'@crm',accounts:'accounting',sale:'sell',purchase:'buy',lines:'editInv',products:'products',import:'products',orders:'buy',barcode:'products',countloc:'buy',pricing:'products',parties:'parties',cash:'cash',cheques:'cash',reports:'reports',employees:'hr',payroll:'hr',audit:'@',settings:'@',users:'@'};
 function canRoute(k){if(k==='invoices')return can('sell')||can('buy');if(k==='orgaout')return canOrgaWrite();if(k==='crm')return can('crm')||can('crmManage');if(k==='prep'||k==='pick')return can('prep')||can('sell');if(k==='flow')return can('prep')||can('sell')||can('deliveryManage');if(k==='routes')return can('delivery')||can('deliveryManage');if(k==='track')return can('products')||can('sell')||can('buy')||can('reports');if(k==='rets')return can('delivery')||can('deliveryManage')||can('buy')||can('products')||can('prep')||can('sell');const p=ROUTEP[k];if(!p)return true;if(p==='@')return S.isAdmin;return can(p)}
 const isLocked=d=>!S.isAdmin&&!!settings().lockDate&&!!d&&d<=settings().lockDate;
 function ensureMember(){if(S.mode==='cloud'&&S.me.id&&S.memLoaded&&!S.regDone&&!G('members',S.me.id)&&!S.ro){S.regDone=true;put('members',S.me.id,{first:new Date().toISOString()}).catch(()=>{})}}
@@ -779,7 +779,7 @@ document.addEventListener('focusout',flushPend);
 
 const NAV=[
  ['البيع والشراء',[['dash','الرئيسية','home'],['sale','فاتورة بيع','sale'],['sret','مرتجع مبيعات','ret'],['purchase','فاتورة شراء','buy'],['pret','مرتجع مشتريات','ret'],['invoices','كل الفواتير','doc'],['orgaout','المُصدَّر لأورجا','up'],['flow','متابعة الأوردرات','hist'],['prep','التحضير والطباعة','print'],['pick','مراجعة التحضير','bar'],['routes','التوصيل وخطوط السير','pin'],['rets','استلام المرتجعات','ret'],['lines','شبكة الحركات','grid'],['crm','CRM الصيدليات','users']]],
- ['المخزون',[['products','الأصناف والأرصدة','box'],['countloc','جرد بالموقع','bar'],['track','متابعة حركة صنف','hist'],['import','استيراد من Excel','up'],['orders','أوامر التوريد وعروض الأسعار','doc'],['barcode','طباعة الباركود','bar']]],
+ ['المخزون',[['products','الأصناف والأرصدة','box'],['countloc','جرد بالموقع','bar'],['track','متابعة حركة صنف','hist'],['import','استيراد من Excel','up'],['orders','أوامر التوريد وعروض الأسعار','doc'],['pricing','تسعير الشرائح','box'],['barcode','طباعة الباركود','bar']]],
  ['الحسابات',[['parties','العملاء والموردون','users'],['cash','الخزينة','cash'],['cheques','الشيكات','chq'],['reports','التقارير والأرباح','chart'],['accounts','المحاسبة والقوائم المالية','ledger']]],
  ['الموظفون',[['attendance','الحضور والانصراف','clock'],['employees','بيانات الموظفين','badge'],['payroll','الرواتب','wallet']]],
  ['النظام',[['users','المستخدمون والصلاحيات','users'],['audit','سجل التعديلات','hist'],['settings','الإعدادات','gear']]],
@@ -804,7 +804,7 @@ function render_(){
   lastR=performance.now();computePerms();ensureMember();
   const {p,a}=route();renderShell(p);syncBadge();try{pqPill()}catch(e){}try{window.MZ_DLV&&MZ_DLV.tick()}catch(e){}try{window.MZ_RT&&MZ_RT.tick()}catch(e){}
   if(!canRoute(p)){setTitle('غير مسموح');denied();return}
-  const V_={orgaout:()=>{location.replace('#/reports/orga_sales')},prep:vPrep,pick:(typeof vPick==='function'?vPick:vDash),routes:(typeof vRoutes==='function'?vRoutes:vDash),rets:(typeof vRets==='function'?vRets:vDash),track:(typeof vTrack==='function'?vTrack:vDash),flow:(typeof vFlow==='function'?vFlow:vDash),sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,countloc:(typeof vCountLoc==='function'?vCountLoc:vDash),audit:vAudit,users:vUsers,settings:vSettings};
+  const V_={orgaout:()=>{location.replace('#/reports/orga_sales')},prep:vPrep,pick:(typeof vPick==='function'?vPick:vDash),routes:(typeof vRoutes==='function'?vRoutes:vDash),rets:(typeof vRets==='function'?vRets:vDash),track:(typeof vTrack==='function'?vTrack:vDash),flow:(typeof vFlow==='function'?vFlow:vDash),sret:()=>vEditor('sret'),pret:()=>vEditor('pret'),crm:(typeof vCrm==='function'?vCrm:vDash),accounts:(typeof vAccounts==='function'?vAccounts:vDash),dash:vDash,sale:()=>vEditor('sale'),purchase:()=>vEditor('purchase'),inv:()=>vEditor(null,a[0]),invoices:vInvoices,lines:vLines,products:vProducts,import:vImport,parties:vParties,cash:vCash,attendance:vAttendance,employees:vEmployees,payroll:vPayroll,reports:vReports,cheques:vCheques,orders:vOrders,barcode:vBarcode,countloc:(typeof vCountLoc==='function'?vCountLoc:vDash),pricing:(typeof vPricing==='function'?vPricing:vDash),audit:vAudit,users:vUsers,settings:vSettings};
   const f=V_[p]||vDash;
   if(S.mode==='cloud'&&!allReady()){loadingView();return}
   if(S.mode==='loading'&&!S.data.products.size){$('#title').textContent='ميزان';$('#view').innerHTML='<div class="empty"><b>جارٍ تحميل البيانات…</b></div>';return}
@@ -2994,6 +2994,7 @@ init();
 <script src="/scan.js?v=1"></script>
 <script src="/countloc.js?v=1"></script>
 <script src="/pdfshare.js?v=1"></script>
+<script src="/pricing.js?v=1"></script>
 <script src="/live.js?v=1"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=9"></script>
