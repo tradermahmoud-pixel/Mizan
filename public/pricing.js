@@ -10,7 +10,7 @@
     { n: 3, label: 'آجل 15 يوم', col: 'PRICE_3' },
     { n: 4, label: 'صيدلي نقدي', col: 'PRICE_4' },
   ];
-  let PR = { inv: new Set(), disc: { 1: '', 2: '', 3: '', 4: '' }, base: 'consumer', round: 'none' };
+  let PR = { inv: new Set(), disc: { 1: '', 2: '', 3: '', 4: '' }, base: 'cost', round: 'none' };
 
   const rnd = v => { v = +v || 0; if (PR.round === 'pound') return Math.round(v); if (PR.round === 'half') return Math.round(v * 2) / 2; if (PR.round === 'quarter') return Math.round(v * 4) / 4; return Math.round(v * 100) / 100; };
   const baseOf = p => PR.base === 'cost' ? (avgCost(p.id) || +p.cost || 0) : (consOf(p) || +p.price || 0);
@@ -32,7 +32,7 @@
     $('#view').innerHTML = `<div class="wrap">
       <div class="card" style="padding:16px;margin-bottom:12px">
         <h2 style="margin:0 0 4px">تسعير الشرائح</h2>
-        <p class="small muted" style="margin:0 0 12px">اختر فواتير الشراء، اكتب نسبة الخصم لكل شريحة، وميزان يحسب سعر كل شريحة لكل صنف. السعر = الأساس × (1 − الخصم)، وبيتقرّب حسب اختيارك.</p>
+        <p class="small muted" style="margin:0 0 12px">اختر فواتير الشراء، اكتب نسبة كل شريحة، وميزان يحسب سعرها لكل صنف.<br><b>وضع التكلفة:</b> السعر = التكلفة × (1 + نسبة الربح) — مثال 82.62 + 7% = 88.40.<br><b>وضع الجمهور:</b> السعر = سعر الجمهور × (1 − نسبة الخصم).</p>
         <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
           <label class="f" style="margin:0;flex:1 1 220px">أضف فاتورة شراء برقمها<input class="in" id="prNo" inputmode="numeric" placeholder="رقم الفاتورة ثم Enter"></label>
           <button class="btn" id="prAdd">أضف</button>
@@ -47,8 +47,8 @@
         <div class="row" style="gap:18px;flex-wrap:wrap;align-items:flex-end">
           <div><div class="small muted" style="margin-bottom:4px">أساس الحساب</div>
             <div class="row" style="gap:0">
-              <button class="btn s ${PR.base === 'consumer' ? 'p' : ''}" data-base="consumer" style="border-radius:0 8px 8px 0">سعر الجمهور</button>
-              <button class="btn s ${PR.base === 'cost' ? 'p' : ''}" data-base="cost" style="border-radius:8px 0 0 8px">التكلفة</button>
+              <button class="btn s ${PR.base === 'cost' ? 'p' : ''}" data-base="cost" style="border-radius:0 8px 8px 0">التكلفة (ربح)</button>
+              <button class="btn s ${PR.base === 'consumer' ? 'p' : ''}" data-base="consumer" style="border-radius:8px 0 0 8px">سعر الجمهور (خصم)</button>
             </div></div>
           <label class="f" style="margin:0">التقريب<select class="in" id="prRound" style="width:auto">
             <option value="none" ${PR.round === 'none' ? 'selected' : ''}>بدون (رقمين)</option>
