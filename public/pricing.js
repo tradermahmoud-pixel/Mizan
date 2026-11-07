@@ -13,7 +13,24 @@
   let PR = { inv: new Set(), disc: { 1: '', 2: '', 3: '', 4: '' }, base: 'cost', round: 'none' };
 
   const rnd = v => { v = +v || 0; if (PR.round === 'pound') return Math.round(v); if (PR.round === 'half') return Math.round(v * 2) / 2; if (PR.round === 'quarter') return Math.round(v * 4) / 4; return Math.round(v * 100) / 100; };
-  const baseOf = p => PR.base === 'cost' ? (avgCost(p.id) || +p.cost || 0) : (consOf(p) || +p.price || 0);
+  // تكلفة الشراء من الفواتير المختارة (صافي سطر الفاتورة بعد الخصم) — مش متوسط المخزون
+  function costMap() {
+    const key = [...PR.inv].join(',');
+    if (costMap._k === key) return costMap._m;
+    const m = {};
+    for (const iid of PR.inv) {
+      const v = G('invoices', iid); if (!v || !v.lines) continue;
+      let f = 1; try { const tt = invTotals(v); if (tt && tt.sub > 0) f = tt.after / tt.sub; } catch (e) {}
+      for (const l of v.lines) {
+        if (!l.pid || l.bonus) continue;
+        const unit = (+l.price || 0) * (1 - (+l.disc || 0) / 100) * f;
+        if (unit > 0) m[l.pid] = Math.round(unit * 10000) / 10000;
+      }
+    }
+    costMap._k = key; costMap._m = m; return m;
+  }
+  const costOf = p => { const c = costMap()[p.id]; return c != null ? c : (avgCost(p.id) || +p.cost || 0); };
+  const baseOf = p => PR.base === 'cost' ? costOf(p) : (consOf(p) || +p.price || 0);
   const tierPrice = (p, n) => { const b = baseOf(p); if (!(b > 0)) return 0; const d = numIn(PR.disc[n]); const v = PR.base === 'cost' ? b * (1 + d / 100) : b * (1 - d / 100); return rnd(v); };
 
   const recentPur = () => L('invoices').filter(v => v.type === 'purchase' && !v.orgaGone).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.no).localeCompare(String(a.no))).slice(0, 24);
@@ -135,7 +152,7 @@
   }
 
   function prRow(p) {
-    const cost = avgCost(p.id) || +p.cost || 0, cons = consOf(p) || +p.price || 0;
+    const cost = costOf(p), cons = consOf(p) || +p.price || 0;
     return `<tr><td class="num">${esc(p.code || '')}</td><td><b>${esc(p.name)}</b></td>
       <td class="n num">${fmt(cost)}</td><td class="n num">${fmt(cons)}</td>
       ${TIERS.map(t => `<td class="n num" data-pc="${p.id}:${t.n}"><b>${fmt(tierPrice(p, t.n))}</b></td>`).join('')}</tr>`;
@@ -147,7 +164,7 @@
   function exportXls() {
     const list = chosenProds(); if (!list.length) { toast('مفيش أصناف', 'err'); return; }
     const head = ['كود أورجا', 'الصنف', 'التكلفة', 'سعر الجمهور', ...TIERS.map(t => t.label + ' (' + t.col + ')')];
-    const rows = list.map(p => [p.code || p.orga || '', p.name, +(avgCost(p.id) || +p.cost || 0).toFixed(2), +(consOf(p) || +p.price || 0).toFixed(2), ...TIERS.map(t => tierPrice(p, t.n))]);
+    const rows = list.map(p => [p.code || p.orga || '', p.name, +costOf(p).toFixed(2), +(consOf(p) || +p.price || 0).toFixed(2), ...TIERS.map(t => tierPrice(p, t.n))]);
     xlsxOut('تسعير_الشرائح_' + today() + '.xlsx', [head, ...rows], 'التسعير');
     toast('اتصدّر ملف التسعير', 'ok');
   }
