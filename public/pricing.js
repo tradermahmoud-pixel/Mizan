@@ -7,8 +7,8 @@
   const TIERS = [
     { n: 1, label: 'كبار العملاء', col: 'PRICE_1' },
     { n: 2, label: 'آجل', col: 'PRICE_2' },
-    { n: 3, label: 'صيدلي نقدي', col: 'PRICE_3' },
     { n: 4, label: 'آجل 15 يوم', col: 'PRICE_4' },
+    { n: 3, label: 'صيدلي نقدي', col: 'PRICE_3' },
   ];
   let PR = { inv: new Set(), disc: { 1: '', 2: '', 3: '', 4: '' }, base: 'cost', round: 'none' };
 
