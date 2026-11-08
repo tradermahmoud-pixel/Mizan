@@ -170,7 +170,7 @@
   }
 
   // ===== مراجعة فروق الأسعار مع أورجا (عرض فقط — بدون إرسال) =====
-  let DR = { mk: { 1: '3', 2: '12', 4: '10', 3: '7' }, tol: '1', only: true, stock: false, q: '' };
+  let DR = { mk: { 1: '3', 2: '12', 4: '10', 3: '7' }, tol: '1', only: true, stock: false, q: '', sel: new Set() };
   const r2 = v => Math.round((+v || 0) * 100) / 100;
   const colN = c => String(c).split('_')[1];
 
@@ -228,17 +228,19 @@
         </div>
         <label class="f" style="margin:10px 0 0;max-width:320px">بحث بالاسم أو الكود<input class="in" id="drQ" value="${esc(DR.q)}" placeholder="اكتب ثم Enter"></label>
       </div>
-      <div class="row" style="gap:10px;margin-bottom:10px;align-items:center">
+      <div class="row" style="gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
         <span class="tag bad">${flagged.length} صنف فيه فرق</span>
-        <span class="tag">${all.length} صنف إجمالي</span>
+        <span class="tag">${all.length} إجمالي</span>
+        <span class="tag ok" id="drSelN">${DR.sel.size} مختار</span>
         <span style="flex:1"></span>
         <button class="btn" id="drXls" ${list.length ? '' : 'disabled'}>📊 تصدير Excel</button>
+        ${canOrgaWrite() && !S.ro ? `<button class="btn s" id="drTest">🧪 جرّب أول 3 من المختار</button><button class="btn g" id="drSend">⬆ إرسال المختار لأورجا</button><button class="btn s" id="drStat">حالة الإرسال</button>` : ''}
       </div>
-      <div class="tw"><table class="t"><thead><tr><th>الكود</th><th>الصنف</th><th class="n">الرصيد</th><th class="n">التكلفة</th>${TIERS.map(t => `<th class="n">${t.label}<br><span class="small muted">ميزان / أورجا</span></th>`).join('')}</tr></thead><tbody>
-        ${list.length ? list.slice(0, 400).map(r => `<tr><td class="num">${esc(r.p.code || r.p.orga || '')}</td><td><b>${esc(r.p.name)}</b></td><td class="n num" style="${r.bal > 0 ? '' : 'color:var(--gold)'}">${fmt(r.bal)}</td><td class="n num">${fmt(r.cost)}</td>${r.cells.map(cell).join('')}</tr>`).join('') : `<tr><td colspan="${4 + TIERS.length}"><div class="empty" style="padding:30px"><b>مفيش نتايج</b>غيّر الفلاتر وجرّب تاني</div></td></tr>`}
+      <div class="tw"><table class="t"><thead><tr><th style="width:34px"><input type="checkbox" id="drAll" title="اختر كل الظاهر"></th><th>الكود</th><th>الصنف</th><th class="n">الرصيد</th><th class="n">التكلفة</th>${TIERS.map(t => `<th class="n">${t.label}<br><span class="small muted">ميزان / أورجا</span></th>`).join('')}</tr></thead><tbody>
+        ${list.length ? list.slice(0, 400).map(r => `<tr><td style="text-align:center"><input type="checkbox" data-sel="${esc(r.p.id)}" ${DR.sel.has(r.p.id) ? 'checked' : ''}></td><td class="num">${esc(r.p.code || r.p.orga || '')}</td><td><b>${esc(r.p.name)}</b></td><td class="n num" style="${r.bal > 0 ? '' : 'color:var(--gold)'}">${fmt(r.bal)}</td><td class="n num">${fmt(r.cost)}</td>${r.cells.map(cell).join('')}</tr>`).join('') : `<tr><td colspan="${5 + TIERS.length}"><div class="empty" style="padding:30px"><b>مفيش نتايج</b>غيّر الفلاتر وجرّب تاني</div></td></tr>`}
       </tbody></table></div>
       ${list.length > 400 ? `<p class="small muted">بيظهر أول 400 — التصدير بيشمل الكل.</p>` : ''}
-      <p class="small muted" style="margin-top:10px">لما تجهز للإرسال، روح شاشة «تسعير الشرائح» واختار الفواتير وابعت. الشاشة دي للمراجعة بس.</p>
+      <p class="small muted" style="margin-top:10px">التسعير = النسب اللي فوق على <b>متوسط التكلفة</b>. حدّد الأصناف، ابدأ بـ«🧪 جرّب أول 3» وتأكد في أورجا، وبعدين «⬆ إرسال المختار». الإرسال بيكتب الشرائح اللي فيها نسبة بس. محتاج وكيل إصدار 1.8.0+.</p>
     </div>`;
     $$('[data-mk]').forEach(i => { i.oninput = () => { DR.mk[+i.dataset.mk] = i.value; }; i.onchange = () => window.vDrift(); });
     const t = $('#drTol'); if (t) t.onchange = () => { DR.tol = t.value; window.vDrift(); };
@@ -246,7 +248,40 @@
     const sk = $('#drStock'); if (sk) sk.onclick = () => { DR.stock = !DR.stock; window.vDrift(); };
     const q = $('#drQ'); if (q) q.onkeydown = e => { if (e.key === 'Enter') { DR.q = q.value; window.vDrift(); } };
     const xb = $('#drXls'); if (xb) xb.onclick = driftXls;
+    const updSel = () => { const n = $('#drSelN'); if (n) n.textContent = DR.sel.size + ' مختار'; };
+    $$('[data-sel]').forEach(cb => cb.onchange = () => { cb.checked ? DR.sel.add(cb.dataset.sel) : DR.sel.delete(cb.dataset.sel); updSel(); });
+    const allc = $('#drAll'); if (allc) allc.onclick = () => { const on = allc.checked; for (const r of list) on ? DR.sel.add(r.p.id) : DR.sel.delete(r.p.id); window.vDrift(); };
+    const tb = $('#drTest'); if (tb) tb.onclick = () => sendDrift(3);
+    const sb = $('#drSend'); if (sb) sb.onclick = () => sendDrift(0);
+    const stb = $('#drStat'); if (stb) stb.onclick = showStatus;
   };
+
+  async function sendDrift(limit) {
+    if (!DR.sel.size) { toast('حدّد أصناف الأول', 'err'); return; }
+    const active = TIERS.filter(t => String(DR.mk[t.n]).trim() !== '');
+    if (!active.length) { toast('اكتب نسبة شريحة واحدة على الأقل', 'err'); return; }
+    const items = []; let skipped = 0;
+    for (const id of DR.sel) {
+      const p = G('products', id); if (!p) continue;
+      const cost = avgCost(p.id) || +p.cost || 0;
+      if (!(+p.orga > 0) || !(cost > 0)) { skipped++; continue; }
+      const prices = {};
+      for (const t of active) prices[t.col] = r2(cost * (1 + numIn(DR.mk[t.n]) / 100));
+      items.push({ prod: +p.orga, prices });
+      if (limit && items.length >= limit) break;
+    }
+    if (!items.length) { toast('مفيش أصناف صالحة للإرسال (لازم كود أورجا وتكلفة)', 'err'); return; }
+    const names = active.map(t => t.label).join('، ');
+    const msg = limit
+      ? `تجربة: هيتبعت أول <b>${items.length}</b> صنف من المختار لأورجا (الشرائح: ${names}).<br>بعد دقيقة افحص صنف منهم في أورجا وتأكد إن السعر دخل الشريحة الصح قبل ما تبعت الكل.`
+      : `هيتكتب أسعار <b>${items.length}</b> صنف مختار في أورجا — الشرائح: ${names}.${skipped ? `<br><span style="color:var(--gold)">(${skipped} صنف اتخطّى لعدم وجود كود أورجا أو تكلفة)</span>` : ''}<br>ده بيحدّث الأسعار دي مباشرة في جدول أصناف أورجا. متأكد؟`;
+    if (!(await confirmHtml(msg, limit ? 'جرّب' : 'إرسال المختار', !limit))) return;
+    try {
+      const r = await MZ.post('/api/orga/prices/add', { items });
+      toast(`اتضاف ${r.queued} صنف لطابور الأسعار — هيتكتبوا في أورجا خلال دقيقة`, 'ok');
+      setTimeout(showStatus, 1800);
+    } catch (e) { toast(e.message || 'مقدرتش أبعت', 'err'); }
+  }
 
   function driftXls() {
     const list = driftRows().filter(r => DR.only ? r.flags > 0 : true);
