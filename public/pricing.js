@@ -168,4 +168,93 @@
     xlsxOut('تسعير_الشرائح_' + today() + '.xlsx', [head, ...rows], 'التسعير');
     toast('اتصدّر ملف التسعير', 'ok');
   }
+
+  // ===== مراجعة فروق الأسعار مع أورجا (عرض فقط — بدون إرسال) =====
+  let DR = { mk: { 1: '3', 2: '12', 4: '10', 3: '7' }, tol: '1', only: true, q: '' };
+  const r2 = v => Math.round((+v || 0) * 100) / 100;
+  const colN = c => String(c).split('_')[1];
+
+  function driftRows() {
+    const q = (DR.q || '').trim().toLowerCase();
+    const tol = Math.max(0, numIn(DR.tol));
+    const out = [];
+    for (const p of L('products')) {
+      if (!(+p.orga > 0) || p.inactive) continue;
+      const cost = avgCost(p.id) || +p.cost || 0;
+      if (!(cost > 0)) continue;
+      if (q && !(String(p.name || '').toLowerCase().includes(q) || String(p.code || '').includes(q))) continue;
+      const pr = p.prices || {};
+      const cells = TIERS.map(t => {
+        const mk = numIn(DR.mk[t.n]);
+        const miz = r2(cost * (1 + mk / 100));
+        const orga = +pr[colN(t.col)] || 0;
+        const diff = orga > 0 ? r2(miz - orga) : null;
+        return { n: t.n, label: t.label, miz, orga, diff };
+      });
+      const flags = cells.filter(c => c.diff == null || Math.abs(c.diff) > tol).length;
+      const maxAbs = Math.max(0, ...cells.filter(c => c.diff != null).map(c => Math.abs(c.diff)));
+      out.push({ p, cost, cells, flags, maxAbs });
+    }
+    out.sort((a, b) => b.maxAbs - a.maxAbs || String(a.p.name || '').localeCompare(String(b.p.name || ''), 'ar'));
+    return out;
+  }
+
+  window.vDrift = function () {
+    setTitle('مراجعة فروق الأسعار');
+    const all = driftRows();
+    const flagged = all.filter(r => r.flags > 0);
+    const list = DR.only ? flagged : all;
+    const tol = Math.max(0, numIn(DR.tol));
+    const cell = c => {
+      if (!(c.orga > 0)) return `<td class="n" style="color:var(--gold)">${fmt(c.miz)}<br><span class="small">مفيش بأورجا</span></td>`;
+      const bad = Math.abs(c.diff) > tol;
+      const col = bad ? 'var(--danger)' : '#1a7f37';
+      const sign = c.diff > 0 ? '+' : '';
+      return `<td class="n"><b>${fmt(c.miz)}</b> <span class="muted">/ ${fmt(c.orga)}</span><br><span style="color:${col};font-weight:700">(${sign}${fmt(c.diff)})</span></td>`;
+    };
+    $('#view').innerHTML = `<div class="wrap">
+      <div class="card" style="padding:16px;margin-bottom:12px">
+        <h2 style="margin:0 0 4px">مراجعة فروق الأسعار مع أورجا</h2>
+        <p class="small muted" style="margin:0 0 12px">بتقارن <b>سعر ميزان المحسوب</b> (متوسط التكلفة × (1 + نسبة الشريحة)) بـ<b>السعر المخزّن في أورجا</b> لكل صنف. للمراجعة بس — <b>مفيش إرسال</b> من الشاشة دي.</p>
+        <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+          ${TIERS.map(t => `<label class="f" style="margin:0;flex:0 1 125px">${t.label} % ربح
+            <input class="in n" data-mk="${t.n}" inputmode="decimal" value="${esc(DR.mk[t.n])}" style="width:78px"></label>`).join('')}
+          <label class="f" style="margin:0;flex:0 1 120px">حد الفرق (جنيه)
+            <input class="in n" id="drTol" inputmode="decimal" value="${esc(DR.tol)}" style="width:78px"></label>
+          <button class="btn s ${DR.only ? 'p' : ''}" id="drOnly" style="white-space:nowrap">${DR.only ? '✓ اللي فيها فرق بس' : 'عرض الكل'}</button>
+        </div>
+        <label class="f" style="margin:10px 0 0;max-width:320px">بحث بالاسم أو الكود<input class="in" id="drQ" value="${esc(DR.q)}" placeholder="اكتب ثم Enter"></label>
+      </div>
+      <div class="row" style="gap:10px;margin-bottom:10px;align-items:center">
+        <span class="tag bad">${flagged.length} صنف فيه فرق</span>
+        <span class="tag">${all.length} صنف إجمالي</span>
+        <span style="flex:1"></span>
+        <button class="btn" id="drXls" ${list.length ? '' : 'disabled'}>📊 تصدير Excel</button>
+      </div>
+      <div class="tw"><table class="t"><thead><tr><th>الكود</th><th>الصنف</th><th class="n">التكلفة</th>${TIERS.map(t => `<th class="n">${t.label}<br><span class="small muted">ميزان / أورجا</span></th>`).join('')}</tr></thead><tbody>
+        ${list.length ? list.slice(0, 400).map(r => `<tr><td class="num">${esc(r.p.code || r.p.orga || '')}</td><td><b>${esc(r.p.name)}</b></td><td class="n num">${fmt(r.cost)}</td>${r.cells.map(cell).join('')}</tr>`).join('') : `<tr><td colspan="${3 + TIERS.length}"><div class="empty" style="padding:30px"><b>مفيش فروق</b>كل الأسعار متطابقة في حدود الفرق المسموح</div></td></tr>`}
+      </tbody></table></div>
+      ${list.length > 400 ? `<p class="small muted">بيظهر أول 400 — التصدير بيشمل الكل.</p>` : ''}
+      <p class="small muted" style="margin-top:10px">لما تجهز للإرسال، روح شاشة «تسعير الشرائح» واختار الفواتير وابعت. الشاشة دي للمراجعة بس.</p>
+    </div>`;
+    $$('[data-mk]').forEach(i => { i.oninput = () => { DR.mk[+i.dataset.mk] = i.value; }; i.onchange = () => window.vDrift(); });
+    const t = $('#drTol'); if (t) t.onchange = () => { DR.tol = t.value; window.vDrift(); };
+    const o = $('#drOnly'); if (o) o.onclick = () => { DR.only = !DR.only; window.vDrift(); };
+    const q = $('#drQ'); if (q) q.onkeydown = e => { if (e.key === 'Enter') { DR.q = q.value; window.vDrift(); } };
+    const xb = $('#drXls'); if (xb) xb.onclick = driftXls;
+  };
+
+  function driftXls() {
+    const list = driftRows().filter(r => DR.only ? r.flags > 0 : true);
+    if (!list.length) { toast('مفيش بيانات', 'err'); return; }
+    const head = ['كود أورجا', 'الصنف', 'التكلفة'];
+    for (const t of TIERS) head.push(t.label + ' ميزان', t.label + ' أورجا', t.label + ' فرق');
+    const rows = list.map(r => {
+      const base = [r.p.code || r.p.orga || '', r.p.name, +r.cost.toFixed(2)];
+      for (const c of r.cells) base.push(+c.miz.toFixed(2), c.orga > 0 ? +c.orga.toFixed(2) : '', c.diff != null ? +c.diff.toFixed(2) : '');
+      return base;
+    });
+    xlsxOut('فروق_الأسعار_' + today() + '.xlsx', [head, ...rows], 'الفروق');
+    toast('اتصدّر ملف الفروق', 'ok');
+  }
 })();
