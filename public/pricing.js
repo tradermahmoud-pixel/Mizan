@@ -170,9 +170,16 @@
   }
 
   // ===== مراجعة فروق الأسعار مع أورجا (عرض فقط — بدون إرسال) =====
-  let DR = { mk: { 1: '3', 2: '12', 4: '10', 3: '7' }, tol: '1', only: true, stock: false, q: '', sel: new Set() };
+  let DR = { mk: { 1: '3', 2: '12', 4: '10', 3: '7' }, tol: '1', only: true, stock: false, q: '', group: 'all', sel: new Set() };
   const r2 = v => Math.round((+v || 0) * 100) / 100;
   const colN = c => String(c).split('_')[1];
+  const GNAME = { paper: 'ورقيات', supplies: 'مستلزمات', other: 'غير' };
+  let PG = null; // خريطة المجموعات { كود أورجا: paper|supplies }
+  function loadGroups(cb) {
+    if (PG) { cb && cb(); return; }
+    fetch('/groups.json', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : {}).then(j => { PG = j || {}; cb && cb(); }).catch(() => { PG = {}; cb && cb(); });
+  }
+  const groupOf = p => (PG && PG[String(p.code || p.orga || '')]) || 'other';
 
   function driftRows() {
     const q = (DR.q || '').trim().toLowerCase();
@@ -184,6 +191,7 @@
       if (!(cost > 0)) continue;
       const bal = (typeof qtyIn === 'function' ? +qtyIn(p.id) : 0) || 0;
       if (DR.stock && !(bal > 0)) continue;
+      if (DR.group !== 'all' && groupOf(p) !== DR.group) continue;
       if (q && !(String(p.name || '').toLowerCase().includes(q) || String(p.code || '').includes(q))) continue;
       const pr = p.prices || {};
       const cells = TIERS.map(t => {
@@ -195,7 +203,7 @@
       });
       const flags = cells.filter(c => c.diff == null || Math.abs(c.diff) > tol).length;
       const maxAbs = Math.max(0, ...cells.filter(c => c.diff != null).map(c => Math.abs(c.diff)));
-      out.push({ p, cost, bal, cells, flags, maxAbs });
+      out.push({ p, cost, bal, grp: groupOf(p), cells, flags, maxAbs });
     }
     out.sort((a, b) => b.maxAbs - a.maxAbs || String(a.p.name || '').localeCompare(String(b.p.name || ''), 'ar'));
     return out;
@@ -203,6 +211,7 @@
 
   window.vDrift = function () {
     setTitle('مراجعة فروق الأسعار');
+    if (PG === null) { $('#view').innerHTML = '<div class="wrap"><div class="card" style="padding:28px;text-align:center" class="muted">بحمّل المجموعات…</div></div>'; loadGroups(() => window.vDrift()); return; }
     const all = driftRows();
     const flagged = all.filter(r => r.flags > 0);
     const list = DR.only ? flagged : all;
@@ -225,6 +234,12 @@
             <input class="in n" id="drTol" inputmode="decimal" value="${esc(DR.tol)}" style="width:78px"></label>
           <button class="btn s ${DR.only ? 'p' : ''}" id="drOnly" style="white-space:nowrap">${DR.only ? '✓ اللي فيها فرق بس' : 'عرض الكل'}</button>
           <button class="btn s ${DR.stock ? 'p' : ''}" id="drStock" style="white-space:nowrap">${DR.stock ? '✓ اللي ليه رصيد بس' : 'كل الأرصدة'}</button>
+          <label class="f" style="margin:0;flex:0 1 160px">المجموعة<select class="in" id="drGroup">
+            <option value="all" ${DR.group === 'all' ? 'selected' : ''}>الكل</option>
+            <option value="paper" ${DR.group === 'paper' ? 'selected' : ''}>ورقيات</option>
+            <option value="supplies" ${DR.group === 'supplies' ? 'selected' : ''}>مستلزمات</option>
+            <option value="other" ${DR.group === 'other' ? 'selected' : ''}>غير</option>
+          </select></label>
         </div>
         <label class="f" style="margin:10px 0 0;max-width:320px">بحث بالاسم أو الكود<input class="in" id="drQ" value="${esc(DR.q)}" placeholder="اكتب ثم Enter"></label>
       </div>
@@ -237,7 +252,7 @@
         ${canOrgaWrite() && !S.ro ? `<button class="btn s" id="drTest">🧪 جرّب أول 3 من المختار</button><button class="btn g" id="drSend">⬆ إرسال المختار لأورجا</button><button class="btn s" id="drStat">حالة الإرسال</button>` : ''}
       </div>
       <div class="tw"><table class="t"><thead><tr><th style="width:34px"><input type="checkbox" id="drAll" title="اختر كل الظاهر"></th><th>الكود</th><th>الصنف</th><th class="n">الرصيد</th><th class="n">التكلفة</th>${TIERS.map(t => `<th class="n">${t.label}<br><span class="small muted">ميزان / أورجا</span></th>`).join('')}</tr></thead><tbody>
-        ${list.length ? list.slice(0, 400).map(r => `<tr><td style="text-align:center"><input type="checkbox" data-sel="${esc(r.p.id)}" ${DR.sel.has(r.p.id) ? 'checked' : ''}></td><td class="num">${esc(r.p.code || r.p.orga || '')}</td><td><b>${esc(r.p.name)}</b></td><td class="n num" style="${r.bal > 0 ? '' : 'color:var(--gold)'}">${fmt(r.bal)}</td><td class="n num">${fmt(r.cost)}</td>${r.cells.map(cell).join('')}</tr>`).join('') : `<tr><td colspan="${5 + TIERS.length}"><div class="empty" style="padding:30px"><b>مفيش نتايج</b>غيّر الفلاتر وجرّب تاني</div></td></tr>`}
+        ${list.length ? list.slice(0, 400).map(r => `<tr><td style="text-align:center"><input type="checkbox" data-sel="${esc(r.p.id)}" ${DR.sel.has(r.p.id) ? 'checked' : ''}></td><td class="num">${esc(r.p.code || r.p.orga || '')}</td><td><b>${esc(r.p.name)}</b>${r.grp !== 'other' ? ` <span style="display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:middle;background:${r.grp === 'paper' ? '#8e5bd0' : '#e0b400'}" title="${GNAME[r.grp]}"></span>` : ''}</td><td class="n num" style="${r.bal > 0 ? '' : 'color:var(--gold)'}">${fmt(r.bal)}</td><td class="n num">${fmt(r.cost)}</td>${r.cells.map(cell).join('')}</tr>`).join('') : `<tr><td colspan="${5 + TIERS.length}"><div class="empty" style="padding:30px"><b>مفيش نتايج</b>غيّر الفلاتر وجرّب تاني</div></td></tr>`}
       </tbody></table></div>
       ${list.length > 400 ? `<p class="small muted">بيظهر أول 400 — التصدير بيشمل الكل.</p>` : ''}
       <p class="small muted" style="margin-top:10px">التسعير = النسب اللي فوق على <b>متوسط التكلفة</b>. حدّد الأصناف، ابدأ بـ«🧪 جرّب أول 3» وتأكد في أورجا، وبعدين «⬆ إرسال المختار». الإرسال بيكتب الشرائح اللي فيها نسبة بس. محتاج وكيل إصدار 1.8.0+.</p>
@@ -246,6 +261,7 @@
     const t = $('#drTol'); if (t) t.onchange = () => { DR.tol = t.value; window.vDrift(); };
     const o = $('#drOnly'); if (o) o.onclick = () => { DR.only = !DR.only; window.vDrift(); };
     const sk = $('#drStock'); if (sk) sk.onclick = () => { DR.stock = !DR.stock; window.vDrift(); };
+    const gs = $('#drGroup'); if (gs) gs.onchange = () => { DR.group = gs.value; window.vDrift(); };
     const q = $('#drQ'); if (q) q.onkeydown = e => { if (e.key === 'Enter') { DR.q = q.value; window.vDrift(); } };
     const xb = $('#drXls'); if (xb) xb.onclick = driftXls;
     const updSel = () => { const n = $('#drSelN'); if (n) n.textContent = DR.sel.size + ' مختار'; };
@@ -286,10 +302,10 @@
   function driftXls() {
     const list = driftRows().filter(r => DR.only ? r.flags > 0 : true);
     if (!list.length) { toast('مفيش بيانات', 'err'); return; }
-    const head = ['كود أورجا', 'الصنف', 'الرصيد', 'التكلفة'];
+    const head = ['كود أورجا', 'الصنف', 'المجموعة', 'الرصيد', 'التكلفة'];
     for (const t of TIERS) head.push(t.label + ' ميزان', t.label + ' أورجا', t.label + ' فرق');
     const rows = list.map(r => {
-      const base = [r.p.code || r.p.orga || '', r.p.name, +(+r.bal || 0).toFixed(2), +r.cost.toFixed(2)];
+      const base = [r.p.code || r.p.orga || '', r.p.name, GNAME[r.grp] || 'غير', +(+r.bal || 0).toFixed(2), +r.cost.toFixed(2)];
       for (const c of r.cells) base.push(+c.miz.toFixed(2), c.orga > 0 ? +c.orga.toFixed(2) : '', c.diff != null ? +c.diff.toFixed(2) : '');
       return base;
     });
