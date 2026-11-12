@@ -170,7 +170,9 @@
   }
 
   // ===== مراجعة فروق الأسعار مع أورجا (عرض فقط — بدون إرسال) =====
-  let DR = { mk: { 1: '3', 2: '12', 4: '10', 3: '7' }, tol: '1', only: true, stock: false, q: '', group: 'all', sel: new Set() };
+  let DR = { mk: { 1: '3', 2: '12', 4: '10', 3: '7' }, tol: '1', only: true, stock: false, q: '', group: 'all', costbase: 'orga', sel: new Set() };
+  // أساس التكلفة: orga = تكلفة أورجا الرسمية (p.cost) — mizan = متوسط ميزان المحسوب
+  const drCost = p => DR.costbase === 'orga' ? (+p.cost || avgCost(p.id) || 0) : (avgCost(p.id) || +p.cost || 0);
   const r2 = v => Math.round((+v || 0) * 100) / 100;
   const colN = c => String(c).split('_')[1];
   const GNAME = { paper: 'ورقيات', supplies: 'مستلزمات', other: 'غير' };
@@ -187,7 +189,7 @@
     const out = [];
     for (const p of L('products')) {
       if (!(+p.orga > 0) || p.inactive) continue;
-      const cost = avgCost(p.id) || +p.cost || 0;
+      const cost = drCost(p);
       if (!(cost > 0)) continue;
       const bal = (typeof qtyIn === 'function' ? +qtyIn(p.id) : 0) || 0;
       if (DR.stock && !(bal > 0)) continue;
@@ -240,6 +242,10 @@
             <option value="supplies" ${DR.group === 'supplies' ? 'selected' : ''}>مستلزمات</option>
             <option value="other" ${DR.group === 'other' ? 'selected' : ''}>غير</option>
           </select></label>
+          <label class="f" style="margin:0;flex:0 1 180px">أساس التكلفة<select class="in" id="drCostBase">
+            <option value="orga" ${DR.costbase === 'orga' ? 'selected' : ''}>تكلفة أورجا الرسمية</option>
+            <option value="mizan" ${DR.costbase === 'mizan' ? 'selected' : ''}>متوسط ميزان</option>
+          </select></label>
         </div>
         <label class="f" style="margin:10px 0 0;max-width:320px">بحث بالاسم أو الكود<input class="in" id="drQ" value="${esc(DR.q)}" placeholder="اكتب ثم Enter"></label>
       </div>
@@ -262,6 +268,7 @@
     const o = $('#drOnly'); if (o) o.onclick = () => { DR.only = !DR.only; window.vDrift(); };
     const sk = $('#drStock'); if (sk) sk.onclick = () => { DR.stock = !DR.stock; window.vDrift(); };
     const gs = $('#drGroup'); if (gs) gs.onchange = () => { DR.group = gs.value; window.vDrift(); };
+    const cb = $('#drCostBase'); if (cb) cb.onchange = () => { DR.costbase = cb.value; window.vDrift(); };
     const q = $('#drQ'); if (q) q.onkeydown = e => { if (e.key === 'Enter') { DR.q = q.value; window.vDrift(); } };
     const xb = $('#drXls'); if (xb) xb.onclick = driftXls;
     const updSel = () => { const n = $('#drSelN'); if (n) n.textContent = DR.sel.size + ' مختار'; };
@@ -279,7 +286,7 @@
     const items = []; let skipped = 0;
     for (const id of DR.sel) {
       const p = G('products', id); if (!p) continue;
-      const cost = avgCost(p.id) || +p.cost || 0;
+      const cost = drCost(p);
       if (!(+p.orga > 0) || !(cost > 0)) { skipped++; continue; }
       const prices = {};
       for (const t of active) prices[t.col] = r2(cost * (1 + numIn(DR.mk[t.n]) / 100));
