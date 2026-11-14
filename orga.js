@@ -290,6 +290,80 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
     } catch (e) { next(e); }
   });
 
+  // ===== تكويد أصناف في أورجا (إنشاء كروت أصناف جديدة) =====
+  // المالك/المدير بيضيف أصناف من شيت للطابور؛ الوكيل 1.10.0+ بينشئها في PRODUCTS ويرجّع الأكواد
+  app.post('/api/orga/products/add', auth(false), writeOnly, async (req, res, next) => {
+    try {
+      await touch(req, {});
+      const items = Array.isArray(req.body && req.body.items) ? req.body.items.slice(0, 5000) : [];
+      const by = (req.user && (req.user.name || req.user.id)) || '';
+      let queued = 0; const ids = [];
+      await withOut(st => {
+        if (!isObj(st.products)) st.products = {};
+        st.seq = st.seq || 0;
+        for (const it of items) {
+          const name = String((it && it.name) || '').trim().slice(0, 50);
+          if (!name) continue;
+          const master = String((it && it.master) || '').replace(/[^\x20-\x7e]/g, '').slice(0, 25);
+          const cons = Math.max(0, +(it && it.cons) || 0);
+          const cost = Math.max(0, +(it && it.cost) || 0);
+          const ref = String((it && it.ref) || '').slice(0, 40); // مرجع سطر الشيت (عشان الواجهة تربط النتيجة)
+          const id = 'p' + (++st.seq);
+          st.products[id] = { id, item: { id, name, master, cons, cost }, ref, status: 'pending', createdAt: now(), createdBy: by };
+          ids.push({ id, ref, master, name }); queued++;
+        }
+      });
+      res.json({ queued, ids });
+    } catch (e) { next(e); }
+  });
+
+  // تعديل بيانات صنف متكوّد (الاسم و/أو قيم رقمية) — يحتاج PROD_ID
+  app.post('/api/orga/products/edit', auth(false), writeOnly, async (req, res, next) => {
+    try {
+      await touch(req, {});
+      const items = Array.isArray(req.body && req.body.items) ? req.body.items.slice(0, 5000) : [];
+      const by = (req.user && (req.user.name || req.user.id)) || '';
+      let queued = 0;
+      await withOut(st => {
+        if (!isObj(st.productEdits)) st.productEdits = {};
+        st.seq = st.seq || 0;
+        for (const it of items) {
+          const prod = posInt(it && it.prod); if (!prod) continue;
+          const name = (it && it.name != null) ? String(it.name).trim().slice(0, 50) : null;
+          const prices = {};
+          if (isObj(it.prices)) for (const k of Object.keys(it.prices)) {
+            if (/^(PRICE_[1-5]|CONSUMER|PRIC_COST|COST_AV)$/.test(k)) { const v = +it.prices[k]; if (isFinite(v) && v >= 0) prices[k] = Math.round(v * 10000) / 10000; }
+          }
+          if (!name && !Object.keys(prices).length) continue;
+          const id = 'e' + (++st.seq);
+          st.productEdits[id] = { id, prod, name, prices, status: 'pending', createdAt: now(), createdBy: by };
+          queued++;
+        }
+      });
+      res.json({ queued });
+    } catch (e) { next(e); }
+  });
+
+  // حالة طابور الأصناف (إنشاء + تعديل) + خريطة النتائج (ماستر/مرجع -> كود أورجا)
+  app.get('/api/orga/products/status', auth(false), writeOnly, async (req, res, next) => {
+    try {
+      const { rows } = await pool.query(`SELECT v FROM kv WHERE k=$1`, [OUT_KV]);
+      const st = (rows[0] && rows[0].v) || {};
+      const ps = isObj(st.products) ? Object.values(st.products) : [];
+      const es = isObj(st.productEdits) ? Object.values(st.productEdits) : [];
+      const counts = { pending: 0, sending: 0, done: 0, error: 0 };
+      const results = [];
+      for (const j of ps) {
+        counts[j.status] = (counts[j.status] || 0) + 1;
+        results.push({ id: j.id, ref: j.ref || '', master: (j.item && j.item.master) || '', name: (j.item && j.item.name) || '', status: j.status, prod: j.prod || null, dup: !!j.dup, error: j.error || '' });
+      }
+      const ecounts = { pending: 0, sending: 0, done: 0, error: 0 };
+      const eerrors = [];
+      for (const j of es) { ecounts[j.status] = (ecounts[j.status] || 0) + 1; if (j.status === 'error' && eerrors.length < 10) eerrors.push({ prod: j.prod, error: j.error }); }
+      res.json({ total: ps.length, counts, results, edits: { total: es.length, counts: ecounts, errors: eerrors } });
+    } catch (e) { next(e); }
+  });
+
   // الوكيل بياخد المعلّق
   app.post('/api/orga/outbox', agentAuth, async (req, res, next) => {
     try {
@@ -299,6 +373,7 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       const saleOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 7);
       const priceOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 8); // تحديث الأسعار من وكيل 1.8.0+
       const consumerOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 9); // كتابة سعر المستهلك CONSUMER من وكيل 1.9.0+
+      const productOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 10); // إنشاء/تعديل الأصناف من وكيل 1.10.0+
       const out = await withOut(st => {
         const take = [];
         for (const j of Object.values(st.jobs)) {
@@ -319,9 +394,27 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
             }
           }
         }
-        return { jobs: take, prices };
+        const products = [];
+        const productEdits = [];
+        if (productOk) {
+          if (isObj(st.products)) for (const j of Object.values(st.products)) {
+            if (j.status === 'pending' || (j.status === 'sending' && now() - (j.sentAt || 0) > 5 * 60e3)) {
+              j.status = 'sending'; j.sentAt = now();
+              products.push({ id: j.id, name: j.item.name, master: j.item.master, cons: j.item.cons, cost: j.item.cost });
+              if (products.length >= 150) break;
+            }
+          }
+          if (isObj(st.productEdits)) for (const j of Object.values(st.productEdits)) {
+            if (j.status === 'pending' || (j.status === 'sending' && now() - (j.sentAt || 0) > 5 * 60e3)) {
+              j.status = 'sending'; j.sentAt = now();
+              productEdits.push({ id: j.id, prod: j.prod, name: j.name, prices: j.prices });
+              if (productEdits.length >= 150) break;
+            }
+          }
+        }
+        return { jobs: take, prices, products, productEdits };
       });
-      res.json({ jobs: out.jobs, prices: out.prices });
+      res.json({ jobs: out.jobs, prices: out.prices, products: out.products, productEdits: out.productEdits });
     } catch (e) { next(e); }
   });
 
@@ -346,6 +439,20 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
           if (r.ok) { j.status = 'done'; j.doneAt = now(); delete j.error; }
           else { j.status = 'error'; j.error = String(r.error || 'خطأ').slice(0, 200); j.doneAt = now(); }
         }
+        const productDone = Array.isArray(req.body && req.body.productDone) ? req.body.productDone : [];
+        const editDone = Array.isArray(req.body && req.body.editDone) ? req.body.editDone : [];
+        if (isObj(st.products)) for (const r of productDone) {
+          const j = st.products[String(r.id)]; if (!j) continue;
+          if (r.ok) { j.status = 'done'; j.prod = posInt(r.prod) || null; j.dup = !!r.dup; j.doneAt = now(); delete j.error; }
+          else { j.status = 'error'; j.error = String(r.error || 'خطأ').slice(0, 200); j.doneAt = now(); }
+        }
+        if (isObj(st.productEdits)) for (const r of editDone) {
+          const j = st.productEdits[String(r.id)]; if (!j) continue;
+          if (r.ok) { j.status = 'done'; j.doneAt = now(); delete j.error; }
+          else { j.status = 'error'; j.error = String(r.error || 'خطأ').slice(0, 200); j.doneAt = now(); }
+        }
+        if (isObj(st.products)) for (const [id, j] of Object.entries(st.products)) if (j.status === 'done' && now() - (j.doneAt || 0) > 7 * 864e5) delete st.products[id];
+        if (isObj(st.productEdits)) for (const [id, j] of Object.entries(st.productEdits)) if (j.status === 'done' && now() - (j.doneAt || 0) > 2 * 864e5) delete st.productEdits[id];
         // تنضيف: شيل اللي خلصوا بقالهم أكتر من 7 أيام (الربط نفسه بيفضل متسجّل على المستند)
         for (const [id, j] of Object.entries(st.jobs)) if (j.status === 'done' && now() - (j.doneAt || 0) > 7 * 864e5) delete st.jobs[id];
         if (isObj(st.prices)) for (const [id, j] of Object.entries(st.prices)) if (j.status === 'done' && now() - (j.doneAt || 0) > 2 * 864e5) delete st.prices[id];
