@@ -319,4 +319,115 @@
     xlsxOut('فروق_الأسعار_' + today() + '.xlsx', [head, ...rows], 'الفروق');
     toast('اتصدّر ملف الفروق', 'ok');
   }
+
+  // ===== مراجعة أسعار المستهلك الشاذة =====
+  let CR = { minMargin: '10', mode: 'all', q: '', stock: false, sugg: '20', sel: new Set(), edit: {} };
+  function crRows() {
+    const q = (CR.q || '').trim().toLowerCase();
+    const minM = numIn(CR.minMargin);
+    const out = [];
+    for (const p of L('products')) {
+      if (!(+p.orga > 0) || p.inactive) continue;
+      const cost = drCost(p);
+      const cons = consOf(p) || +p.price || 0;
+      if (q && !(String(p.name || '').toLowerCase().includes(q) || String(p.code || '').includes(q))) continue;
+      let flag = '', sev = 0;
+      const margin = cost > 0 ? (cons - cost) / cost * 100 : (cons > 0 ? 999 : -100);
+      if (cons <= 0) { flag = 'سالب/صفر'; sev = 3; }
+      else if (cost > 0 && cons < cost) { flag = 'تحت التكلفة'; sev = 2; }
+      else if (cost > 0 && margin < minM) { flag = 'هامش ضعيف'; sev = 1; }
+      if (!flag) continue;
+      if (CR.mode === 'neg' && sev !== 3) continue;
+      if (CR.mode === 'below' && sev < 2) continue;
+      if (CR.mode === 'weak' && sev !== 1) continue;
+      if (CR.stock) { const bal = (typeof qtyIn === 'function' ? +qtyIn(p.id) : 0) || 0; if (!(bal > 0)) continue; }
+      out.push({ p, cost, cons, margin, flag, sev });
+    }
+    out.sort((a, b) => b.sev - a.sev || a.margin - b.margin);
+    return out;
+  }
+  const crSugg = r => { const s = numIn(CR.sugg); return r.cost > 0 ? Math.round(r.cost * (1 + s / 100) * 100) / 100 : r.cons; };
+
+  window.vConsRev = function () {
+    setTitle('مراجعة أسعار المستهلك');
+    const all = crRows();
+    const list = all;
+    const val = r => { const e = CR.edit[r.p.id]; return e != null && e !== '' ? e : fmt(r.cons); };
+    $('#view').innerHTML = `<div class="wrap">
+      <div class="card" style="padding:16px;margin-bottom:12px">
+        <h2 style="margin:0 0 4px">مراجعة أسعار المستهلك الشاذة</h2>
+        <p class="small muted" style="margin:0 0 12px">بتحصر أصناف سعر مستهلكها <b>سالب / صفر / تحت التكلفة / هامشه ضعيف</b>. عدّل القيمة أو اعتمد الحالية، حدّد، وابعت لأورجا (سعر المستهلك).</p>
+        <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <label class="f" style="margin:0;flex:0 1 150px">نوع الشذوذ<select class="in" id="crMode">
+            <option value="all" ${CR.mode === 'all' ? 'selected' : ''}>الكل</option>
+            <option value="neg" ${CR.mode === 'neg' ? 'selected' : ''}>سالب / صفر</option>
+            <option value="below" ${CR.mode === 'below' ? 'selected' : ''}>تحت التكلفة</option>
+            <option value="weak" ${CR.mode === 'weak' ? 'selected' : ''}>هامش ضعيف</option>
+          </select></label>
+          <label class="f" style="margin:0;flex:0 1 130px">أقل هامش مقبول %<input class="in n" id="crMin" inputmode="decimal" value="${esc(CR.minMargin)}" style="width:80px"></label>
+          <label class="f" style="margin:0;flex:0 1 160px">هامش القيمة المقترحة %<input class="in n" id="crSugg" inputmode="decimal" value="${esc(CR.sugg)}" style="width:80px"></label>
+          <button class="btn s ${CR.stock ? 'p' : ''}" id="crStock" style="white-space:nowrap">${CR.stock ? '✓ اللي ليه رصيد بس' : 'كل الأرصدة'}</button>
+          <button class="btn s" id="crFill" title="يملأ القيم بالمقترح = التكلفة + الهامش">⚡ اقترح للكل</button>
+        </div>
+        <label class="f" style="margin:10px 0 0;max-width:320px">بحث بالاسم أو الكود<input class="in" id="crQ" value="${esc(CR.q)}" placeholder="اكتب ثم Enter"></label>
+      </div>
+      <div class="row" style="gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
+        <span class="tag bad">${all.length} صنف شاذ</span>
+        <span class="tag ok" id="crSelN">${CR.sel.size} مختار</span>
+        <span style="flex:1"></span>
+        <button class="btn" id="crXls" ${list.length ? '' : 'disabled'}>📊 تصدير Excel</button>
+        ${canOrgaWrite() && !S.ro ? `<button class="btn s" id="crTest">🧪 جرّب أول 3</button><button class="btn g" id="crSend">⬆ إرسال المحدد لأورجا</button><button class="btn s" id="crStat">حالة الإرسال</button>` : ''}
+      </div>
+      <div class="tw"><table class="t"><thead><tr><th style="width:34px"><input type="checkbox" id="crAll"></th><th>الكود</th><th>الصنف</th><th class="n">التكلفة</th><th class="n">المستهلك الحالي</th><th class="n">الهامش</th><th>الحالة</th><th class="n">القيمة الجديدة</th></tr></thead><tbody>
+        ${list.length ? list.slice(0, 400).map(r => `<tr><td style="text-align:center"><input type="checkbox" data-csel="${esc(r.p.id)}" ${CR.sel.has(r.p.id) ? 'checked' : ''}></td><td class="num">${esc(r.p.code || r.p.orga || '')}</td><td><b>${esc(r.p.name)}</b></td><td class="n num">${fmt(r.cost)}</td><td class="n num" style="${r.sev >= 2 ? 'color:var(--danger)' : ''}">${fmt(r.cons)}</td><td class="n num" style="${r.sev >= 2 ? 'color:var(--danger)' : r.sev === 1 ? 'color:var(--gold)' : ''}">${r.cost > 0 ? fmt(r.margin) + '%' : '—'}</td><td><span class="tag ${r.sev >= 2 ? 'bad' : ''}">${r.flag}</span></td><td class="n"><input class="in n" data-cedit="${esc(r.p.id)}" inputmode="decimal" value="${esc(val(r))}" placeholder="${fmt(crSugg(r))}" style="width:90px"></td></tr>`).join('') : `<tr><td colspan="8"><div class="empty" style="padding:30px"><b>مفيش قيم شاذة</b>كل أسعار المستهلك منطقية</div></td></tr>`}
+      </tbody></table></div>
+      ${list.length > 400 ? `<p class="small muted">بيظهر أول 400 — التصدير بيشمل الكل.</p>` : ''}
+      <p class="small muted" style="margin-top:10px">القيمة الجديدة متعبّية بالسعر الحالي — غيّرها لو عايز، أو سيبها (اعتماد). «اقترح للكل» بيحطّ التكلفة + الهامش. الإرسال بيكتب <b>سعر المستهلك</b> في أورجا. محتاج وكيل إصدار 1.9.0+.</p>
+    </div>`;
+    $$('[data-cedit]').forEach(i => i.oninput = () => { CR.edit[i.dataset.cedit] = i.value; });
+    const upd = () => { const n = $('#crSelN'); if (n) n.textContent = CR.sel.size + ' مختار'; };
+    $$('[data-csel]').forEach(cb => cb.onchange = () => { cb.checked ? CR.sel.add(cb.dataset.csel) : CR.sel.delete(cb.dataset.csel); upd(); });
+    const allc = $('#crAll'); if (allc) allc.onclick = () => { const on = allc.checked; for (const r of list) on ? CR.sel.add(r.p.id) : CR.sel.delete(r.p.id); window.vConsRev(); };
+    const md = $('#crMode'); if (md) md.onchange = () => { CR.mode = md.value; window.vConsRev(); };
+    const mn = $('#crMin'); if (mn) mn.onchange = () => { CR.minMargin = mn.value; window.vConsRev(); };
+    const sg = $('#crSugg'); if (sg) sg.onchange = () => { CR.sugg = sg.value; window.vConsRev(); };
+    const sk = $('#crStock'); if (sk) sk.onclick = () => { CR.stock = !CR.stock; window.vConsRev(); };
+    const q = $('#crQ'); if (q) q.onkeydown = e => { if (e.key === 'Enter') { CR.q = q.value; window.vConsRev(); } };
+    const fill = $('#crFill'); if (fill) fill.onclick = () => { for (const r of list) CR.edit[r.p.id] = String(crSugg(r)); window.vConsRev(); };
+    const xb = $('#crXls'); if (xb) xb.onclick = crXls;
+    const tb = $('#crTest'); if (tb) tb.onclick = () => crSend(3);
+    const sb = $('#crSend'); if (sb) sb.onclick = () => crSend(0);
+    const stb = $('#crStat'); if (stb) stb.onclick = showStatus;
+  };
+
+  async function crSend(limit) {
+    if (!CR.sel.size) { toast('حدّد أصناف الأول', 'err'); return; }
+    const items = []; let bad = 0;
+    for (const id of CR.sel) {
+      const p = G('products', id); if (!p || !(+p.orga > 0)) { bad++; continue; }
+      const raw = CR.edit[id]; const v = raw != null && raw !== '' ? numIn(raw) : (consOf(p) || +p.price || 0);
+      if (!(v > 0)) { bad++; continue; }
+      items.push({ prod: +p.orga, prices: { CONSUMER: Math.round(v * 100) / 100 } });
+      if (limit && items.length >= limit) break;
+    }
+    if (!items.length) { toast('مفيش قيم صالحة (لازم كود أورجا وقيمة أكبر من صفر)', 'err'); return; }
+    const msg = limit
+      ? `تجربة: هيتبعت سعر المستهلك لأول <b>${items.length}</b> صنف لأورجا.<br>بعد دقيقة افحص صنف وتأكد قبل الكل.`
+      : `هيتكتب سعر المستهلك لـ <b>${items.length}</b> صنف مختار في أورجا.${bad ? `<br><span style="color:var(--gold)">(${bad} اتخطّى)</span>` : ''}<br>متأكد؟`;
+    if (!(await confirmHtml(msg, limit ? 'جرّب' : 'إرسال', !limit))) return;
+    try {
+      const r = await MZ.post('/api/orga/prices/add', { items });
+      toast(`اتضاف ${r.queued} صنف لطابور الأسعار — هيتكتبوا خلال دقيقة`, 'ok');
+      setTimeout(showStatus, 1800);
+    } catch (e) { toast(e.message || 'مقدرتش أبعت', 'err'); }
+  }
+
+  function crXls() {
+    const list = crRows();
+    if (!list.length) { toast('مفيش بيانات', 'err'); return; }
+    const head = ['كود أورجا', 'الصنف', 'التكلفة', 'المستهلك الحالي', 'الهامش%', 'الحالة', 'المقترح'];
+    const rows = list.map(r => [r.p.code || r.p.orga || '', r.p.name, +r.cost.toFixed(2), +r.cons.toFixed(2), r.cost > 0 ? +r.margin.toFixed(1) : '', r.flag, +crSugg(r).toFixed(2)]);
+    xlsxOut('أسعار_مستهلك_شاذة_' + today() + '.xlsx', [head, ...rows], 'شاذة');
+    toast('اتصدّر الملف', 'ok');
+  }
 })();

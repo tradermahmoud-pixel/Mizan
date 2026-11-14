@@ -265,7 +265,7 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
           const prod = posInt(it && it.prod); if (!prod) continue;
           const prices = {};
           if (isObj(it.prices)) for (const k of Object.keys(it.prices)) {
-            if (/^PRICE_[1-5]$/.test(k)) { const v = +it.prices[k]; if (isFinite(v) && v >= 0) prices[k] = Math.round(v * 10000) / 10000; }
+            if (/^(PRICE_[1-5]|CONSUMER)$/.test(k)) { const v = +it.prices[k]; if (isFinite(v) && v >= 0) prices[k] = Math.round(v * 10000) / 10000; }
           }
           if (!Object.keys(prices).length) continue;
           const id = String(++st.seq);
@@ -298,6 +298,7 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       const av = String((req.body && req.body.agent && req.body.agent.ver) || '0').split('.').map(n => +n || 0);
       const saleOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 7);
       const priceOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 8); // تحديث الأسعار من وكيل 1.8.0+
+      const consumerOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 9); // كتابة سعر المستهلك CONSUMER من وكيل 1.9.0+
       const out = await withOut(st => {
         const take = [];
         for (const j of Object.values(st.jobs)) {
@@ -310,6 +311,7 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
         const prices = [];
         if (priceOk && isObj(st.prices)) {
           for (const j of Object.values(st.prices)) {
+            if (!consumerOk && j.prices && j.prices.CONSUMER != null) continue; // سعر المستهلك محتاج وكيل 1.9.0+
             if (j.status === 'pending' || (j.status === 'sending' && now() - (j.sentAt || 0) > 5 * 60e3)) {
               j.status = 'sending'; j.sentAt = now();
               prices.push({ id: j.id, prod: j.prod, prices: j.prices });
