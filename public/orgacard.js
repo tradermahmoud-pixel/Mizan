@@ -23,7 +23,7 @@
 
   // إضافة كارت صنف جديد من صفحة المشتريات
   window.ocQuickCard = function (inv, seed) {
-    inv = inv || (window.ED && ED.inv); if (!inv) return;
+    inv = inv || ((typeof ED !== "undefined" && ED) ? ED.inv : null); if (!inv) return;
     const canOrga = (typeof canOrgaWrite === 'function') && canOrgaWrite();
     modal(form({
       title: 'كارت صنف جديد',
@@ -59,7 +59,7 @@
 
   // تعديل كارت صنف سطر في الفاتورة
   window.ocEditLine = function (i) {
-    const inv = window.ED && ED.inv; if (!inv || !inv.lines[i]) return;
+    const inv = (typeof ED !== "undefined" && ED) ? ED.inv : null; if (!inv || !inv.lines[i]) return;
     const pid = inv.lines[i].pid; const p = G('products', pid); if (!p) return;
     window.ocEditCard(pid);
   };

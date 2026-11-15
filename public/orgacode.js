@@ -203,7 +203,7 @@
     const q = String(e.q || '').trim().toLowerCase();
     const qnum = /^\d+$/.test(q) ? +q : 0;
     let list = [];
-    if (q) list = (window.L ? L('products') : []).filter(p => +p.orga > 0 && !p.inactive && (String(p.name || '').toLowerCase().includes(q) || String(p.orga).includes(q) || String(p.code || '').includes(q))).slice(0, 30);
+    if (q) list = (typeof L !== "undefined" ? L("products") : []).filter(p => +p.orga > 0 && !p.inactive && (String(p.name || '').toLowerCase().includes(q) || String(p.orga).includes(q) || String(p.code || '').includes(q))).slice(0, 30);
     const direct = qnum > 0 && !list.some(p => +p.orga === qnum); // كود أورجا مش موجود كصنف متزامن → تعديل مباشر بالكود
     $('#view').innerHTML = `<div class="wrap" style="max-width:720px">${tabs}
      <div class="card" style="margin-bottom:14px"><h3>اختر الصنف المتكوّد</h3>
