@@ -10,28 +10,31 @@
     sent: null,      // { refToRow } خريطة المرجع
     results: {},     // ref -> {status, prod, dup, error, name, master}
     poll: null,
-    edit: { q: '', pid: '', name: '', cons: '', cost: '', orig: null, busy: false, res: null }
+    edit: { q: '', pid: '', name: '', cons: '', cost: '', orig: null, busy: false, res: null },
+    bulk: { rows: null, headers: [], map: { name: null, barcode: null, cons: null, cost: null }, file: '', busy: false, results: {}, poll: null }
   };
   const numIn = window.numIn || (v => { const n = parseFloat(String(v == null ? '' : v).replace(/[^\d.\-]/g, '')); return isFinite(n) ? n : 0; });
 
   const HKEYS = {
     name: ['اسم', 'الصنف', 'صنف', 'البيان', 'بيان', 'وصف', 'name', 'desc', 'item', 'product'],
     master: ['ماستر', 'كود ماستر', 'كود المورد', 'كود', 'code', 'master', 'sku', 'ref'],
+    barcode: ['باركود', 'باركود الصنف', 'barcode', 'bar code', 'ean', 'upc'],
     cost: ['تكلفة', 'شراء', 'الصافي', 'صافي', 'cost', 'buy', 'net'],
     cons: ['مستهلك', 'جمهور', 'قطاعي', 'بيع', 'consumer', 'retail', 'price', 'sell']
   };
   function autoMapOC(headers) {
-    const m = { name: null, master: null, cost: null, cons: null };
+    const m = { name: null, master: null, barcode: null, cost: null, cons: null };
     const H = headers.map(h => String(h || '').trim().toLowerCase());
     for (const f of Object.keys(HKEYS)) {
       for (let i = 0; i < H.length; i++) { if (HKEYS[f].some(k => H[i].includes(k.toLowerCase()))) { m[f] = i; break; } }
     }
     // «الاسم» ما يتاخدش لو اتحجز كـ ماستر والعكس
     if (m.master != null && m.master === m.name) m.master = null;
+    if (m.barcode != null && (m.barcode === m.name || m.barcode === m.master)) m.barcode = null;
     return m;
   }
 
-  function readFileOC(f) {
+  function readFileOC(f, target) {
     if (!window.XLSX) { toast('مكتبة Excel لم تُحمَّل — تأكد من الاتصال', 'err'); return; }
     const r = new FileReader();
     r.onload = () => {
@@ -42,15 +45,77 @@
         if (aoa.length < 2) { toast('الشيت فاضي أو مفيهوش غير صف العناوين', 'err'); return; }
         let hr = 0;
         for (let i = 0; i < Math.min(6, aoa.length); i++) { const mm = autoMapOC(aoa[i].map(String)); if (mm.name != null) { hr = i; break; } }
-        OC.headers = aoa[hr].map(h => String(h).trim());
-        OC.rows = aoa.slice(hr + 1);
-        OC.map = autoMapOC(OC.headers);
-        OC.file = f.name; OC.results = {}; OC.sent = null; OC.busy = false;
-        if (OC.map.name == null) toast('مقدرتش أحدد عمود اسم الصنف — اختاره يدويًا', 'err');
+        const headers = aoa[hr].map(h => String(h).trim());
+        const rows = aoa.slice(hr + 1);
+        const map = autoMapOC(headers);
+        if (target === 'bulk') {
+          OC.bulk.headers = headers; OC.bulk.rows = rows; OC.bulk.file = f.name; OC.bulk.results = {}; OC.bulk.busy = false;
+          OC.bulk.map = { name: map.name, barcode: map.barcode, cons: map.cons, cost: map.cost };
+        } else {
+          OC.headers = headers; OC.rows = rows; OC.map = map; OC.file = f.name; OC.results = {}; OC.sent = null; OC.busy = false;
+        }
+        if (map.name == null) toast('مقدرتش أحدد عمود اسم الصنف — اختاره يدويًا', 'err');
         render();
       } catch (e) { toast('تعذّر قراءة الملف: تأكد إنه Excel سليم', 'err'); console.error(e); }
     };
     r.readAsArrayBuffer(f);
+  }
+  const norm2 = s => (window.norm ? norm(s) : String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '));
+
+  // بناء صفوف التعديل بالجملة: مطابقة بالاسم مع الأصناف المتزامنة
+  function bulkRows() {
+    const m = OC.bulk.map; const out = [];
+    if (!OC.bulk.rows || m.name == null) return out;
+    // فهرس الأصناف المتزامنة بالاسم
+    const idx = {};
+    const prods = (typeof L !== 'undefined') ? L('products') : [];
+    for (const p of prods) { if (+p.orga > 0 && !p.inactive) { const k = norm2(p.name); if (!(k in idx)) idx[k] = p; } }
+    OC.bulk.rows.forEach((row, i) => {
+      const name = String(row[m.name] == null ? '' : row[m.name]).trim();
+      if (!name) return;
+      const barcode = m.barcode != null ? String(row[m.barcode] == null ? '' : row[m.barcode]).replace(/[^\x20-\x7e]/g, '').trim() : '';
+      const cons = m.cons != null ? numIn(row[m.cons]) : null;
+      const cost = m.cost != null ? numIn(row[m.cost]) : null;
+      const ref = 'b' + i;
+      const p = idx[norm2(name)];
+      out.push({ ref, name, barcode, cons, cost, prod: p ? +p.orga : 0, orgName: p ? p.name : '', pid: p ? p.id : '', err: p ? '' : 'مش متطابق مع صنف متزامن' });
+    });
+    return out;
+  }
+
+  async function doBulk(rows) {
+    rows = rows.filter(r => !r.err && r.prod && (r.barcode || r.cons != null || r.cost != null));
+    if (!rows.length) { toast('مفيش صفوف متطابقة وفيها بيانات للتعديل', 'err'); return; }
+    OC.bulk.busy = true; OC.bulk.results = {}; render();
+    const items = rows.map(r => {
+      const it = { ref: r.ref, prod: r.prod };
+      if (r.barcode) it.barcode = r.barcode;
+      const prices = {};
+      if (r.cons != null && isFinite(r.cons)) prices.CONSUMER = r.cons;
+      if (r.cost != null && isFinite(r.cost)) { prices.PRIC_COST = r.cost; prices.COST_AV = r.cost; }
+      if (Object.keys(prices).length) it.prices = prices;
+      return it;
+    });
+    try {
+      const resp = await MZ.post('/api/orga/products/edit', { items });
+      if (!resp || !resp.queued) { OC.bulk.busy = false; toast('مفيش تعديلات اتضافت', 'err'); render(); return; }
+      toast('اتبعت ' + resp.queued + ' تعديل — جاري التطبيق في أورجا…');
+      startBulkPoll(rows);
+    } catch (e) { OC.bulk.busy = false; toast('تعذّر الإرسال: ' + (e && e.message || e), 'err'); render(); }
+  }
+  function startBulkPoll(rows) {
+    if (OC.bulk.poll) clearInterval(OC.bulk.poll);
+    let n = 0;
+    OC.bulk.poll = setInterval(async () => {
+      n++;
+      let j = {}; try { const r = await fetch('/api/orga/products/status', { credentials: 'same-origin', headers: { 'X-Mizan': '1' } }); if (r.ok) j = await r.json(); } catch (e) { return; }
+      const ec = (j.edits && j.edits.counts) || {};
+      const left = (ec.pending || 0) + (ec.sending || 0);
+      // نحدّث العدادات فقط (التفاصيل من errors)
+      OC.bulk._counts = ec; OC.bulk._errs = (j.edits && j.edits.errors) || [];
+      if (left === 0 || n > 80) { clearInterval(OC.bulk.poll); OC.bulk.poll = null; OC.bulk.busy = false; OC.bulk._done = true; }
+      if (OC.mode === 'bulk') render();
+    }, 2500);
   }
 
   // بناء صفوف المعاينة من الربط الحالي
@@ -91,7 +156,7 @@
     OC.poll = setInterval(pollStatus, 3000);
     pollStatus();
   }
-  function stopPoll() { if (OC.poll) { clearInterval(OC.poll); OC.poll = null; } }
+  function stopPoll() { if (OC.poll) { clearInterval(OC.poll); OC.poll = null; } if (OC.bulk && OC.bulk.poll) { clearInterval(OC.bulk.poll); OC.bulk.poll = null; } }
 
   async function pollStatus() {
     let j = {};
@@ -157,9 +222,11 @@
     if (!canOrgaWrite()) { $('#view').innerHTML = `<div class="wrap"><div class="empty card"><b>مش متاح لصلاحيتك</b>تكويد الأصناف في أورجا محتاج صلاحية الكتابة لأورجا.</div></div>`; return; }
     const tabs = `<div class="seg" style="margin-bottom:14px">
       <button data-ocm="create" class="${OC.mode === 'create' ? 'on' : ''}">رفع شيت وتكويد</button>
-      <button data-ocm="edit" class="${OC.mode === 'edit' ? 'on' : ''}">تعديل صنف متكوّد</button></div>`;
+      <button data-ocm="bulk" class="${OC.mode === 'bulk' ? 'on' : ''}">تعديل بالجملة من شيت</button>
+      <button data-ocm="edit" class="${OC.mode === 'edit' ? 'on' : ''}">تعديل صنف واحد</button></div>`;
 
     if (OC.mode === 'edit') { renderEdit(tabs); bindCommon(); return; }
+    if (OC.mode === 'bulk') { renderBulk(tabs); bindCommon(); return; }
 
     // ===== وضع الرفع =====
     if (!OC.rows) {
@@ -197,6 +264,43 @@
     const ex = $('#ocExp'); if (ex) ex.onclick = () => exportResults(rows);
     bindCommon();
   };
+
+  function renderBulk(tabs) {
+    const B = OC.bulk;
+    if (!B.rows) {
+      $('#view').innerHTML = `<div class="wrap" style="max-width:860px">${tabs}
+       <div class="drop" id="obDrop" tabindex="0" role="button"><div style="color:var(--brand);margin-bottom:8px">${ic('up', 'style="width:42px;height:42px"')}</div><b>اسحب شيت Excel هنا أو اضغط للاختيار</b><span class="muted">أصناف موجودة بالفعل — المطابقة بالاسم</span><input type="file" id="obFile" accept=".xlsx,.xls,.csv" hidden></div>
+       <div class="card" style="margin-top:18px"><h3>إيه ده؟</h3><p class="muted small" style="margin:0">لو عندك شيت فيه أصناف <b>موجودة بالفعل بنفس الاسم</b> وعاوز تضيف/تعدّل <b>الباركود</b> (أو المستهلك/التكلفة) ليها دفعة واحدة — ارفع الشيت، ميزان يطابق كل صف بالاسم مع الصنف المتزامن، ويبعت التعديل لأورجا. الصفوف اللي مش متطابقة بتتجاهل.</p></div>
+       <div class="card" style="margin-top:14px"><h3>قالب</h3><button class="btn" id="obTpl">${ic('dl')}تنزيل قالب (اسم + باركود)</button></div></div>`;
+      const dr = $('#obDrop'), fi = $('#obFile');
+      dr.onclick = () => fi.click(); dr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') fi.click(); };
+      dr.ondragover = e => { e.preventDefault(); dr.classList.add('over'); }; dr.ondragleave = () => dr.classList.remove('over');
+      dr.ondrop = e => { e.preventDefault(); dr.classList.remove('over'); if (e.dataTransfer.files[0]) readFileOC(e.dataTransfer.files[0], 'bulk'); };
+      fi.onchange = () => fi.files[0] && readFileOC(fi.files[0], 'bulk');
+      $('#obTpl').onclick = () => xlsxOut('قالب-تعديل-باركود.xlsx', [['اسم الصنف', 'الباركود'], ['لافروتا ببرونة 125 مل', '6224000123456']], 'تعديل');
+      bindCommon();
+      return;
+    }
+    const rows = bulkRows();
+    const matched = rows.filter(r => !r.err).length, unm = rows.filter(r => r.err).length;
+    const withBc = rows.filter(r => !r.err && r.barcode).length;
+    const working = B.busy;
+    const errByProd = {}; for (const e of (B._errs || [])) errByProd[e.prod] = e.error;
+    const cDone = (B._counts && B._counts.done) || 0, cErr = (B._counts && B._counts.error) || 0;
+    const FIELDS = [['name', 'اسم الصنف *'], ['barcode', 'الباركود'], ['cons', 'سعر المستهلك (اختياري)'], ['cost', 'التكلفة (اختياري)']];
+    $('#view').innerHTML = `<div class="wrap">${tabs}
+     <div class="row" style="margin-bottom:12px"><b>${esc(B.file)}</b><span class="tag">${rows.length} صف</span><span class="tag ok">${matched} متطابق</span>${unm ? `<span class="tag bad">${unm} مش متطابق</span>` : ''}<span class="tag">${withBc} باركود</span><span class="sp"></span><button class="btn" id="obReset">ملف آخر</button></div>
+     <div class="card" style="margin-bottom:14px"><h3>ربط الأعمدة</h3><div class="maprow">${FIELDS.map(([k, t]) => `<label class="f">${t}<select class="in" data-obmap="${k}">${opts(B.headers.map((h, i) => [i, h || ('عمود ' + (i + 1))]), B.map[k], '— تجاهل —')}</select></label>`).join('')}</div></div>
+     <div class="tw" style="max-height:52vh;overflow:auto"><table class="t"><thead><tr><th>الحالة</th><th>اسم الصنف (من الشيت)</th><th>كود أورجا</th><th class="num">الباركود الجديد</th><th class="n">مستهلك</th><th class="n">تكلفة</th></tr></thead><tbody>
+     ${rows.slice(0, 500).map(r => { const er = r.err ? '' : errByProd[r.prod]; const st = r.err ? `<span class="tag bad">${r.err}</span>` : working ? '<span class="tag">…</span>' : (B._done ? (er ? `<span class="tag bad" title="${esc(er)}">فشل</span>` : '<span class="tag ok">تم</span>') : '<span class="muted">جاهز</span>'); return `<tr><td>${st}</td><td><b>${esc(r.name)}</b>${r.orgName && norm2(r.orgName) !== norm2(r.name) ? `<br><span class="small muted">أورجا: ${esc(r.orgName)}</span>` : ''}</td><td class="num">${r.prod || ''}</td><td class="num">${esc(r.barcode)}</td><td class="n">${r.cons != null ? fmt(r.cons) : ''}</td><td class="n">${r.cost != null ? fmt(r.cost) : ''}</td></tr>`; }).join('')}</tbody></table></div>
+     ${rows.length > 500 ? `<p class="small muted">معروض أول 500 — التطبيق بيشمل الكل.</p>` : ''}
+     <div class="stickybar">${working ? `<div style="flex:1"><div class="progress"><i style="width:${matched ? (cDone + cErr) / matched * 100 : 0}%"></i></div><div class="small muted" style="margin-top:6px">جاري التطبيق… تم ${cDone}${cErr ? ` · فشل ${cErr}` : ''} / ${matched}</div></div>` : `<button class="btn p" id="obGo" ${S.ro || !matched ? 'disabled' : ''}>طبّق على ${matched} صنف في أورجا</button>${B._done ? `<span class="small muted">خلص: تم ${cDone}${cErr ? ` · فشل ${cErr}` : ''}.</span>` : `<span class="small muted">المطابقة بالاسم — المختلف يتجاهل.</span>`}`}</div></div>`;
+
+    $('#obReset').onclick = () => { B.rows = null; B.results = {}; B._done = false; B._counts = null; B._errs = null; render(); };
+    $$('[data-obmap]').forEach(s => s.onchange = () => { B.map[s.dataset.obmap] = s.value === '' ? null : +s.value; render(); });
+    const go2 = $('#obGo'); if (go2) go2.onclick = () => doBulk(rows);
+    bindCommon();
+  }
 
   function renderEdit(tabs) {
     const e = OC.edit;
