@@ -11,7 +11,7 @@
     results: {},     // ref -> {status, prod, dup, error, name, master}
     poll: null,
     edit: { q: '', pid: '', name: '', cons: '', cost: '', orig: null, busy: false, res: null },
-    bulk: { rows: null, headers: [], map: { name: null, barcode: null, cons: null, cost: null }, file: '', busy: false, results: {}, poll: null }
+    bulk: { rows: null, headers: [], map: { name: null, code: null, barcode: null, cons: null, cost: null }, matchBy: 'name', file: '', busy: false, results: {}, poll: null }
   };
   const numIn = window.numIn || (v => { const n = parseFloat(String(v == null ? '' : v).replace(/[^\d.\-]/g, '')); return isFinite(n) ? n : 0; });
 
@@ -50,7 +50,9 @@
         const map = autoMapOC(headers);
         if (target === 'bulk') {
           OC.bulk.headers = headers; OC.bulk.rows = rows; OC.bulk.file = f.name; OC.bulk.results = {}; OC.bulk.busy = false;
-          OC.bulk.map = { name: map.name, barcode: map.barcode, cons: map.cons, cost: map.cost };
+          OC.bulk._done = false; OC.bulk._counts = null; OC.bulk._errs = null;
+          OC.bulk.map = { name: map.name, code: map.master, barcode: map.barcode, cons: map.cons, cost: map.cost };
+          OC.bulk.matchBy = (map.master != null) ? 'code' : 'name';   // الكود أدق لو موجود
         } else {
           OC.headers = headers; OC.rows = rows; OC.map = map; OC.file = f.name; OC.results = {}; OC.sent = null; OC.busy = false;
         }
@@ -63,22 +65,33 @@
   const norm2 = s => (window.norm ? norm(s) : String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' '));
 
   // بناء صفوف التعديل بالجملة: مطابقة بالاسم مع الأصناف المتزامنة
+  const ckey = s => String(s == null ? '' : s).replace(/[^\x20-\x7e؀-ۿ]/g, '').trim().toLowerCase();
+  const stripBrand = s => norm2(s).replace(/^لافروتا\s+/, '');
   function bulkRows() {
     const m = OC.bulk.map; const out = [];
     if (!OC.bulk.rows || m.name == null) return out;
-    // فهرس الأصناف المتزامنة بالاسم
-    const idx = {};
+    const byCode = OC.bulk.matchBy === 'code' && m.code != null;
+    // فهارس الأصناف المتزامنة
+    const idxName = {}, idxCode = {};
     const prods = (typeof L !== 'undefined') ? L('products') : [];
-    for (const p of prods) { if (+p.orga > 0 && !p.inactive) { const k = norm2(p.name); if (!(k in idx)) idx[k] = p; } }
+    for (const p of prods) {
+      if (+p.orga > 0 && !p.inactive) {
+        const kn = norm2(p.name); if (!(kn in idxName)) idxName[kn] = p;
+        const ks = stripBrand(p.name); if (ks && !(ks in idxName)) idxName[ks] = p;   // بدون بادئة «لافروتا»
+        for (const c of [p.code, p.barcode, p.orga]) { const kc = ckey(c); if (kc && !(kc in idxCode)) idxCode[kc] = p; }
+      }
+    }
     OC.bulk.rows.forEach((row, i) => {
       const name = String(row[m.name] == null ? '' : row[m.name]).trim();
       if (!name) return;
+      const codeVal = m.code != null ? String(row[m.code] == null ? '' : row[m.code]).trim() : '';
       const barcode = m.barcode != null ? String(row[m.barcode] == null ? '' : row[m.barcode]).replace(/[^\x20-\x7e]/g, '').trim() : '';
       const cons = m.cons != null ? numIn(row[m.cons]) : null;
       const cost = m.cost != null ? numIn(row[m.cost]) : null;
       const ref = 'b' + i;
-      const p = idx[norm2(name)];
-      out.push({ ref, name, barcode, cons, cost, prod: p ? +p.orga : 0, orgName: p ? p.name : '', pid: p ? p.id : '', err: p ? '' : 'مش متطابق مع صنف متزامن' });
+      const p = byCode ? (idxCode[ckey(codeVal)] || null)
+                       : (idxName[norm2(name)] || idxName[stripBrand(name)] || null);
+      out.push({ ref, name, code: codeVal, barcode, cons, cost, prod: p ? +p.orga : 0, orgName: p ? p.name : '', pid: p ? p.id : '', err: p ? '' : (byCode ? 'الكود مش متطابق' : 'الاسم مش متطابق') });
     });
     return out;
   }
@@ -287,16 +300,20 @@
     const working = B.busy;
     const errByProd = {}; for (const e of (B._errs || [])) errByProd[e.prod] = e.error;
     const cDone = (B._counts && B._counts.done) || 0, cErr = (B._counts && B._counts.error) || 0;
-    const FIELDS = [['name', 'اسم الصنف *'], ['barcode', 'الباركود'], ['cons', 'سعر المستهلك (اختياري)'], ['cost', 'التكلفة (اختياري)']];
+    const FIELDS = [['name', 'اسم الصنف *'], ['code', 'كود الصنف (الايتم)'], ['barcode', 'الباركود'], ['cons', 'سعر المستهلك (اختياري)'], ['cost', 'التكلفة (اختياري)']];
     $('#view').innerHTML = `<div class="wrap">${tabs}
      <div class="row" style="margin-bottom:12px"><b>${esc(B.file)}</b><span class="tag">${rows.length} صف</span><span class="tag ok">${matched} متطابق</span>${unm ? `<span class="tag bad">${unm} مش متطابق</span>` : ''}<span class="tag">${withBc} باركود</span><span class="sp"></span><button class="btn" id="obReset">ملف آخر</button></div>
-     <div class="card" style="margin-bottom:14px"><h3>ربط الأعمدة</h3><div class="maprow">${FIELDS.map(([k, t]) => `<label class="f">${t}<select class="in" data-obmap="${k}">${opts(B.headers.map((h, i) => [i, h || ('عمود ' + (i + 1))]), B.map[k], '— تجاهل —')}</select></label>`).join('')}</div></div>
-     <div class="tw" style="max-height:52vh;overflow:auto"><table class="t"><thead><tr><th>الحالة</th><th>اسم الصنف (من الشيت)</th><th>كود أورجا</th><th class="num">الباركود الجديد</th><th class="n">مستهلك</th><th class="n">تكلفة</th></tr></thead><tbody>
-     ${rows.slice(0, 500).map(r => { const er = r.err ? '' : errByProd[r.prod]; const st = r.err ? `<span class="tag bad">${r.err}</span>` : working ? '<span class="tag">…</span>' : (B._done ? (er ? `<span class="tag bad" title="${esc(er)}">فشل</span>` : '<span class="tag ok">تم</span>') : '<span class="muted">جاهز</span>'); return `<tr><td>${st}</td><td><b>${esc(r.name)}</b>${r.orgName && norm2(r.orgName) !== norm2(r.name) ? `<br><span class="small muted">أورجا: ${esc(r.orgName)}</span>` : ''}</td><td class="num">${r.prod || ''}</td><td class="num">${esc(r.barcode)}</td><td class="n">${r.cons != null ? fmt(r.cons) : ''}</td><td class="n">${r.cost != null ? fmt(r.cost) : ''}</td></tr>`; }).join('')}</tbody></table></div>
+     <div class="card" style="margin-bottom:14px"><h3>المطابقة</h3>
+       <div class="row" style="gap:6px;margin-bottom:10px"><span class="small muted">طابق الأصناف بـ:</span><div class="seg sm"><button data-obmatch="code" class="${B.matchBy === 'code' ? 'on' : ''}">كود الصنف (أدق)</button><button data-obmatch="name" class="${B.matchBy === 'name' ? 'on' : ''}">الاسم</button></div></div>
+       <div class="maprow">${FIELDS.map(([k, t]) => `<label class="f">${t}${(B.matchBy === 'code' && k === 'code') || (B.matchBy === 'name' && k === 'name') ? ' 🔑' : ''}<select class="in" data-obmap="${k}">${opts(B.headers.map((h, i) => [i, h || ('عمود ' + (i + 1))]), B.map[k], '— تجاهل —')}</select></label>`).join('')}</div>
+       <p class="small muted" style="margin:8px 0 0">المفتاح 🔑 هو اللي بيطابق بيه. الباركود بيتكتب في «الباركود المحلي» في أورجا.</p></div>
+     <div class="tw" style="max-height:52vh;overflow:auto"><table class="t"><thead><tr><th>الحالة</th><th>اسم الصنف (من الشيت)</th><th class="num">كود الصنف</th><th class="num">كود أورجا</th><th class="num">الباركود الجديد</th><th class="n">مستهلك</th><th class="n">تكلفة</th></tr></thead><tbody>
+     ${rows.slice(0, 500).map(r => { const er = r.err ? '' : errByProd[r.prod]; const st = r.err ? `<span class="tag bad">${r.err}</span>` : working ? '<span class="tag">…</span>' : (B._done ? (er ? `<span class="tag bad" title="${esc(er)}">فشل</span>` : '<span class="tag ok">تم</span>') : '<span class="muted">جاهز</span>'); return `<tr><td>${st}</td><td><b>${esc(r.name)}</b>${r.orgName && norm2(r.orgName) !== norm2(r.name) ? `<br><span class="small muted">أورجا: ${esc(r.orgName)}</span>` : ''}</td><td class="num">${esc(r.code || '')}</td><td class="num">${r.prod || ''}</td><td class="num">${esc(r.barcode)}</td><td class="n">${r.cons != null ? fmt(r.cons) : ''}</td><td class="n">${r.cost != null ? fmt(r.cost) : ''}</td></tr>`; }).join('')}</tbody></table></div>
      ${rows.length > 500 ? `<p class="small muted">معروض أول 500 — التطبيق بيشمل الكل.</p>` : ''}
      <div class="stickybar">${working ? `<div style="flex:1"><div class="progress"><i style="width:${matched ? (cDone + cErr) / matched * 100 : 0}%"></i></div><div class="small muted" style="margin-top:6px">جاري التطبيق… تم ${cDone}${cErr ? ` · فشل ${cErr}` : ''} / ${matched}</div></div>` : `<button class="btn p" id="obGo" ${S.ro || !matched ? 'disabled' : ''}>طبّق على ${matched} صنف في أورجا</button>${B._done ? `<span class="small muted">خلص: تم ${cDone}${cErr ? ` · فشل ${cErr}` : ''}.</span>` : `<span class="small muted">المطابقة بالاسم — المختلف يتجاهل.</span>`}`}</div></div>`;
 
     $('#obReset').onclick = () => { B.rows = null; B.results = {}; B._done = false; B._counts = null; B._errs = null; render(); };
+    $$('[data-obmatch]').forEach(b => b.onclick = () => { B.matchBy = b.dataset.obmatch; render(); });
     $$('[data-obmap]').forEach(s => s.onchange = () => { B.map[s.dataset.obmap] = s.value === '' ? null : +s.value; render(); });
     const go2 = $('#obGo'); if (go2) go2.onclick = () => doBulk(rows);
     bindCommon();
