@@ -941,7 +941,7 @@ let ED=null;
 function newInv(type){return {type,date:today(),partyId:'',storeId:MAIN,toStoreId:'',empId:'',lines:[],discount:0,taxRate:+(settings().taxRate||0),paid:0,payFull:type==='sale'||type==='sret',notes:''}}
 function vEditor(type,id){
   if(id){if(!ED||ED.id!==id){const o=G('invoices',id);if(!o){$('#view').innerHTML='<div class="empty"><b>الفاتورة غير موجودة</b><a href="#/invoices">رجوع للفواتير</a></div>';return}ED={id,inv:clone(o),orig:clone(o)}}}
-  else if(!ED||ED.id||ED.grp!==type||!GRP[type].includes(ED.inv.type)){ED={id:null,inv:newInv(type),grp:type}}
+  else if(!ED||ED.id||ED.grp!==type||!GRP[type].includes(ED.inv.type)){ED=(typeof edRestoreDraft==='function'&&edRestoreDraft(type))||{id:null,inv:newInv(type),grp:type}}
   // نسخة أورجا وصلت (أو اتشالت) والفاتورة مفتوحة من غير تعديل → نعرض المحتوى الجديد
   if(id&&ED&&ED.id===id&&ED.orig){const cur=G('invoices',id);if(cur&&(+cur.orgaLive||0)!==(+ED.orig.orgaLive||0)&&!edDirty()){ED={id,inv:clone(cur),orig:clone(cur)}}}
   const inv=ED.inv,T=TYPES[inv.type];
@@ -1039,7 +1039,7 @@ function vEditor(type,id){
   if(ED.id&&window.MZ_FLOW)MZ_FLOW.bindStrip({...(ED.orig||inv),id:ED.id});
   const sp=$('#savePrt');if(sp)sp.onclick=async()=>{const id=await saveInv(false);if(id)printInv(id)};
   const pf=$('#prtPdf');if(pf)pf.onclick=async()=>{let id=ED.id;if(!id){id=await saveInv(false);if(!id)return}window.invoiceShare?invoiceShare(id):toast('أداة الـPDF لسه بتحمّل، جرّب تاني','err')};
-  const nb=$('#newB');if(nb)nb.onclick=()=>{const t=inv.type;ED=null;go(['sret','pret'].includes(t)?t:grpOf(t))};
+  const nb=$('#newB');if(nb)nb.onclick=()=>{const t=inv.type;if(typeof edClearDraft==='function')edClearDraft();ED=null;go(['sret','pret'].includes(t)?t:grpOf(t))};
   const mr=$('#mkRet');if(mr)mr.onclick=()=>startReturn(ED.id);
   const rl=$('#retLoad');if(rl)rl.onclick=()=>loadReturnByNo($('#retNo').value.trim());
   const rn=$('#retNo');if(rn)rn.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();loadReturnByNo(rn.value.trim())}};
@@ -1065,7 +1065,7 @@ function vEditor(type,id){
   const rsi=$('#recvSi');if(rsi)rsi.oninput=()=>{ED.sinv=rsi.value};
   const rsn=$('#recvSend');if(rsn)rsn.onclick=()=>sendGroupedToOrga(ED.id);
   const rdn=$('#recvDone');if(rdn)rdn.onclick=()=>recvDone();
-  const cl=$('#clr');if(cl)cl.onclick=()=>{ED.inv=newInv(inv.type);render()};
+  const cl=$('#clr');if(cl)cl.onclick=()=>{if(typeof edClearDraft==='function')edClearDraft();ED.inv=newInv(inv.type);render()};
   const flLock=ED.id&&window.MZ_FLOW?MZ_FLOW.lockMsg({...ED.orig,id:ED.id}):'';if(flLock&&S.isAdmin)$('#view .wrap').insertAdjacentHTML('afterbegin',`<div class="card" style="margin-bottom:12px;padding:10px 14px;border-color:var(--danger)">⚠ ${esc(flLock)} (انت مدير — التعديل متاح بتأكيد)</div>`);
   const lockMsg=S.ro?'':(flLock&&!S.isAdmin)?'عرض فقط — '+flLock:(ED.id&&!can('editInv'))?'عرض فقط — ليس لديك صلاحية تعديل الفواتير المحفوظة':(ED.id&&isLocked(ED.orig.date))?`عرض فقط — الفترة مغلقة حتى ${settings().lockDate}`:'';
   if(lockMsg){$$('#view input,#view select,#view textarea').forEach(x=>x.disabled=true);['save','delInv','conv','clr'].forEach(k=>{const b=$('#'+k);if(b)b.disabled=true});$$('[data-rm]').forEach(b=>b.disabled=true);$('#view .wrap').insertAdjacentHTML('afterbegin',`<div class="card" style="margin-bottom:12px;padding:10px 14px;border-color:var(--gold)">${lockMsg}</div>`);return}
@@ -1393,6 +1393,7 @@ async function saveInv(andNew){
   Promise.allSettled(W).then(r=>{if(r.some(x=>x.status==='rejected'))toast('بعض التغييرات لم تصل للسحابة — راجع الاتصال وحاول تاني','err');
     const sv=G('invoices',id);if(sv&&+sv.no!==+doc.no){toast(`رقم ${T.full} اتغير لـ ${sv.no} — الرقم ${doc.no} كان اتاخد من جهاز تاني`,'err');if(ED&&ED.id===id){ED.inv.no=sv.no;ED.orig.no=sv.no;render()}}});
   toast(`تم حفظ ${T.full} رقم ${doc.no}`);
+  if(typeof edClearDraft==='function')edClearDraft();
   if(andNew){ED={id:null,inv:newInv(inv.type),grp:grpOf(inv.type)};render()}
   else{ED={id,inv:clone(doc),orig:clone(doc)};if(route().p!=='inv')history.replaceState(null,'','#/inv/'+id);render()}
   return id;
@@ -2996,6 +2997,7 @@ init();
 <script src="/countloc.js?v=1"></script>
 <script src="/pdfshare.js?v=1"></script>
 <script src="/pricing.js?v=6"></script>
+<script src="/draft.js?v=1"></script>
 <script src="/orgacard.js?v=2"></script>
 <script src="/orgacode.js?v=3"></script>
 <script src="/live.js?v=1"></script>
