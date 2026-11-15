@@ -201,13 +201,14 @@
   function renderEdit(tabs) {
     const e = OC.edit;
     const q = String(e.q || '').trim().toLowerCase();
+    const qnum = /^\d+$/.test(q) ? +q : 0;
     let list = [];
     if (q) list = (window.L ? L('products') : []).filter(p => +p.orga > 0 && !p.inactive && (String(p.name || '').toLowerCase().includes(q) || String(p.orga).includes(q) || String(p.code || '').includes(q))).slice(0, 30);
-    const sel = e.pid ? (window.G ? null : null) : null;
+    const direct = qnum > 0 && !list.some(p => +p.orga === qnum); // كود أورجا مش موجود كصنف متزامن → تعديل مباشر بالكود
     $('#view').innerHTML = `<div class="wrap" style="max-width:720px">${tabs}
      <div class="card" style="margin-bottom:14px"><h3>اختر الصنف المتكوّد</h3>
        <label class="f">ابحث بالاسم أو كود أورجا<input class="in" id="ocEq" value="${esc(e.q)}" placeholder="اكتب اسم الصنف أو كوده في أورجا"></label>
-       ${q ? (list.length ? `<div class="tw" style="max-height:30vh;overflow:auto;margin-top:8px"><table class="t"><tbody>${list.map(p => `<tr style="cursor:pointer" data-pick="${esc(p.id)}"><td class="num">${esc(p.orga)}</td><td><b>${esc(p.name)}</b></td><td class="small muted">مستهلك ${fmt(consOf ? consOf(p) : (p.cons || p.price || 0))}</td></tr>`).join('')}</tbody></table></div>` : `<p class="small muted" style="margin-top:8px">مفيش صنف متزامن مطابق.</p>`) : `<p class="small muted" style="margin-top:8px">الأصناف المتزامنة من أورجا بس هي اللي ينفع تتعدّل هنا.</p>`}
+       ${q ? `<div class="tw" style="max-height:30vh;overflow:auto;margin-top:8px"><table class="t"><tbody>${list.map(p => `<tr style="cursor:pointer" data-pick="${esc(p.id)}"><td class="num">${esc(p.orga)}</td><td><b>${esc(p.name)}</b></td><td class="small muted">مستهلك ${fmt(consOf ? consOf(p) : (p.cons || p.price || 0))}</td></tr>`).join('')}${direct ? `<tr style="cursor:pointer" data-direct="${qnum}"><td class="num">${qnum}</td><td><b>تعديل الصنف كود ${qnum} في أورجا مباشرة</b></td><td class="small muted">هتكتب الاسم/القيم الجديدة بنفسك</td></tr>` : ''}</tbody></table>${!list.length && !direct ? `<p class="small muted" style="margin-top:8px">مفيش صنف مطابق. لو عندك كود أورجا اكتبه بالأرقام للتعديل المباشر.</p>` : ''}</div>` : `<p class="small muted" style="margin-top:8px">ابحث بالاسم للأصناف المتزامنة، أو اكتب كود أورجا بالأرقام للتعديل المباشر.</p>`}
      </div>
      ${e.pid ? `<div class="card"><h3>تعديل البيانات <span class="small muted">كود أورجا ${esc(e.pid)}</span></h3>
        <div class="grid g2">
@@ -223,6 +224,9 @@
     $$('[data-pick]').forEach(tr => tr.onclick = () => {
       const p = G('products', tr.dataset.pick); if (!p) return;
       e.pid = String(p.orga); e.name = p.name || ''; e.cons = (consOf ? consOf(p) : (p.cons || p.price || '')) || ''; e.cost = (p.cost != null ? p.cost : ''); e.orig = { name: p.name || '' }; e.res = null; render();
+    });
+    $$('[data-direct]').forEach(tr => tr.onclick = () => {
+      e.pid = String(tr.dataset.direct); e.name = ''; e.cons = ''; e.cost = ''; e.orig = null; e.res = null; render();
     });
     const en = $('#ocEn'); if (en) en.oninput = () => e.name = en.value;
     const ec = $('#ocEc'); if (ec) ec.oninput = () => e.cons = ec.value;

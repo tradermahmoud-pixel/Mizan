@@ -978,7 +978,7 @@ function vEditor(type,id){
    </div>${groups.length?`<div class="small muted" style="margin-top:6px">${groups.map(([k,ls])=>`فاتورة «${esc(k)}»: ${ls.length} صنف`).join(' · ')}</div>`:''}`})():''}</div>`:''}
    <div class="row" style="margin:16px 0 12px;gap:8px"><div class="psearch" style="flex:1 1 320px;margin:0">${ic('search')}<input class="in" id="ps" placeholder="${ED.recv?'امسح/اكتب صنف من فاتورة المورّد للمطابقة':'امسح الباركود أو اكتب اسم/كود الصنف ثم Enter'}" autocomplete="off"><div class="sugg" id="sugg" hidden></div></div>
      <div class="seg" title="طريقة البحث بالاسم"><button type="button" data-sm="start" class="${SMODE()==='start'?'on':''}">أول الكلمة</button><button type="button" data-sm="any" class="${SMODE()==='any'?'on':''}">جزء من الكلمة</button></div>
-     <button type="button" class="btn" id="psWide" title="عرض كل النتايج في شاشة كبيرة — Alt+W">${ic('search')}توسيع البحث</button><button type="button" class="btn ic" id="kbBtn" title="اختصارات الكيبورد — Alt+K" onclick="kbHelp()">⌨️</button></div>
+     <button type="button" class="btn" id="psWide" title="عرض كل النتايج في شاشة كبيرة — Alt+W">${ic('search')}توسيع البحث</button>${PURT.includes(inv.type)&&typeof ocQuickCard==='function'?`<button type="button" class="btn p" id="psNew" title="إضافة كارت صنف جديد وتكويده في أورجا">➕ صنف جديد</button>`:''}<button type="button" class="btn ic" id="kbBtn" title="اختصارات الكيبورد — Alt+K" onclick="kbHelp()">⌨️</button></div>
    ${inv.type==='count'&&!ED.id?`<div class="row" style="margin:-4px 0 12px"><button class="btn s" id="cntAll">إضافة كل الأصناف بأرصدتها الدفترية</button><span class="small muted">ثم عدّل عمود "الكمية الفعلية" بما عددته على الرف. الفروقات تُسوّى بمتوسط التكلفة عند الحفظ.</span></div>`:''}
    <div class="tw"><table class="t" id="lt"><thead><tr><th>#</th><th style="min-width:180px">الصنف</th>${inv.type==='count'?'<th class="n">الرصيد الدفتري</th><th>الكمية الفعلية</th>':'<th class="n">المتاح</th><th>الكمية</th>'}<th>${isSale?'سعر الصيدلي':PURT.includes(inv.type)?'سعر الشراء':'السعر'}</th>${PURT.includes(inv.type)?'<th>سعر المستهلك</th><th class="n">التكلفة الحالية</th>':isSale?'<th class="n">سعر المستهلك</th><th class="n" title="خصم الصيدلية من سعر المستهلك">نسبة الخصم</th>':''}${noDisc(inv)?'':'<th>خصم %</th>'}${showC?'<th title="اتركها فارغة للحساب التلقائي بمتوسط التكلفة">التكلفة</th>':''}<th class="n">${inv.type==='count'?'الفرق':'الإجمالي'}</th>${showC?'<th class="n">الربح</th>':''}<th></th></tr></thead>
    <tbody>${inv.lines.length?inv.lines.map((l,i)=>{if(ED.recv&&(inv.type==='porder'||inv.type==='purchase')){const f=ED.recvF||'all',chk=!!l._chk,diff=chk&&(+l.qty||0)!==(+l._oq||0);if(f==='pending'&&chk)return'';if(f==='diff'&&!diff)return'';if(f==='extra'&&!l._extra)return'';}return lineRow(l,i,showC)}).join(''):`<tr><td colspan="10"><div class="empty" style="padding:24px"><b>الفاتورة فاضية</b>ابحث عن صنف بالأعلى أو امسح الباركود لإضافته.</div></td></tr>`}</tbody></table></div>
@@ -1019,7 +1019,7 @@ function vEditor(type,id){
     if(v!==''&&v<0&&!(f==='qty'&&inv.type==='adj')){v=0;el.value='0';toast('مينفعش رقم بالسالب هنا','err')}
     if(f==='disc'&&v>100){v=100;el.value='100';toast('الخصم أقصى حاجة 100%','err')}
     inv.lines[i][f]=v;if(f==='cost')el.classList.toggle('man',el.value!=='');updRow(i);edTotals()});
-  lt.addEventListener('click',e=>{const pk=e.target.closest('[data-pack]');if(pk){packCalc(+pk.dataset.pack);return}const b=e.target.closest('[data-rm]');if(b){inv.lines.splice(+b.dataset.rm,1);render()}});
+  lt.addEventListener('click',e=>{const pk=e.target.closest('[data-pack]');if(pk){packCalc(+pk.dataset.pack);return}const ec=e.target.closest('[data-ecard]');if(ec){if(typeof ocEditLine==='function')ocEditLine(+ec.dataset.ecard);return}const b=e.target.closest('[data-rm]');if(b){inv.lines.splice(+b.dataset.rm,1);render()}});
   lt.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.f){e.preventDefault();const all=$$('#lt input[data-f]');const k=all.indexOf(e.target);if(e.target.dataset.f==='qty'||k===all.length-1)$('#ps').focus();else all[k+1]?.focus()}});
   // search
   const ps=$('#ps'),sg=$('#sugg');let hits=[],hi=0;
@@ -1028,6 +1028,7 @@ function vEditor(type,id){
   ps.oninput=()=>{const q=norm(ps.value);hi=0;if(!q){hits=[];tot=0;draw();return}const all=pFind(ps.value,SMODE(),300);tot=all.length;hits=all.slice(0,8);draw()};
   $$('[data-sm]').forEach(b=>b.onmousedown=e=>{e.preventDefault();setSMODE(b.dataset.sm);$$('[data-sm]').forEach(x=>x.classList.toggle('on',x===b));ps.oninput();ps.focus()});
   $('#psWide').onclick=()=>wideSearch(ps.value,inv,isSale);
+  {const pn=$('#psNew');if(pn&&typeof ocQuickCard==='function')pn.onclick=()=>ocQuickCard(inv,ps.value);}
   ps.onkeydown=e=>{if(e.key==='ArrowDown'){hi=Math.min(hi+1,hits.length-1);draw();e.preventDefault()}else if(e.key==='ArrowUp'){hi=Math.max(0,hi-1);draw();e.preventDefault()}else if(e.key==='Enter'){e.preventDefault();const v=ps.value.replace(/[\u0000-\u001f]/g,'').trim();if(!v)return;if(['sret','pret'].includes(ED.inv.type)&&!ED.id&&invBcParse(v)){ps.value='';loadReturnByNo(v);return}const ex=L('products').find(p=>bcMatch(p,v,true));const p=ex||hits[hi];if(p)addLine(p.id);else toast('الصنف غير موجود — أضفه من شاشة الأصناف','err')}else if(e.key==='Escape'){hits=[];draw()}};
   sg.onmousedown=e=>{const w=e.target.closest('[data-wide]');if(w){e.preventDefault();sg.hidden=true;wideSearch(ps.value,inv,isSale);return}const b=e.target.closest('[data-k]');if(b){e.preventDefault();addLine(hits[+b.dataset.k].id)}};
   ps.onblur=()=>setTimeout(()=>{sg.hidden=true},150);
@@ -1141,7 +1142,7 @@ function lineRow(l,i,isSale){
   const RV=ED.recv&&(inv.type==='porder'||inv.type==='purchase');
   let cls='',numCell=`${i+1}`;
   if(RV){const chk=!!l._chk,diff=chk&&(+l.qty||0)!==(+l._oq||0);cls=l._extra?'recv-extra':!chk?'recv-pending':diff?'recv-diff':'recv-done';numCell=chk?(diff?'⚠':'✓'):'○';}
-  return `<tr data-row="${i}" class="${cls}"><td class="muted" ${RV?'style="font-weight:700;font-size:16px;text-align:center"':''}>${numCell}</td><td><div class="row" style="gap:6px;align-items:flex-start"><div style="flex:1"><b>${esc(p?.name||'صنف محذوف')}</b><div class="small muted">${esc(p?.code||'')} ${p?.unit?'· '+esc(p.unit):''}${RV&&!l._extra&&l._oq!=null?` · <b style="color:var(--brand-ink)">طلب: ${fq(l._oq)}</b>`:''}${RV&&l._extra?' · <b style="color:var(--danger)">زيادة (مش في الأمر)</b>':''}${RV&&l._si?` · <span class="tag" style="padding:0 6px">فاتورة م: ${esc(l._si)}</span>`:''}${l.bonus?' · <span class="tag ok" style="padding:0 6px">بونص</span>':''}</div>${PURT.includes(inv.type)&&!l.bonus?`<button type="button" class="btn ic s" data-pack="${i}" title="حاسبة العبوة/الكرتونة + بونص + خصم" style="flex:0 0 auto">📦</button>`:''}</div></td>
+  return `<tr data-row="${i}" class="${cls}"><td class="muted" ${RV?'style="font-weight:700;font-size:16px;text-align:center"':''}>${numCell}</td><td><div class="row" style="gap:6px;align-items:flex-start"><div style="flex:1"><b>${esc(p?.name||'صنف محذوف')}</b><div class="small muted">${esc(p?.code||'')} ${p?.unit?'· '+esc(p.unit):''}${RV&&!l._extra&&l._oq!=null?` · <b style="color:var(--brand-ink)">طلب: ${fq(l._oq)}</b>`:''}${RV&&l._extra?' · <b style="color:var(--danger)">زيادة (مش في الأمر)</b>':''}${RV&&l._si?` · <span class="tag" style="padding:0 6px">فاتورة م: ${esc(l._si)}</span>`:''}${l.bonus?' · <span class="tag ok" style="padding:0 6px">بونص</span>':''}</div>${PURT.includes(inv.type)&&!l.bonus?`<button type="button" class="btn ic s" data-pack="${i}" title="حاسبة العبوة/الكرتونة + بونص + خصم" style="flex:0 0 auto">📦</button>`:''}${PURT.includes(inv.type)&&p&&typeof ocEditLine==='function'?`<button type="button" class="btn ic s" data-ecard="${i}" title="تعديل كارت الصنف (الاسم/المستهلك/التكلفة) + تعديله في أورجا" style="flex:0 0 auto">✎</button>`:''}</div></td>
    <td class="n" data-av="${i}">${fq(bookQ(l,i))}</td>
    <td><input class="cell n" data-i="${i}" data-f="qty" inputmode="decimal" value="${l.qty}"></td>
    <td><input class="cell n" data-i="${i}" data-f="price" inputmode="decimal" value="${l.price??0}" ${isSaleT(inv.type)&&!can('editPrice')?'readonly title="تغيير السعر غير مسموح لصلاحيتك"':''}></td>
@@ -2995,7 +2996,8 @@ init();
 <script src="/countloc.js?v=1"></script>
 <script src="/pdfshare.js?v=1"></script>
 <script src="/pricing.js?v=6"></script>
-<script src="/orgacode.js?v=1"></script>
+<script src="/orgacard.js?v=1"></script>
+<script src="/orgacode.js?v=2"></script>
 <script src="/live.js?v=1"></script>
 <script src="/ui.js?v=4"></script>
 <script src="/ai.js?v=9"></script>
