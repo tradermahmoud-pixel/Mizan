@@ -362,7 +362,9 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
       const ecounts = { pending: 0, sending: 0, done: 0, error: 0 };
       const eerrors = [];
       for (const j of es) { ecounts[j.status] = (ecounts[j.status] || 0) + 1; if (j.status === 'error' && eerrors.length < 10) eerrors.push({ prod: j.prod, error: j.error }); }
-      res.json({ total: ps.length, counts, results, edits: { total: es.length, counts: ecounts, errors: eerrors } });
+      let agentVer = '';
+      try { const cfg = await getCfg(); agentVer = (cfg.agent && cfg.agent.ver) || ''; } catch (e) {}
+      res.json({ total: ps.length, counts, results, edits: { total: es.length, counts: ecounts, errors: eerrors }, agentVer });
     } catch (e) { next(e); }
   });
 
@@ -406,8 +408,10 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
               if (products.length >= 150) break;
             }
           }
+          const barcodeOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 11); // كتابة الباركود من وكيل 1.11.0+
           if (isObj(st.productEdits)) for (const j of Object.values(st.productEdits)) {
             if (j.status === 'pending' || (j.status === 'sending' && now() - (j.sentAt || 0) > 5 * 60e3)) {
+              if ((j.barcode || j.barcodeU) && !barcodeOk) continue; // فيه باركود: استنى وكيل 1.11.0+ بدل ما وكيل قديم يتجاهله
               j.status = 'sending'; j.sentAt = now();
               productEdits.push({ id: j.id, prod: j.prod, name: j.name, barcode: j.barcode, barcodeU: j.barcodeU, prices: j.prices });
               if (productEdits.length >= 150) break;

@@ -125,7 +125,7 @@
       const ec = (j.edits && j.edits.counts) || {};
       const left = (ec.pending || 0) + (ec.sending || 0);
       // نحدّث العدادات فقط (التفاصيل من errors)
-      OC.bulk._counts = ec; OC.bulk._errs = (j.edits && j.edits.errors) || [];
+      OC.bulk._counts = ec; OC.bulk._errs = (j.edits && j.edits.errors) || []; OC.bulk._agentVer = j.agentVer || '';
       if (left === 0 || n > 80) { clearInterval(OC.bulk.poll); OC.bulk.poll = null; OC.bulk.busy = false; OC.bulk._done = true; }
       if (OC.mode === 'bulk') render();
     }, 2500);
@@ -300,9 +300,13 @@
     const working = B.busy;
     const errByProd = {}; for (const e of (B._errs || [])) errByProd[e.prod] = e.error;
     const cDone = (B._counts && B._counts.done) || 0, cErr = (B._counts && B._counts.error) || 0;
+    const av = String(B._agentVer || '').split('.').map(n => +n || 0);
+    const oldAgent = (B._agentVer && (av[0] < 1 || (av[0] === 1 && av[1] < 11)));
+    const warnBc = oldAgent && withBc ? `<div class="card" style="margin-bottom:12px;border:1px solid var(--danger);background:#fff3f3"><b style="color:var(--danger)">⚠ الوكيل الحالي نسخة ${esc(B._agentVer)} — مابيكتبش الباركود</b><p class="small" style="margin:6px 0 0">تعديل الباركود محتاج الوكيل <b>1.11.0</b> أو أحدث. التعديلات اللي فيها باركود هتفضل منتظرة لحد ما تشغّل الوكيل الجديد. (المستهلك/التكلفة بيتكتبوا عادي.)</p></div>` : '';
     const FIELDS = [['name', 'اسم الصنف *'], ['code', 'كود الصنف (الايتم)'], ['barcode', 'الباركود'], ['cons', 'سعر المستهلك (اختياري)'], ['cost', 'التكلفة (اختياري)']];
     $('#view').innerHTML = `<div class="wrap">${tabs}
      <div class="row" style="margin-bottom:12px"><b>${esc(B.file)}</b><span class="tag">${rows.length} صف</span><span class="tag ok">${matched} متطابق</span>${unm ? `<span class="tag bad">${unm} مش متطابق</span>` : ''}<span class="tag">${withBc} باركود</span><span class="sp"></span><button class="btn" id="obReset">ملف آخر</button></div>
+     ${warnBc}
      <div class="card" style="margin-bottom:14px"><h3>المطابقة</h3>
        <div class="row" style="gap:6px;margin-bottom:10px"><span class="small muted">طابق الأصناف بـ:</span><div class="seg sm"><button data-obmatch="code" class="${B.matchBy === 'code' ? 'on' : ''}">كود الصنف (أدق)</button><button data-obmatch="name" class="${B.matchBy === 'name' ? 'on' : ''}">الاسم</button></div></div>
        <div class="maprow">${FIELDS.map(([k, t]) => `<label class="f">${t}${(B.matchBy === 'code' && k === 'code') || (B.matchBy === 'name' && k === 'name') ? ' 🔑' : ''}<select class="in" data-obmap="${k}">${opts(B.headers.map((h, i) => [i, h || ('عمود ' + (i + 1))]), B.map[k], '— تجاهل —')}</select></label>`).join('')}</div>
