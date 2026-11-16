@@ -471,6 +471,7 @@
     setTitle('مراجعة التكلفة');
     const all = coRows();
     const list = all;
+    const brokenN = coBroken().length;
     const val = r => { const e = CO.edit[r.p.id]; return e != null && e !== '' ? e : fmt(coSugg(r)); };
     $('#view').innerHTML = `<div class="wrap">
       <div class="card" style="padding:16px;margin-bottom:12px">
@@ -492,6 +493,7 @@
       <div class="row" style="gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
         <span class="tag bad">${all.length} صنف شاذ</span>
         <span class="tag ok" id="coSelN">${CO.sel.size} مختار</span>
+        ${brokenN && canOrgaWrite() && !S.ro ? `<button class="btn g" id="coFix" title="يصلّح قيمة المخزون للأصناف اللي قيمتها سالبة بتكلفة أورجا">🔧 تسوية قيمة المخزون (${brokenN})</button>` : ''}
         <span style="flex:1"></span>
         <button class="btn" id="coXls" ${list.length ? '' : 'disabled'}>📊 تصدير Excel</button>
         <button class="btn s" id="coMark" title="${CO.showDone ? 'يرجّع المحدد لقائمة الشاذ' : 'يشيل المحدد من قائمة الشاذ (للأصناف اللي راجعتها أو مالهاش حل من ميزان)'}">${CO.showDone ? '↺ رجّع المحدد للشاذ' : '✓ علّم المحدد كمراجَع'}</button>
@@ -525,6 +527,7 @@
       toast(CO.showDone ? ('رجّعنا ' + n + ' صنف للشاذ') : ('اتعلّم ' + n + ' صنف كمراجَع — اختفوا من القايمة'), 'ok'); window.vCostRev();
     };
     const sd = $('#coShowDone'); if (sd) sd.onclick = () => { CO.showDone = !CO.showDone; window.vCostRev(); };
+    const fx = $('#coFix'); if (fx) fx.onclick = coReconcile;
     const tb = $('#coTest'); if (tb) tb.onclick = () => coSend(3);
     const sb = $('#coSend'); if (sb) sb.onclick = () => coSend(0);
     const stb = $('#coStat'); if (stb) stb.onclick = coStatus;
@@ -563,6 +566,37 @@
       const em = errs.length ? '<br><br>أمثلة أخطاء:<br>' + errs.slice(0, 5).map(x => `• كود ${x.prod}: ${esc(x.error)}`).join('<br>') : '';
       await confirmHtml(`<b>حالة تعديلات التكلفة في أورجا:</b><br>في الطابور: ${e.pending || 0}<br>بتتكتب: ${e.sending || 0}<br>اتكتبت: ${e.done || 0}<br>فشلت: ${e.error || 0}${em}`, 'تمام', false);
     } catch (e) { toast('مقدرتش أجيب الحالة', 'err'); }
+  }
+
+  // الأصناف اللي قيمة مخزونها في ميزان سالبة/صفر رغم إن ليها رصيد — محتاجة تسوية
+  function coBroken() {
+    const st = (typeof calc === 'function') ? (calc().stock || {}) : {};
+    const out = [];
+    for (const p of L('products')) {
+      if (!(+p.orga > 0) || p.inactive) continue;
+      const s = st[p.id]; if (!s) continue;
+      const q = s.qty; if (!(q > 0.0001)) continue;
+      const rawAvg = s.value / q;
+      if (rawAvg > 0) continue;                 // قيمته سليمة
+      const oc = +p.cost || 0; if (!(oc > 0)) continue;   // لازم تكلفة أورجا عشان نسوّي بيها
+      out.push({ p, qty: q, rawAvg, oc });
+    }
+    return out;
+  }
+  async function coReconcile() {
+    const broken = coBroken();
+    if (!broken.length) { toast('مفيش أصناف قيمتها سالبة — المخزون سليم', 'ok'); return; }
+    const sample = broken.slice(0, 8).map(b => `• ${esc(b.p.name)} — رصيد ${fmt(b.qty)} × تكلفة أورجا ${fmt(b.oc)}`).join('<br>');
+    const ok = await confirmHtml(
+      `<b>تسوية قيمة المخزون</b><br>فيه <b>${broken.length}</b> صنف قيمتها في ميزان سالبة (اتباعت من غير ما يتسجّل شراء/رصيد أول).<br><br>هنعمل <b>فاتورة تقييم</b> تخلّي قيمة كل صنف = الرصيد × <b>تكلفة أورجا</b> — فالمتوسط يبقى موجب وصح.<br><br>${sample}${broken.length > 8 ? `<br>… و${broken.length - 8} صنف تاني` : ''}<br><br><span style="color:var(--danger)">ده بيغيّر تقييم المخزون في ميزان (مش في أورجا). متأكد؟</span>`,
+      'اعمل التسوية', true);
+    if (!ok) return;
+    const lines = broken.map(b => ({ pid: b.p.id, qty: Math.round(b.qty * 1000) / 1000, price: 0, disc: 0, cost: Math.round(b.oc * 100) / 100 }));
+    try {
+      await put('invoices', uid(), { type: 'reval', no: 0, date: today(), storeId: (typeof MAIN !== 'undefined' ? MAIN : 1), lines, discount: 0, taxRate: 0, paid: 0, notes: 'تسوية قيمة المخزون مع تكلفة أورجا (' + broken.length + ' صنف)', createdAt: new Date().toISOString(), createdBy: (S.me && S.me.id) || '' });
+      toast('اتعملت تسوية لـ ' + broken.length + ' صنف — قيمة المخزون بقت صح', 'ok');
+      window.vCostRev();
+    } catch (e) { toast('مقدرتش أعمل التسوية: ' + (e && e.message || e), 'err'); }
   }
 
   function coXls() {
