@@ -332,13 +332,14 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
           const name = (it && it.name != null) ? String(it.name).trim().slice(0, 50) : null;
           const barcode = (it && it.barcode != null) ? String(it.barcode).replace(/[^\x20-\x7e]/g, '').trim().slice(0, 15) : null;
           const barcodeU = (it && it.barcodeU != null) ? String(it.barcodeU).replace(/[^\x20-\x7e]/g, '').trim().slice(0, 25) : null;
+          const cost = (it && it.cost != null && isFinite(+it.cost) && +it.cost >= 0) ? Math.round(+it.cost * 10000) / 10000 : null;
           const prices = {};
           if (isObj(it.prices)) for (const k of Object.keys(it.prices)) {
             if (/^(PRICE_[1-5]|CONSUMER|PRIC_COST|COST_AV)$/.test(k)) { const v = +it.prices[k]; if (isFinite(v) && v >= 0) prices[k] = Math.round(v * 10000) / 10000; }
           }
-          if (!name && !barcode && !barcodeU && !Object.keys(prices).length) continue;
+          if (!name && !barcode && !barcodeU && cost == null && !Object.keys(prices).length) continue;
           const id = 'e' + (++st.seq);
-          st.productEdits[id] = { id, prod, name, barcode, barcodeU, prices, status: 'pending', createdAt: now(), createdBy: by };
+          st.productEdits[id] = { id, prod, name, barcode, barcodeU, cost, prices, status: 'pending', createdAt: now(), createdBy: by };
           queued++;
         }
       });
@@ -409,11 +410,13 @@ module.exports = function mountOrga(app, { pool, auth, now, notify }) {
             }
           }
           const barcodeOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 11); // كتابة الباركود من وكيل 1.11.0+
+          const costOk = (av[0] > 1) || (av[0] === 1 && av[1] >= 12);    // تكلفة + إعادة تقييم مخزون من وكيل 1.12.0+
           if (isObj(st.productEdits)) for (const j of Object.values(st.productEdits)) {
             if (j.status === 'pending' || (j.status === 'sending' && now() - (j.sentAt || 0) > 5 * 60e3)) {
-              if ((j.barcode || j.barcodeU) && !barcodeOk) continue; // فيه باركود: استنى وكيل 1.11.0+ بدل ما وكيل قديم يتجاهله
+              if ((j.barcode || j.barcodeU) && !barcodeOk) continue; // فيه باركود: استنى وكيل 1.11.0+
+              if (j.cost != null && !costOk) continue;               // فيه تكلفة: استنى وكيل 1.12.0+
               j.status = 'sending'; j.sentAt = now();
-              productEdits.push({ id: j.id, prod: j.prod, name: j.name, barcode: j.barcode, barcodeU: j.barcodeU, prices: j.prices });
+              productEdits.push({ id: j.id, prod: j.prod, name: j.name, barcode: j.barcode, barcodeU: j.barcodeU, cost: j.cost, prices: j.prices });
               if (productEdits.length >= 150) break;
             }
           }

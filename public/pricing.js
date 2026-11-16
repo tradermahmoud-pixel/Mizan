@@ -496,7 +496,7 @@
         ${list.length ? list.slice(0, 400).map(r => `<tr><td style="text-align:center"><input type="checkbox" data-osel="${esc(r.p.id)}" ${CO.sel.has(r.p.id) ? 'checked' : ''}></td><td class="num">${esc(r.p.code || r.p.orga || '')}</td><td><b>${esc(r.p.name)}</b></td><td class="n num" style="${r.bal > 0 ? '' : 'color:var(--gold)'}">${fmt(r.bal)}</td><td class="n num">${fmt(r.orga)}</td><td class="n num">${fmt(r.miz)}</td><td class="n num" style="color:${r.diff > 0 ? 'var(--danger)' : r.diff < 0 ? 'var(--gold)' : ''}">${fmt(r.diff)}</td><td class="n num" style="color:${Math.abs(r.pct) >= numIn(CO.tol) ? 'var(--danger)' : ''}">${r.orga > 0 ? (r.pct > 900 ? '—' : fmt(r.pct) + '%') : '—'}</td><td class="n num">${fmt(r.cons)}</td><td><span class="tag ${r.sev >= 3 ? 'bad' : r.sev === 2 ? '' : ''}">${r.flag}</span></td><td class="n"><input class="in n" data-oedit="${esc(r.p.id)}" inputmode="decimal" value="${esc(val(r))}" placeholder="${fmt(coSugg(r))}" style="width:95px"></td></tr>`).join('') : `<tr><td colspan="11"><div class="empty" style="padding:30px"><b>مفيش قيم شاذة</b>التكلفة متطابقة بين أورجا وميزان</div></td></tr>`}
       </tbody></table></div>
       ${list.length > 400 ? `<p class="small muted">بيظهر أول 400 — التصدير بيشمل الكل.</p>` : ''}
-      <p class="small muted" style="margin-top:10px">المقترح = <b>متوسط ميزان</b>. الإرسال بيكتب <b>آخر التكلفة + متوسط التكلفة</b> في أورجا. محتاج وكيل 1.10.0+.</p>
+      <p class="small muted" style="margin-top:10px">المقترح = <b>متوسط ميزان</b>. الإرسال بيكتب <b>آخر التكلفة + متوسط التكلفة</b>، ويعيد تقييم طبقات المخزون، ويصفّر «خصم مرجح» — فالتكلفة تظهر صح في أورجا. محتاج وكيل <b>1.12.0+</b>.</p>
     </div>`;
     $$('[data-oedit]').forEach(i => i.oninput = () => { CO.edit[i.dataset.oedit] = i.value; });
     const upd = () => { const n = $('#coSelN'); if (n) n.textContent = CO.sel.size + ' مختار'; };
@@ -521,13 +521,13 @@
       const raw = CO.edit[id]; const v = raw != null && raw !== '' ? numIn(raw) : (+avgCost(p.id) || 0);
       if (!(v > 0)) { bad++; continue; }
       const c = Math.round(v * 100) / 100;
-      items.push({ prod: +p.orga, prices: { PRIC_COST: c, COST_AV: c } });
+      items.push({ prod: +p.orga, cost: c });   // الوكيل يكتب PRIC_COST+COST_AV ويعيد تقييم المخزون ويصفّر خصم مرجح
       if (limit && items.length >= limit) break;
     }
     if (!items.length) { toast('مفيش قيم صالحة (لازم كود أورجا وتكلفة أكبر من صفر)', 'err'); return; }
     const msg = limit
-      ? `تجربة: هتتكتب التكلفة لأول <b>${items.length}</b> صنف في أورجا.<br>بعد دقيقة افحص صنف وتأكد قبل الكل.`
-      : `هتتكتب التكلفة (آخر تكلفة + متوسط) لـ <b>${items.length}</b> صنف مختار في أورجا.${bad ? `<br><span style="color:var(--gold)">(${bad} اتخطّى)</span>` : ''}<br><span style="color:var(--danger)">ملحوظة: تغيير التكلفة بيأثر على تقييم المخزون.</span><br>متأكد؟`;
+      ? `تجربة: هتتكتب التكلفة لأول <b>${items.length}</b> صنف في أورجا (آخر تكلفة + متوسط + إعادة تقييم المخزون + تصفير خصم مرجح).<br>بعد دقيقة افحص الصنف في أورجا وتأكد قبل الكل.`
+      : `هتتكتب التكلفة الجديدة لـ <b>${items.length}</b> صنف في أورجا — تكتب آخر تكلفة + متوسط التكلفة، وتعيد تقييم طبقات المخزون، وتصفّر «خصم مرجح».${bad ? `<br><span style="color:var(--gold)">(${bad} اتخطّى)</span>` : ''}<br><span style="color:var(--danger)">⚠ ده بيغيّر تقييم المخزون في أورجا. محتاج وكيل 1.12.0+.</span><br>متأكد؟`;
     if (!(await confirmHtml(msg, limit ? 'جرّب' : 'إرسال', !limit))) return;
     try {
       const r = await MZ.post('/api/orga/products/edit', { items });

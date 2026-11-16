@@ -89,8 +89,8 @@
       if (canOrga && hasOrga) {
         const prices = {};
         if ($('#ocf_cons').value !== '') prices.CONSUMER = cons;
-        if ($('#ocf_cost').value !== '') { prices.PRIC_COST = cost; prices.COST_AV = cost; }
         const item = { prod: +p.orga, name };
+        if ($('#ocf_cost').value !== '') item.cost = cost;   // الوكيل يكتب التكلفة ويعيد تقييم المخزون
         if (Object.keys(prices).length) item.prices = prices;
         try { const r = await MZ.post('/api/orga/products/edit', { items: [item] }); if (r && r.queued) toast('اتعدّل — وبيتبعت لأورجا'); else toast('اتعدّل في ميزان'); }
         catch (e) { toast('اتعدّل في ميزان (أورجا فشل: ' + (e && e.message || e) + ')', 'err'); }
