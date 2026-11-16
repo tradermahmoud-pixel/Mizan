@@ -430,4 +430,128 @@
     xlsxOut('أسعار_مستهلك_شاذة_' + today() + '.xlsx', [head, ...rows], 'شاذة');
     toast('اتصدّر الملف', 'ok');
   }
+
+  // ===== مراجعة التكلفة: مقارنة تكلفة أورجا (PRIC_COST) بمتوسط ميزان المحسوب =====
+  let CO = { mode: 'all', tol: '5', stock: true, q: '', sel: new Set(), edit: {}, busy: false };
+  function coRows() {
+    const q = (CO.q || '').trim().toLowerCase();
+    const tol = Math.max(0, numIn(CO.tol));
+    const out = [];
+    for (const p of L('products')) {
+      if (!(+p.orga > 0) || p.inactive) continue;
+      if (q && !(String(p.name || '').toLowerCase().includes(q) || String(p.code || '').includes(q))) continue;
+      const bal = (typeof qtyIn === 'function' ? +qtyIn(p.id) : 0) || 0;
+      if (CO.stock && !(bal > 0)) continue;
+      const orga = +p.cost || 0;              // تكلفة أورجا الرسمية (PRIC_COST)
+      const miz = +avgCost(p.id) || 0;        // متوسط ميزان المحسوب من حركة المخزون
+      const cons = consOf(p) || +p.price || 0;
+      const diff = miz - orga;
+      const pct = orga > 0 ? (diff / orga * 100) : (miz > 0 ? 999 : 0);
+      let flag = '', sev = 0;
+      if (orga <= 0 && miz > 0) { flag = 'مفيش تكلفة في أورجا'; sev = 3; }
+      else if (miz <= 0 && orga > 0 && bal > 0) { flag = 'مفيش متوسط في ميزان'; sev = 2; }
+      else if (orga > 0 && cons > 0 && orga > cons) { flag = 'التكلفة أعلى من المستهلك'; sev = 3; }
+      else if (orga > 0 && miz > 0 && Math.abs(pct) >= tol) { flag = diff > 0 ? 'ميزان أعلى' : 'أورجا أعلى'; sev = 1; }
+      if (!flag) continue;
+      if (CO.mode === 'nocost' && sev !== 3) continue;
+      if (CO.mode === 'diff' && flag.indexOf('أعلى') < 0) continue;
+      if (CO.mode === 'overcons' && flag !== 'التكلفة أعلى من المستهلك') continue;
+      out.push({ p, orga, miz, cons, diff, pct, bal, flag, sev });
+    }
+    out.sort((a, b) => b.sev - a.sev || Math.abs(b.pct) - Math.abs(a.pct));
+    return out;
+  }
+  const coSugg = r => r.miz > 0 ? Math.round(r.miz * 100) / 100 : r.orga;   // المقترح = متوسط ميزان
+
+  window.vCostRev = function () {
+    setTitle('مراجعة التكلفة');
+    const all = coRows();
+    const list = all;
+    const val = r => { const e = CO.edit[r.p.id]; return e != null && e !== '' ? e : fmt(coSugg(r)); };
+    $('#view').innerHTML = `<div class="wrap">
+      <div class="card" style="padding:16px;margin-bottom:12px">
+        <h2 style="margin:0 0 4px">مراجعة التكلفة — أورجا مقابل ميزان</h2>
+        <p class="small muted" style="margin:0 0 12px">بتقارن <b>تكلفة أورجا الرسمية</b> (آخر تكلفة) بـ<b>متوسط ميزان المحسوب</b> من حركة المخزون، وتطلّع القيم الشاذة. عدّل القيمة أو اعتمد المقترح (= متوسط ميزان)، حدّد، وابعت لأورجا (بيكتب آخر تكلفة + متوسط التكلفة).</p>
+        <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <label class="f" style="margin:0;flex:0 1 170px">نوع الشذوذ<select class="in" id="coMode">
+            <option value="all" ${CO.mode === 'all' ? 'selected' : ''}>الكل</option>
+            <option value="diff" ${CO.mode === 'diff' ? 'selected' : ''}>فرق كبير</option>
+            <option value="nocost" ${CO.mode === 'nocost' ? 'selected' : ''}>مفيش تكلفة في أورجا</option>
+            <option value="overcons" ${CO.mode === 'overcons' ? 'selected' : ''}>التكلفة أعلى من المستهلك</option>
+          </select></label>
+          <label class="f" style="margin:0;flex:0 1 140px">حد الفرق %<input class="in n" id="coTol" inputmode="decimal" value="${esc(CO.tol)}" style="width:80px"></label>
+          <button class="btn s ${CO.stock ? 'p' : ''}" id="coStock" style="white-space:nowrap">${CO.stock ? '✓ اللي ليه رصيد بس' : 'كل الأرصدة'}</button>
+          <button class="btn s" id="coFill" title="يملأ القيم بمتوسط ميزان">⚡ اعتمد متوسط ميزان للكل</button>
+        </div>
+        <label class="f" style="margin:10px 0 0;max-width:320px">بحث بالاسم أو الكود<input class="in" id="coQ" value="${esc(CO.q)}" placeholder="اكتب ثم Enter"></label>
+      </div>
+      <div class="row" style="gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
+        <span class="tag bad">${all.length} صنف شاذ</span>
+        <span class="tag ok" id="coSelN">${CO.sel.size} مختار</span>
+        <span style="flex:1"></span>
+        <button class="btn" id="coXls" ${list.length ? '' : 'disabled'}>📊 تصدير Excel</button>
+        ${canOrgaWrite() && !S.ro ? `<button class="btn s" id="coTest">🧪 جرّب أول 3</button><button class="btn g" id="coSend">⬆ إرسال المحدد لأورجا</button><button class="btn s" id="coStat">حالة الإرسال</button>` : ''}
+      </div>
+      <div class="tw"><table class="t"><thead><tr><th style="width:34px"><input type="checkbox" id="coAll"></th><th>الكود</th><th>الصنف</th><th class="n">الرصيد</th><th class="n">تكلفة أورجا</th><th class="n">متوسط ميزان</th><th class="n">الفرق</th><th class="n">%</th><th class="n">المستهلك</th><th>الحالة</th><th class="n">التكلفة الجديدة</th></tr></thead><tbody>
+        ${list.length ? list.slice(0, 400).map(r => `<tr><td style="text-align:center"><input type="checkbox" data-osel="${esc(r.p.id)}" ${CO.sel.has(r.p.id) ? 'checked' : ''}></td><td class="num">${esc(r.p.code || r.p.orga || '')}</td><td><b>${esc(r.p.name)}</b></td><td class="n num" style="${r.bal > 0 ? '' : 'color:var(--gold)'}">${fmt(r.bal)}</td><td class="n num">${fmt(r.orga)}</td><td class="n num">${fmt(r.miz)}</td><td class="n num" style="color:${r.diff > 0 ? 'var(--danger)' : r.diff < 0 ? 'var(--gold)' : ''}">${fmt(r.diff)}</td><td class="n num" style="color:${Math.abs(r.pct) >= numIn(CO.tol) ? 'var(--danger)' : ''}">${r.orga > 0 ? (r.pct > 900 ? '—' : fmt(r.pct) + '%') : '—'}</td><td class="n num">${fmt(r.cons)}</td><td><span class="tag ${r.sev >= 3 ? 'bad' : r.sev === 2 ? '' : ''}">${r.flag}</span></td><td class="n"><input class="in n" data-oedit="${esc(r.p.id)}" inputmode="decimal" value="${esc(val(r))}" placeholder="${fmt(coSugg(r))}" style="width:95px"></td></tr>`).join('') : `<tr><td colspan="11"><div class="empty" style="padding:30px"><b>مفيش قيم شاذة</b>التكلفة متطابقة بين أورجا وميزان</div></td></tr>`}
+      </tbody></table></div>
+      ${list.length > 400 ? `<p class="small muted">بيظهر أول 400 — التصدير بيشمل الكل.</p>` : ''}
+      <p class="small muted" style="margin-top:10px">المقترح = <b>متوسط ميزان</b>. الإرسال بيكتب <b>آخر التكلفة + متوسط التكلفة</b> في أورجا. محتاج وكيل 1.10.0+.</p>
+    </div>`;
+    $$('[data-oedit]').forEach(i => i.oninput = () => { CO.edit[i.dataset.oedit] = i.value; });
+    const upd = () => { const n = $('#coSelN'); if (n) n.textContent = CO.sel.size + ' مختار'; };
+    $$('[data-osel]').forEach(cb => cb.onchange = () => { cb.checked ? CO.sel.add(cb.dataset.osel) : CO.sel.delete(cb.dataset.osel); upd(); });
+    const allc = $('#coAll'); if (allc) allc.onclick = () => { const on = allc.checked; for (const r of list) on ? CO.sel.add(r.p.id) : CO.sel.delete(r.p.id); window.vCostRev(); };
+    const md = $('#coMode'); if (md) md.onchange = () => { CO.mode = md.value; window.vCostRev(); };
+    const tl = $('#coTol'); if (tl) tl.onchange = () => { CO.tol = tl.value; window.vCostRev(); };
+    const sk = $('#coStock'); if (sk) sk.onclick = () => { CO.stock = !CO.stock; window.vCostRev(); };
+    const q = $('#coQ'); if (q) q.onkeydown = e => { if (e.key === 'Enter') { CO.q = q.value; window.vCostRev(); } };
+    const fill = $('#coFill'); if (fill) fill.onclick = () => { for (const r of list) CO.edit[r.p.id] = String(coSugg(r)); window.vCostRev(); };
+    const xb = $('#coXls'); if (xb) xb.onclick = coXls;
+    const tb = $('#coTest'); if (tb) tb.onclick = () => coSend(3);
+    const sb = $('#coSend'); if (sb) sb.onclick = () => coSend(0);
+    const stb = $('#coStat'); if (stb) stb.onclick = coStatus;
+  };
+
+  async function coSend(limit) {
+    if (!CO.sel.size) { toast('حدّد أصناف الأول', 'err'); return; }
+    const items = []; let bad = 0;
+    for (const id of CO.sel) {
+      const p = G('products', id); if (!p || !(+p.orga > 0)) { bad++; continue; }
+      const raw = CO.edit[id]; const v = raw != null && raw !== '' ? numIn(raw) : (+avgCost(p.id) || 0);
+      if (!(v > 0)) { bad++; continue; }
+      const c = Math.round(v * 100) / 100;
+      items.push({ prod: +p.orga, prices: { PRIC_COST: c, COST_AV: c } });
+      if (limit && items.length >= limit) break;
+    }
+    if (!items.length) { toast('مفيش قيم صالحة (لازم كود أورجا وتكلفة أكبر من صفر)', 'err'); return; }
+    const msg = limit
+      ? `تجربة: هتتكتب التكلفة لأول <b>${items.length}</b> صنف في أورجا.<br>بعد دقيقة افحص صنف وتأكد قبل الكل.`
+      : `هتتكتب التكلفة (آخر تكلفة + متوسط) لـ <b>${items.length}</b> صنف مختار في أورجا.${bad ? `<br><span style="color:var(--gold)">(${bad} اتخطّى)</span>` : ''}<br><span style="color:var(--danger)">ملحوظة: تغيير التكلفة بيأثر على تقييم المخزون.</span><br>متأكد؟`;
+    if (!(await confirmHtml(msg, limit ? 'جرّب' : 'إرسال', !limit))) return;
+    try {
+      const r = await MZ.post('/api/orga/products/edit', { items });
+      toast(`اتضاف ${r.queued} صنف لطابور التعديل — هيتكتبوا خلال دقيقة`, 'ok');
+      setTimeout(coStatus, 2000);
+    } catch (e) { toast(e.message || 'مقدرتش أبعت', 'err'); }
+  }
+
+  async function coStatus() {
+    try {
+      const r = await fetch('/api/orga/products/status', { credentials: 'same-origin', headers: { 'X-Mizan': '1' } });
+      const j = await r.json(); const e = (j.edits && j.edits.counts) || {};
+      const errs = (j.edits && j.edits.errors) || [];
+      const em = errs.length ? '<br><br>أمثلة أخطاء:<br>' + errs.slice(0, 5).map(x => `• كود ${x.prod}: ${esc(x.error)}`).join('<br>') : '';
+      await confirmHtml(`<b>حالة تعديلات التكلفة في أورجا:</b><br>في الطابور: ${e.pending || 0}<br>بتتكتب: ${e.sending || 0}<br>اتكتبت: ${e.done || 0}<br>فشلت: ${e.error || 0}${em}`, 'تمام', false);
+    } catch (e) { toast('مقدرتش أجيب الحالة', 'err'); }
+  }
+
+  function coXls() {
+    const list = coRows();
+    if (!list.length) { toast('مفيش بيانات', 'err'); return; }
+    const head = ['كود أورجا', 'الصنف', 'الرصيد', 'تكلفة أورجا', 'متوسط ميزان', 'الفرق', 'الفرق %', 'المستهلك', 'الحالة', 'المقترح'];
+    const rows = list.map(r => [r.p.code || r.p.orga || '', r.p.name, +r.bal.toFixed(2), +r.orga.toFixed(2), +r.miz.toFixed(2), +r.diff.toFixed(2), r.orga > 0 && r.pct <= 900 ? +r.pct.toFixed(1) : '', +r.cons.toFixed(2), r.flag, +coSugg(r).toFixed(2)]);
+    xlsxOut('مراجعة_التكلفة_' + today() + '.xlsx', [head, ...rows], 'تكلفة');
+    toast('اتصدّر الملف', 'ok');
+  }
 })();
