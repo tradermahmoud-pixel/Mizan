@@ -497,6 +497,7 @@
         ${brokenN && canOrgaWrite() && !S.ro ? `<button class="btn g" id="coFix" title="يصلّح قيمة المخزون للأصناف اللي قيمتها سالبة بتكلفة أورجا">🔧 تسوية قيمة المخزون (${brokenN})</button>` : ''}
         <span style="flex:1"></span>
         <button class="btn" id="coXls" ${list.length ? '' : 'disabled'}>📊 تصدير Excel</button>
+        <button class="btn s" id="coAdopt" title="يخلّي متوسط ميزان = تكلفة أورجا للأصناف المحددة (فاتورة تقييم جوه ميزان)">⬇ اعتمد تكلفة أورجا في ميزان</button>
         <button class="btn s" id="coMark" title="${CO.showDone ? 'يرجّع المحدد لقائمة الشاذ' : 'يشيل المحدد من قائمة الشاذ (للأصناف اللي راجعتها أو مالهاش حل من ميزان)'}">${CO.showDone ? '↺ رجّع المحدد للشاذ' : '✓ علّم المحدد كمراجَع'}</button>
         <button class="btn s ${CO.showDone ? 'p' : ''}" id="coShowDone">${CO.showDone ? '✓ بيعرض المُراجَع' : 'إظهار المُراجَع' + (Object.keys(CO.done).length ? ' (' + Object.keys(CO.done).length + ')' : '')}</button>
         ${canOrgaWrite() && !S.ro ? `<button class="btn s" id="coTest">🧪 جرّب أول 3</button><button class="btn g" id="coSend">⬆ إرسال المحدد لأورجا</button><button class="btn s" id="coStat">حالة الإرسال</button>` : ''}
@@ -529,6 +530,7 @@
     };
     const sd = $('#coShowDone'); if (sd) sd.onclick = () => { CO.showDone = !CO.showDone; window.vCostRev(); };
     const fx = $('#coFix'); if (fx) fx.onclick = coReconcile;
+    const ad = $('#coAdopt'); if (ad) ad.onclick = coAdoptOrga;
     const tb = $('#coTest'); if (tb) tb.onclick = () => coSend(3);
     const sb = $('#coSend'); if (sb) sb.onclick = () => coSend(0);
     const stb = $('#coStat'); if (stb) stb.onclick = coStatus;
@@ -583,6 +585,27 @@
       out.push({ p, qty: q, rawAvg, oc });
     }
     return out;
+  }
+  // يعمل فاتورة تقييم تخلّي قيمة الأصناف = الرصيد × التكلفة المحددة (داخل ميزان)
+  async function coRevalProducts(lines) {
+    if (!lines.length) return false;
+    await put('invoices', uid(), { type: 'reval', no: 0, date: today(), storeId: (typeof MAIN !== 'undefined' ? MAIN : 1), lines, discount: 0, taxRate: 0, paid: 0, notes: 'اعتماد تكلفة أورجا في ميزان (' + lines.length + ' صنف)', createdAt: new Date().toISOString(), createdBy: (S.me && S.me.id) || '' });
+    return true;
+  }
+  // اعتماد تكلفة أورجا للأصناف المحددة: متوسط ميزان يبقى = تكلفة أورجا
+  async function coAdoptOrga() {
+    if (!CO.sel.size) { toast('حدّد أصناف الأول', 'err'); return; }
+    const lines = []; let bad = 0;
+    for (const id of CO.sel) {
+      const p = G('products', id); const oc = +(p && p.cost) || 0;
+      const qty = (typeof qtyIn === 'function' ? +qtyIn(id) : 0) || 0;
+      if (!p || !(oc > 0)) { bad++; continue; }
+      lines.push({ pid: id, qty: Math.round(qty * 1000) / 1000, price: 0, disc: 0, cost: Math.round(oc * 100) / 100 });
+    }
+    if (!lines.length) { toast('مفيش أصناف صالحة (لازم تكلفة أورجا > 0)', 'err'); return; }
+    if (!(await confirmHtml(`هنخلّي <b>متوسط ميزان = تكلفة أورجا</b> لـ <b>${lines.length}</b> صنف محدد (فاتورة تقييم في ميزان).${bad ? `<br><span style="color:var(--gold)">(${bad} اتخطّى — مفيش تكلفة أورجا)</span>` : ''}<br><span class="small muted">ده جوه ميزان بس — بيغيّر تقييم المخزون.</span><br>متأكد؟`, 'اعتمد', true))) return;
+    try { await coRevalProducts(lines); for (const l of lines) { CO.done[l.pid] = Date.now(); } CO.sel.clear(); coSaveDone(); toast('اتعمل — متوسط ميزان بقى = تكلفة أورجا للمحدد', 'ok'); window.vCostRev(); }
+    catch (e) { toast('مقدرتش: ' + (e && e.message || e), 'err'); }
   }
   async function coReconcile() {
     const broken = coBroken();
