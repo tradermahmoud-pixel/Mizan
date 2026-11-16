@@ -437,7 +437,8 @@
   const coSaveDone = () => { try { localStorage.setItem('mz_costrev_done', JSON.stringify(CO.done)); } catch (e) {} };
   function coRows() {
     const q = (CO.q || '').trim().toLowerCase();
-    const tol = Math.max(0, numIn(CO.tol));
+    const tolRaw = numIn(CO.tol);
+    const tol = tolRaw > 0 ? tolRaw : 5;   // فاضي/صفر = 5% (مش نفلّج كله)
     const out = [];
     for (const p of L('products')) {
       if (!(+p.orga > 0) || p.inactive) continue;
@@ -453,7 +454,7 @@
       if (orga <= 0 && miz > 0) { flag = 'مفيش تكلفة في أورجا'; sev = 3; }
       else if (miz <= 0 && orga > 0 && bal > 0) { flag = 'مفيش متوسط في ميزان'; sev = 2; }
       else if (orga > 0 && cons > 0 && orga > cons) { flag = 'التكلفة أعلى من المستهلك'; sev = 3; }
-      else if (orga > 0 && miz > 0 && Math.abs(pct) >= tol) { flag = diff > 0 ? 'ميزان أعلى' : 'أورجا أعلى'; sev = 1; }
+      else if (orga > 0 && miz > 0 && Math.abs(diff) > 0.01 && Math.abs(pct) >= tol) { flag = diff > 0 ? 'ميزان أعلى' : 'أورجا أعلى'; sev = 1; }
       if (!flag) continue;
       if (CO.mode === 'nocost' && sev !== 3) continue;
       if (CO.mode === 'diff' && flag.indexOf('أعلى') < 0) continue;
