@@ -508,7 +508,8 @@
     const q = $('#coQ'); if (q) q.onkeydown = e => { if (e.key === 'Enter') { CO.q = q.value; window.vCostRev(); } };
     const fill = $('#coFill'); if (fill) fill.onchange = () => {
       const m = fill.value; if (!m) return;
-      for (const r of list) { const vals = [r.orga, r.miz].filter(x => x > 0); if (!vals.length) continue; let v; if (m === 'miz') v = r.miz > 0 ? r.miz : r.orga; else if (m === 'orga') v = r.orga > 0 ? r.orga : r.miz; else if (m === 'max') v = Math.max(...vals); else v = Math.min(...vals); CO.edit[r.p.id] = String(Math.round(v * 100) / 100); }
+      for (const r of list) { const vals = [r.orga, r.miz].filter(x => x > 0); if (!vals.length) continue; let v; if (m === 'miz') v = r.miz > 0 ? r.miz : r.orga; else if (m === 'orga') v = r.orga > 0 ? r.orga : r.miz; else if (m === 'max') v = Math.max(...vals); else v = Math.min(...vals); CO.edit[r.p.id] = String(Math.round(v * 100) / 100); CO.sel.add(r.p.id); }
+      toast('اتعبّت واتحدّدت ' + list.length + ' صنف — راجعها وابعت', 'ok');
       window.vCostRev();
     };
     const xb = $('#coXls'); if (xb) xb.onclick = coXls;
