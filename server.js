@@ -493,7 +493,7 @@ async function tierPrices(db) {
   const sr = await db.query(`SELECT data FROM docs WHERE col='settings' AND id='main' AND NOT deleted`);
   const set = sr.rows[0] && sr.rows[0].data || {}; const tiers = Array.isArray(set.tiers) && set.tiers.length ? set.tiers : DEF_TIERS;
   const r2 = n => Math.round(n * 100) / 100; const t = {};
-  for (const tr of tiers) { if (!tr || !tr.id) continue; const m = {}; for (const pid of Object.keys(prods)) { const s = st[pid]; const c = s ? (s.qty > 0.0001 ? s.value / s.qty : s.last) : (+prods[pid].cost || 0); if (c > 0) m[pid] = r2(c * (1 + (+tr.markup || 0) / 100)); } t[tr.id] = m; }
+  for (const tr of tiers) { if (!tr || !tr.id) continue; const m = {}; for (const pid of Object.keys(prods)) { const s = st[pid]; const c = (+prods[pid].cost) || (s ? (s.qty > 0.0001 ? s.value / s.qty : s.last) : 0); if (c > 0) m[pid] = r2(c * (1 + (+tr.markup || 0) / 100)); } t[tr.id] = m; }
   const by = {}; for (const pid of Object.keys(st)) by[pid] = st[pid].by;
   PX = { key, px: { v: key, t }, by, prods, idx: null }; return PX.px;
 }

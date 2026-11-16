@@ -435,7 +435,7 @@ const tierOf=pid=>{const p=G('parties',pid);return p&&p.tier?tiers().find(t=>t.i
 const rnd2=n=>Math.round((+n||0)*100)/100;
 const consOf=p=>+(p&&p.consumer)||+(p&&p.price)||0;
 const costHidden=()=>!!(window.MZ&&MZ.costHidden&&!S.isAdmin);
-function salePrice(p,partyId){const t=tierOf(partyId);if(t&&costHidden()){const v=MZ.px&&MZ.px.t&&MZ.px.t[t.id]&&MZ.px.t[t.id][p.id];return v>0?v:consOf(p)}if(t){const c=avgCost(p.id)||+p.cost||0;if(c>0)return rnd2(c*(1+(+t.markup||0)/100))}return consOf(p)}
+function salePrice(p,partyId){const t=tierOf(partyId);if(t&&costHidden()){const v=MZ.px&&MZ.px.t&&MZ.px.t[t.id]&&MZ.px.t[t.id][p.id];return v>0?v:consOf(p)}if(t){const c=(+p.cost||avgCost(p.id)||0);if(c>0)return rnd2(c*(1+(+t.markup||0)/100))}return consOf(p)}
 const PURT=['purchase','porder','open'];
 /* فاتورة الشراء / أمر التوريد: الصنف اتشرى امتى ومن مين وبكام */
 function buyHist(pid,partyId){const out=[];for(const i of L('invoices')){if(i.type!=='purchase')continue;if(partyId&&i.partyId!==partyId)continue;const ls=(i.lines||[]).filter(l=>l.pid===pid);if(!ls.length)continue;out.push({inv:i,qty:ls.reduce((a,l)=>a+(+l.qty||0),0),price:+ls[0].price||0,disc:+ls[0].disc||0})}
