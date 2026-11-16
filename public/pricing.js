@@ -481,7 +481,7 @@
           </select></label>
           <label class="f" style="margin:0;flex:0 1 140px">حد الفرق %<input class="in n" id="coTol" inputmode="decimal" value="${esc(CO.tol)}" style="width:80px"></label>
           <button class="btn s ${CO.stock ? 'p' : ''}" id="coStock" style="white-space:nowrap">${CO.stock ? '✓ اللي ليه رصيد بس' : 'كل الأرصدة'}</button>
-          <label class="f" style="margin:0;flex:0 1 180px">⚡ اعتمد للكل<select class="in" id="coFill"><option value="">— اختر —</option><option value="max">الأعلى من الاتنين</option><option value="min">الأقل من الاتنين</option><option value="miz">متوسط ميزان</option><option value="orga">تكلفة أورجا</option></select></label>
+          <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;flex:1 1 auto"><span class="small muted" style="white-space:nowrap">⚡ اعتمد للكل:</span><button class="btn s" data-cofill="max">الأعلى</button><button class="btn s" data-cofill="min">الأقل</button><button class="btn s" data-cofill="miz">متوسط ميزان</button><button class="btn s" data-cofill="orga">تكلفة أورجا</button></div>
         </div>
         <label class="f" style="margin:10px 0 0;max-width:320px">بحث بالاسم أو الكود<input class="in" id="coQ" value="${esc(CO.q)}" placeholder="اكتب ثم Enter"></label>
       </div>
@@ -506,12 +506,12 @@
     const tl = $('#coTol'); if (tl) tl.onchange = () => { CO.tol = tl.value; window.vCostRev(); };
     const sk = $('#coStock'); if (sk) sk.onclick = () => { CO.stock = !CO.stock; window.vCostRev(); };
     const q = $('#coQ'); if (q) q.onkeydown = e => { if (e.key === 'Enter') { CO.q = q.value; window.vCostRev(); } };
-    const fill = $('#coFill'); if (fill) fill.onchange = () => {
-      const m = fill.value; if (!m) return;
-      for (const r of list) { const vals = [r.orga, r.miz].filter(x => x > 0); if (!vals.length) continue; let v; if (m === 'miz') v = r.miz > 0 ? r.miz : r.orga; else if (m === 'orga') v = r.orga > 0 ? r.orga : r.miz; else if (m === 'max') v = Math.max(...vals); else v = Math.min(...vals); CO.edit[r.p.id] = String(Math.round(v * 100) / 100); CO.sel.add(r.p.id); }
-      toast('اتعبّت واتحدّدت ' + list.length + ' صنف — راجعها وابعت', 'ok');
+    $$('[data-cofill]').forEach(b => b.onclick = () => {
+      const m = b.dataset.cofill; let n = 0;
+      for (const r of list) { const vals = [r.orga, r.miz].filter(x => x > 0); if (!vals.length) continue; let v; if (m === 'miz') v = r.miz > 0 ? r.miz : r.orga; else if (m === 'orga') v = r.orga > 0 ? r.orga : r.miz; else if (m === 'max') v = Math.max(...vals); else v = Math.min(...vals); CO.edit[r.p.id] = String(Math.round(v * 100) / 100); CO.sel.add(r.p.id); n++; }
+      toast('اتعبّت واتحدّدت ' + n + ' صنف — راجعها وابعت', 'ok');
       window.vCostRev();
-    };
+    });
     const xb = $('#coXls'); if (xb) xb.onclick = coXls;
     const tb = $('#coTest'); if (tb) tb.onclick = () => coSend(3);
     const sb = $('#coSend'); if (sb) sb.onclick = () => coSend(0);
