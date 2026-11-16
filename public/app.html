@@ -762,7 +762,7 @@ function calc_(){
   for(const p of L('parties')){const o=+p.openBalance||0;R.party[p.id]=(R.party[p.id]||0)+(p.kind==='vendor'?-o:o)}
   return CC=R;
 }
-const avgCost=pid=>{if(costHidden())return 0;const s=calc().stock[pid];if(!s)return +(G('products',pid)?.cost)||0;return s.qty>0.0001?s.value/s.qty:s.last};
+const avgCost=pid=>{if(costHidden())return 0;const oc=+(G('products',pid)?.cost)||0;const s=calc().stock[pid];if(!s)return oc;let a=s.qty>0.0001?s.value/s.qty:s.last;if(!(a>0))a=oc>0?oc:(s.last>0?s.last:0);return a};
 const qtyIn=(pid,store)=>{const s=calc().stock[pid];if(!s)return 0;return store?(s.by[store]||0):s.qty};
 
 /* ============ render loop ============ */
