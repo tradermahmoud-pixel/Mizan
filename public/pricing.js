@@ -432,7 +432,9 @@
   }
 
   // ===== مراجعة التكلفة: مقارنة تكلفة أورجا (PRIC_COST) بمتوسط ميزان المحسوب =====
-  let CO = { mode: 'all', tol: '5', stock: true, q: '', sel: new Set(), edit: {}, busy: false };
+  let CO = { mode: 'all', tol: '5', stock: true, q: '', sel: new Set(), edit: {}, busy: false, showDone: false,
+    done: (function () { try { return JSON.parse(localStorage.getItem('mz_costrev_done') || '{}'); } catch (e) { return {}; } })() };
+  const coSaveDone = () => { try { localStorage.setItem('mz_costrev_done', JSON.stringify(CO.done)); } catch (e) {} };
   function coRows() {
     const q = (CO.q || '').trim().toLowerCase();
     const tol = Math.max(0, numIn(CO.tol));
@@ -456,7 +458,9 @@
       if (CO.mode === 'nocost' && sev !== 3) continue;
       if (CO.mode === 'diff' && flag.indexOf('أعلى') < 0) continue;
       if (CO.mode === 'overcons' && flag !== 'التكلفة أعلى من المستهلك') continue;
-      out.push({ p, orga, miz, cons, diff, pct, bal, flag, sev });
+      const isDone = !!CO.done[p.id];
+      if (isDone && !CO.showDone) continue;      // اتراجع خلاص — مايظهرش إلا لو طلبت المُراجَع
+      out.push({ p, orga, miz, cons, diff, pct, bal, flag, sev, isDone });
     }
     out.sort((a, b) => b.sev - a.sev || Math.abs(b.pct) - Math.abs(a.pct));
     return out;
@@ -490,6 +494,8 @@
         <span class="tag ok" id="coSelN">${CO.sel.size} مختار</span>
         <span style="flex:1"></span>
         <button class="btn" id="coXls" ${list.length ? '' : 'disabled'}>📊 تصدير Excel</button>
+        <button class="btn s" id="coMark" title="${CO.showDone ? 'يرجّع المحدد لقائمة الشاذ' : 'يشيل المحدد من قائمة الشاذ (للأصناف اللي راجعتها أو مالهاش حل من ميزان)'}">${CO.showDone ? '↺ رجّع المحدد للشاذ' : '✓ علّم المحدد كمراجَع'}</button>
+        <button class="btn s ${CO.showDone ? 'p' : ''}" id="coShowDone">${CO.showDone ? '✓ بيعرض المُراجَع' : 'إظهار المُراجَع' + (Object.keys(CO.done).length ? ' (' + Object.keys(CO.done).length + ')' : '')}</button>
         ${canOrgaWrite() && !S.ro ? `<button class="btn s" id="coTest">🧪 جرّب أول 3</button><button class="btn g" id="coSend">⬆ إرسال المحدد لأورجا</button><button class="btn s" id="coStat">حالة الإرسال</button>` : ''}
       </div>
       <div class="tw"><table class="t"><thead><tr><th style="width:34px"><input type="checkbox" id="coAll"></th><th>الكود</th><th>الصنف</th><th class="n">الرصيد</th><th class="n">تكلفة أورجا</th><th class="n">متوسط ميزان</th><th class="n">الفرق</th><th class="n">%</th><th class="n">المستهلك</th><th>الحالة</th><th class="n">التكلفة الجديدة</th></tr></thead><tbody>
@@ -513,6 +519,12 @@
       window.vCostRev();
     });
     const xb = $('#coXls'); if (xb) xb.onclick = coXls;
+    const mk = $('#coMark'); if (mk) mk.onclick = () => {
+      if (!CO.sel.size) { toast('حدّد أصناف الأول', 'err'); return; }
+      let n = 0; for (const id of CO.sel) { if (CO.showDone) delete CO.done[id]; else CO.done[id] = Date.now(); n++; } CO.sel.clear(); coSaveDone();
+      toast(CO.showDone ? ('رجّعنا ' + n + ' صنف للشاذ') : ('اتعلّم ' + n + ' صنف كمراجَع — اختفوا من القايمة'), 'ok'); window.vCostRev();
+    };
+    const sd = $('#coShowDone'); if (sd) sd.onclick = () => { CO.showDone = !CO.showDone; window.vCostRev(); };
     const tb = $('#coTest'); if (tb) tb.onclick = () => coSend(3);
     const sb = $('#coSend'); if (sb) sb.onclick = () => coSend(0);
     const stb = $('#coStat'); if (stb) stb.onclick = coStatus;
@@ -520,13 +532,14 @@
 
   async function coSend(limit) {
     if (!CO.sel.size) { toast('حدّد أصناف الأول', 'err'); return; }
-    const items = []; let bad = 0;
+    const items = []; const sentIds = []; let bad = 0;
     for (const id of CO.sel) {
       const p = G('products', id); if (!p || !(+p.orga > 0)) { bad++; continue; }
       const raw = CO.edit[id]; const v = raw != null && raw !== '' ? numIn(raw) : (+avgCost(p.id) || 0);
       if (!(v > 0)) { bad++; continue; }
       const c = Math.round(v * 100) / 100;
       items.push({ prod: +p.orga, cost: c });   // الوكيل يكتب PRIC_COST+COST_AV ويعيد تقييم المخزون ويصفّر خصم مرجح
+      sentIds.push(id);
       if (limit && items.length >= limit) break;
     }
     if (!items.length) { toast('مفيش قيم صالحة (لازم كود أورجا وتكلفة أكبر من صفر)', 'err'); return; }
@@ -537,6 +550,7 @@
     try {
       const r = await MZ.post('/api/orga/products/edit', { items });
       toast(`اتضاف ${r.queued} صنف لطابور التعديل — هيتكتبوا خلال دقيقة`, 'ok');
+      if (!limit) { for (const id of sentIds) CO.done[id] = Date.now(); coSaveDone(); CO.sel.clear(); window.vCostRev(); } // اتبعتوا → يختفوا من الشاذ
       setTimeout(coStatus, 2000);
     } catch (e) { toast(e.message || 'مقدرتش أبعت', 'err'); }
   }
